@@ -43,6 +43,25 @@ A modern timesheet application built with Go, designed to help teams track their
 
 ### Installation
 
+#### Option 1: Nix Development Environment (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/timlinux/kartoza-timesheet-app.git
+cd kartoza-timesheet-app
+
+# Enter Nix development environment with Neovim, Go, Bubbletea, and Copilot
+nix develop
+
+# Initialize Go project and install Bubbletea
+nix run .#setup
+
+# Start coding with Neovim
+nvim .
+```
+
+#### Option 2: Traditional Setup
+
 ```bash
 # Clone the repository
 git clone https://github.com/timlinux/kartoza-timesheet-app.git
@@ -56,6 +75,19 @@ go run main.go
 ```
 
 ### Development Setup
+
+#### Nix Environment (Recommended)
+
+```bash
+# Automatic environment loading with direnv
+echo "use flake" > .envrc
+direnv allow
+
+# Manual environment activation
+nix develop
+```
+
+#### Traditional Environment
 
 1. **Clone and Setup:**
    ```bash
@@ -80,6 +112,7 @@ go run main.go
 - [Contributing Guidelines](./.github/CONTRIBUTING.md) - How to contribute to the project
 - [Code of Conduct](./.github/CODE_OF_CONDUCT.md) - Community standards and behavior
 - [Brand Guidelines](./.github/BRAND.md) - Visual identity and design standards
+- [Nix Development Environment](./README-NIX.md) - Complete Nix setup with Neovim and Bubbletea
 - [Requirements](./REQUIREMENTS.md) - Detailed project requirements and specifications
 
 ### Development & Operations

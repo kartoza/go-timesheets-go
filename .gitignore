@@ -83,8 +83,23 @@ yarn-error.log*
 # Keep PROMPT.log in repository as requested
 !PROMPT.log
 
+# Nix
+.direnv/
+result
+result-*
+
+# Local Go cache
+.go/
+.cache/
+
+# Neovim
+.nvim/
+
 # Keep important configuration files
 !.pre-commit-config.yaml
 !.github/
 !.markdownlint.yaml
 !.secrets.baseline
+!flake.nix
+!flake.lock
+!.envrc
