@@ -1,0 +1,57 @@
+# Markdownlint configuration
+# https://github.com/DavidAnson/markdownlint/blob/main/schema/.markdownlint.yaml
+
+# Default state for all rules
+default: true
+
+# Path-based overrides
+extends: null
+
+# Fix any fixable errors
+fix: false
+
+# Rules configuration
+MD003:
+  # Header style - enforce consistent header style
+  style: "atx"
+
+MD007:
+  # Unordered list indentation - 2 spaces
+  indent: 2
+
+MD013:
+  # Line length - disable for flexibility
+  line_length: 120
+  heading_line_length: 120
+  code_block_line_length: 120
+
+MD024:
+  # Multiple headers with same content - allow siblings
+  allow_different_nesting: true
+
+MD025:
+  # Multiple top level headers - allow multiple H1s
+  front_matter_title: "^\\s*title\\s*[:=]"
+
+MD026:
+  # Trailing punctuation in header - allow question marks
+  punctuation: ".,;:!"
+
+MD029:
+  # Ordered list item prefix - use ordered numbering
+  style: "ordered"
+
+MD033:
+  # Allow inline HTML for flexibility
+  allowed_elements: [
+    "br", "sub", "sup", "b", "i", "em", "strong",
+    "img", "a", "div", "span", "details", "summary"
+  ]
+
+MD034:
+  # Bare URLs - disable to allow flexibility
+  enabled: false
+
+MD041:
+  # First line in file should be top level header
+  front_matter_title: "^\\s*title\\s*[:=]"

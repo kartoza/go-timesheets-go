@@ -1,0 +1,90 @@
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.sum
+vendor/
+*.prof
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+dist/
+bin/
+build/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Operating system files
+Thumbs.db
+Desktop.ini
+.Spotlight-V100
+.Trashes
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+logs/
+tmp/
+temp/
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
+config.local.*
+*.pem
+*.key
+*.crt
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Coverage reports
+coverage.out
+coverage.html
+coverage.xml
+*.cover
+
+# Documentation build
+docs/_build/
+site/
+
+# Node.js (if using for frontend build tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# Docker
+.dockerignore
+
+# Cache directories
+.cache/
+.pytest_cache/
+
+# Keep PROMPT.log in repository as requested
+!PROMPT.log
+
+# Keep important configuration files
+!.pre-commit-config.yaml
+!.github/
+!.markdownlint.yaml
+!.secrets.baseline
