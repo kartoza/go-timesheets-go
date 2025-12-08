@@ -103,3 +103,16 @@ result-*
 !flake.nix
 !flake.lock
 !.envrc
+
+# Application binary
+kartoza-timesheet-app
+go-timesheets-go
+
+# User data directory
+.kartoza-timesheet/
+
+# TUI backup files
+internal/tui/*.backup
+
+# Claude local settings
+.claude/settings.local.json

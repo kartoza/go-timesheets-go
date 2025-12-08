@@ -190,3 +190,57 @@ Quality Assurance Infrastructure:
 - Professional project presentation with logo integration
 
 ================================================================================
+
+Date: 2025-12-08
+Session: Go TUI Timesheet Application Development
+
+Prompt:
+I want you to make me a go tui application that provides the basic timesheet history and capture functions provided by our kartoza timesheet web app, but replicating it as a go / bubbletea application. https://github.com/kartoza/timesheet-project
+
+Also you can use these components to make a rich, user friendly experience in the terminal:
+
+https://github.com/NimbleMarkets/ntcharts
+https://github.com/charmbracelet/huh
+https://github.com/NimbleMarkets/ntcharts
+https://github.com/charmbracelet/bubbles
+https://github.com/76creates/stickers
+https://github.com/daltonsw/bubbleup
+https://github.com/calyptia/go-bubble-table
+https://github.com/KevM/bubbleo
+
+For now the scope of work is to reverse engineer the kartoza timesheet-project react application and implement the functionality shown in the three screenshots I attach:
+
+timesheet-entry.png
+timesheet-listing.png
+timesheet-submission.png
+
+You do not need to follow the visual style of the original.
+
+The app should be able to be launched with various utility calls to so that I can have a waybar icon to start the app ready to start work on a task, show a running indicator when my timesheet is being recorded, show an idle indicator when my timesheet is not active. Later I am going to ask you to implement some smart logic such that when I enter and stay in a virtual desktop in my wayfire desktop for more than 5 seconds, it automatically starts logging time against a particular project and task which will be parsed from the workspace name.
+
+The layout of the bubbletea app should be responsive through the use of the 76creates/stickers responsive grid layout.
+
+Please log this prompt and every other instruction I give you in prompt.log
+
+Action Taken:
+- Logged prompt to PROMPT.log for comprehensive session tracking
+- Planning to examine Kartoza timesheet repository and analyze provided screenshots
+- Preparing to implement comprehensive Go TUI timesheet application with:
+  * Timesheet entry functionality
+  * Timesheet listing and history view
+  * Timesheet submission capabilities
+  * Responsive layout using stickers grid system
+  * Integration with various UI components for rich user experience
+  * CLI utility functions for waybar integration
+  * Future workspace automation integration
+
+Technology Stack:
+- Go with Bubbletea framework for TUI development
+- ntcharts for data visualization
+- huh for forms and user input
+- bubbles for UI components
+- stickers for responsive grid layout
+- Additional TUI libraries for enhanced functionality
+- CLI integration for desktop environment workflow
+
+================================================================================

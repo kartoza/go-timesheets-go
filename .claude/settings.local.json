@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(git init:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(go get:*)",
+      "WebFetch(domain:pkg.go.dev)",
+      "Bash(go build:*)",
+      "Bash(mv:*)",
+      "Bash(go run:*)",
+      "Bash(./kartoza-timesheet status)"
     ],
     "deny": [],
     "ask": []
