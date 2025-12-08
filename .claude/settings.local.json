@@ -9,7 +9,8 @@
       "Bash(go build:*)",
       "Bash(mv:*)",
       "Bash(go run:*)",
-      "Bash(./kartoza-timesheet status)"
+      "Bash(./kartoza-timesheet status)",
+      "Bash(gh repo create:*)"
     ],
     "deny": [],
     "ask": []
