@@ -1,201 +1,189 @@
-# Kartoza Timesheet App
+# Go Timesheets Go
 
-![Project Logo](/.github/assets/LOGO.png)
+<div align="center">
 
-> *"I am because we are"* - Ubuntu Philosophy
+![Go](https://img.shields.io/badge/go-%2300ADD8.svg?style=for-the-badge&logo=go&logoColor=white)
+![Terminal](https://img.shields.io/badge/Terminal-TUI-green?style=for-the-badge)
+![License](https://img.shields.io/github/license/kartoza/go-timesheets-go?style=for-the-badge)
 
-A modern timesheet application built with Go, designed to help teams track their work efficiently while embracing the Ubuntu philosophy of collaborative development.
+**A beautiful terminal-based timesheet application built with Go and Bubbletea**
 
-## Project Status
+*Following Ubuntu philosophy: "I am because we are" - collaborative, inclusive, community-driven*
 
-[![CI](https://github.com/timlinux/kartoza-timesheet-app/workflows/CI/badge.svg)](https://github.com/timlinux/kartoza-timesheet-app/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/timlinux/kartoza-timesheet-app/branch/main/graph/badge.svg)](https://codecov.io/gh/timlinux/kartoza-timesheet-app)
-[![Go Report Card](https://goreportcard.com/badge/github.com/timlinux/kartoza-timesheet-app)](https://goreportcard.com/report/github.com/timlinux/kartoza-timesheet-app)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/release/timlinux/kartoza-timesheet-app.svg)](https://github.com/timlinux/kartoza-timesheet-app/releases/latest)
+</div>
 
-### Quality Assurance
+## ✨ Features
 
-[![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=timlinux_kartoza-timesheet-app&metric=security_rating)](https://sonarcloud.io/dashboard?id=timlinux_kartoza-timesheet-app)
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlinux_kartoza-timesheet-app&metric=sqale_rating)](https://sonarcloud.io/dashboard?id=timlinux_kartoza-timesheet-app)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlinux_kartoza-timesheet-app&metric=reliability_rating)](https://sonarcloud.io/dashboard?id=timlinux_kartoza-timesheet-app)
+- 🚀 **Beautiful TUI** - Terminal user interface with responsive design
+- ⏱️ **Time Tracking** - Start and stop time tracking for projects and activities
+- 📊 **Project Management** - Create and manage projects with tasks
+- 🖥️ **CLI Commands** - Command-line interface for automation
+- 📱 **Waybar Integration** - Desktop status bar integration with JSON output
+- 💾 **Data Persistence** - Local JSON-based storage
+- 🎯 **Activity Types** - Categorize work with activities (Coding, Planning, etc.)
 
-## Features
-
-- [ ] User authentication and authorization
-- [ ] Project and task management
-- [ ] Time tracking with start/stop functionality
-- [ ] Reporting and analytics
-- [ ] Team collaboration features
-- [ ] Export capabilities (PDF, CSV, Excel)
-- [ ] REST API for integrations
-- [ ] Web-based dashboard
-- [ ] Mobile-responsive design
-
-## Quick Start
-
-### Prerequisites
-
-- Go 1.21 or later
-- Git
-- Pre-commit (for development)
+## 🚀 Quick Start
 
 ### Installation
 
-#### Option 1: Nix Development Environment (Recommended)
-
 ```bash
 # Clone the repository
-git clone https://github.com/timlinux/kartoza-timesheet-app.git
-cd kartoza-timesheet-app
+git clone https://github.com/kartoza/go-timesheets-go.git
+cd go-timesheets-go
 
-# Enter Nix development environment with Neovim, Go, Bubbletea, and Copilot
-nix develop
+# Build the application
+go build -o go-timesheets-go .
 
-# Initialize Go project and install Bubbletea
-nix run .#setup
+# Setup sample data (optional)
+go run scripts/setup-sample-data.go
 
-# Start coding with Neovim
-nvim .
+# Install to system (optional)
+sudo cp go-timesheets-go /usr/local/bin/
 ```
 
-#### Option 2: Traditional Setup
+### Usage
 
 ```bash
-# Clone the repository
-git clone https://github.com/timlinux/kartoza-timesheet-app.git
-cd kartoza-timesheet-app
+# Start time tracking
+go-timesheets-go start "Project Name" "Activity"
 
-# Set up development environment
-./scripts/setup-dev.sh
+# Start with task
+go-timesheets-go start "WB GEEST 2" "Coding" "Task 3: Improved Functionalities"
 
-# Run the application (when implemented)
-go run main.go
+# Stop tracking
+go-timesheets-go stop
+
+# Get status (for waybar/desktop integration)
+go-timesheets-go status
+
+# Launch interactive TUI
+go-timesheets-go
 ```
 
-### Development Setup
+## 🖥️ Desktop Integration
 
-#### Nix Environment (Recommended)
+### Waybar Configuration
+
+Add to your waybar config:
+
+```json
+{
+    "custom/timesheet": {
+        "exec": "go-timesheets-go status",
+        "return-type": "json", 
+        "interval": 5,
+        "on-click": "go-timesheets-go"
+    }
+}
+```
+
+### Status Output
+
+```json
+{
+    "text": "🔴 01:23:45",
+    "alt": "recording", 
+    "tooltip": "Recording: WB GEEST 2\nActivity: Coding\nSession: 01:23:45\nToday: 6.5h",
+    "class": "recording"
+}
+```
+
+## 📱 Screenshots
+
+<div align="center">
+
+### Time Entry Interface
+![Timesheet Entry](timesheet-entry.png)
+
+### Daily Listing View  
+![Timesheet Listing](timesheet-listing.png)
+
+### Submission Workflow
+![Timesheet Submission](timesheet-submission.png)
+
+</div>
+
+## 🏗️ Project Structure
+
+```
+go-timesheets-go/
+├── cmd/                    # CLI command definitions
+├── internal/
+│   ├── models/            # Data models and structures
+│   ├── service/           # Business logic layer
+│   ├── storage/           # Data persistence layer
+│   └── tui/               # Terminal user interface
+├── scripts/               # Utility scripts
+└── main.go               # Application entry point
+```
+
+## 🔧 Development
+
+### Requirements
+
+- Go 1.21+
+- Terminal with color support
+
+### Building
 
 ```bash
-# Automatic environment loading with direnv
-echo "use flake" > .envrc
-direnv allow
+# Install dependencies
+go mod download
 
-# Manual environment activation
-nix develop
+# Run development version
+go run . --help
+
+# Build for production
+go build -o go-timesheets-go .
+
+# Run tests (when implemented)
+go test ./...
 ```
 
-#### Traditional Environment
+## 📚 Documentation
 
-1. **Clone and Setup:**
-   ```bash
-   git clone https://github.com/timlinux/kartoza-timesheet-app.git
-   cd kartoza-timesheet-app
-   ./scripts/setup-dev.sh
-   ```
+- [Complete Feature Documentation](README-APP.md)
+- [Installation Guide](README-APP.md#installation)
+- [CLI Reference](README-APP.md#cli-commands)
+- [Desktop Integration](README-APP.md#waybar-integration)
 
-2. **Install Pre-commit Hooks:**
-   ```bash
-   pre-commit install
-   ```
+## 🤝 Contributing
 
-3. **Run Quality Checks:**
-   ```bash
-   pre-commit run --all-files
-   ```
-
-## Documentation
-
-### Core Documentation
-- [Contributing Guidelines](./.github/CONTRIBUTING.md) - How to contribute to the project
-- [Code of Conduct](./.github/CODE_OF_CONDUCT.md) - Community standards and behavior
-- [Brand Guidelines](./.github/BRAND.md) - Visual identity and design standards
-- [Nix Development Environment](./README-NIX.md) - Complete Nix setup with Neovim and Bubbletea
-- [Requirements](./REQUIREMENTS.md) - Detailed project requirements and specifications
-
-### Development & Operations
-- [Security Policy](./.github/SECURITY.md) - Security reporting and policies
-- [Support](./.github/SUPPORT.md) - Getting help and support resources
-- [Changelog](./.github/CHANGELOG.md) - Version history and changes
-- [Roadmap](./.github/ROADMAP.md) - Future plans and development priorities
-
-### Templates & Processes
-- [Bug Report Template](./.github/ISSUE_TEMPLATE/bug_report.md)
-- [Feature Request Template](./.github/ISSUE_TEMPLATE/feature_request.md)
-- [Pull Request Template](./.github/PULL_REQUEST_TEMPLATE.md)
-
-## Quality Assurance
-
-This project maintains high quality standards through:
-
-### Automated Quality Checks
-- **Pre-commit hooks** for local development quality
-- **GitHub Actions CI/CD** for automated testing and validation
-- **Code formatting and linting** for all supported file types:
-  - Go: `gofmt`, `goimports`, `golangci-lint`, `go vet`
-  - Markdown: `markdownlint` with custom configuration
-  - Shell scripts: `shellcheck` and `beautysh`
-  - Nix files: `nixfmt` formatting
-  - Python: `black`, `isort`, `flake8`, `mypy`
-  - HTML/CSS: `djLint` and `prettier`
-
-### Security & Compliance
-- **Secret detection** with `detect-secrets`
-- **Vulnerability scanning** with Trivy
-- **Dependency checking** for known security issues
-- **SARIF integration** for security findings
-
-### Testing Strategy
-- Unit tests with race detection
-- Integration tests for API endpoints
-- End-to-end testing for critical workflows
-- Performance testing for scalability
-- Security testing for vulnerability assessment
-
-## Technology Stack
-
-- **Backend:** Go 1.21+
-- **Database:** TBD (PostgreSQL/SQLite planned)
-- **Frontend:** TBD (Web-based dashboard)
-- **Infrastructure:** Docker, GitHub Actions
-- **Quality Tools:** Pre-commit, golangci-lint, Trivy
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](./.github/CONTRIBUTING.md) for details on:
-
-- Development setup and workflow
-- Code style and quality standards
-- Testing requirements
-- Pull request process
-- Community guidelines
-
-### Quick Contribution Steps
+This project follows the Ubuntu philosophy of collaboration. Contributions welcome!
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Make your changes and commit with quality checks
-4. Push to your fork and submit a pull request
+2. Create a feature branch
+3. Make your changes
+4. Add tests (when test framework exists)
+5. Submit a pull request
 
-## Community
+## 📄 License
 
-- **Ubuntu Philosophy:** We embrace "Ubuntu" - the belief that "I am because we are"
-- **Inclusive:** All contributors are welcome regardless of experience level
-- **Collaborative:** We work together to build something amazing
-- **Quality-focused:** We maintain high standards while being supportive
+MIT License - see [LICENSE](LICENSE) for details.
 
-## License
+## 🙏 Acknowledgments
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- Built with [Charm](https://charm.sh/) TUI libraries
+- Inspired by Ubuntu philosophy: "I am because we are"
+- Created for the Kartoza team and open-source community
 
-## Support
+## 🔮 Roadmap
 
-- **Issues:** [GitHub Issues](https://github.com/timlinux/kartoza-timesheet-app/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/timlinux/kartoza-timesheet-app/discussions)
-- **Email:** [tim@kartoza.com](mailto:tim@kartoza.com)
+- [x] Basic time tracking functionality
+- [x] CLI commands for automation
+- [x] Waybar integration
+- [x] Simple TUI interface
+- [ ] Advanced TUI with charts and tables
+- [ ] Workspace automation
+- [ ] ERP integration
+- [ ] Mobile companion app
 
 ---
 
-*Built with ❤️ by the Kartoza team and community contributors*
+<div align="center">
+
+**Ubuntu: "I am because we are"**
+
+*This application embodies the spirit of collaboration, inclusivity, and community that defines Ubuntu philosophy.*
+
+</div>
