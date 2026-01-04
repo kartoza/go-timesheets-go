@@ -169,37 +169,36 @@ func (m LoginModel) View() string {
 	}
 
 	var content []string
-
 	// Title
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 0).
 		Align(lipgloss.Center)
 
-	title := titleStyle.Render("🕐 Kartoza Timesheet")
+	title := titleStyle.Render("🕐 Kartoza Timesheets")
 	content = append(content, title)
 
 	// Subtitle
 	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#8A8B8B")).
 		Align(lipgloss.Center)
 
-	subtitle := subtitleStyle.Render("Ubuntu: \"I am because we are\"")
+	subtitle := subtitleStyle.Render("Tempus fugit")
 	content = append(content, subtitle)
 	content = append(content, "")
 
 	// Login form box
 	formStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 2).
 		Margin(1, 0)
 
 	welcomeText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Bold(true).
-		Render("Welcome! Please sign in to continue")
+		Render("Please sign in to continue")
 
 	var formContent []string
 	formContent = append(formContent, welcomeText)
@@ -213,7 +212,7 @@ func (m LoginModel) View() string {
 	// Error message
 	if m.errorMsg != "" {
 		errorStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF6B6B")).
+			Foreground(lipgloss.Color("#CC0403")).
 			Bold(true)
 		formContent = append(formContent, "")
 		formContent = append(formContent, errorStyle.Render("Error: "+m.errorMsg))
@@ -233,7 +232,7 @@ func (m LoginModel) View() string {
 
 	// Instructions
 	instructionStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#8A8B8B")).
 		Align(lipgloss.Center)
 
 	if !m.loggingIn {

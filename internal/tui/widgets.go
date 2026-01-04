@@ -34,14 +34,14 @@ type ComboBoxItemDelegate struct {
 func NewComboBoxItemDelegate() ComboBoxItemDelegate {
 	return ComboBoxItemDelegate{
 		selectedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E95420")).
+			Foreground(lipgloss.Color("#DF9E2F")).
 			Bold(true).
 			PaddingLeft(2),
 		unselectedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
+			Foreground(lipgloss.Color("#569FC6")).
 			PaddingLeft(2),
 		dimStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666")).
+			Foreground(lipgloss.Color("#8A8B8B")).
 			PaddingLeft(4),
 	}
 }
@@ -173,12 +173,12 @@ func (cb *ComboBox) View() string {
 	// Text input
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("##DF9E2F")).
 		Padding(0, 1).
 		Width(cb.width - 2)
 	
 	if cb.textInput.Focused() {
-		inputStyle = inputStyle.BorderForeground(lipgloss.Color("#FF8C42"))
+		inputStyle = inputStyle.BorderForeground(lipgloss.Color("#DF9E2F"))
 	}
 	
 	b.WriteString(inputStyle.Render(cb.textInput.View()))
@@ -188,7 +188,7 @@ func (cb *ComboBox) View() string {
 		b.WriteString("\n")
 		listStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#E95420")).
+			BorderForeground(lipgloss.Color("#DF9E2F")).
 			Width(cb.width - 2).
 			Height(cb.height - 3)
 		

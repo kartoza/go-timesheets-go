@@ -333,7 +333,7 @@ func (a *SimpleApp) View() string {
 
 func (a *SimpleApp) renderNav() string {
 	activeStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#E95420")).
+		Background(lipgloss.Color("#DF9E2F")).
 		Foreground(lipgloss.Color("15")).
 		Padding(0, 1).
 		Bold(true)
@@ -360,34 +360,34 @@ func (a *SimpleApp) renderNav() string {
 	// Tab 2: Project Details (enabled only if project selected)
 	if a.selectedProject != nil {
 		if a.currentTab == TabProjectDetails {
-			tab2 = activeStyle.Render("2. Project Details")
+			tab2 = activeStyle.Render("2. Task")
 		} else {
-			tab2 = inactiveStyle.Render("2. Project Details")
+			tab2 = inactiveStyle.Render("2. Task")
 		}
 	} else {
-		tab2 = disabledStyle.Render("2. Project Details")
+		tab2 = disabledStyle.Render("2. Task")
 	}
 
 	// Tab 3: Activities (enabled only if task selected)
 	if a.selectedTask != nil {
 		if a.currentTab == TabActivities {
-			tab3 = activeStyle.Render("3. Activities")
+			tab3 = activeStyle.Render("3. Activity")
 		} else {
-			tab3 = inactiveStyle.Render("3. Activities")
+			tab3 = inactiveStyle.Render("3. Activity")
 		}
 	} else {
-		tab3 = disabledStyle.Render("3. Activities")
+		tab3 = disabledStyle.Render("3. Activity")
 	}
 
 	// Tab 4: History (enabled only if activity selected)
 	if a.selectedActivity != nil {
 		if a.currentTab == TabHistory {
-			tab4 = activeStyle.Render("4. History")
+			tab4 = activeStyle.Render("4. Current")
 		} else {
-			tab4 = inactiveStyle.Render("4. History")
+			tab4 = inactiveStyle.Render("4. Current")
 		}
 	} else {
-		tab4 = disabledStyle.Render("4. History")
+		tab4 = disabledStyle.Render("4. Current")
 	}
 
 	status := "● Idle"
@@ -409,23 +409,23 @@ func (a *SimpleApp) renderNav() string {
 func (a *SimpleApp) renderProjectsView() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 0)
 
-	title := titleStyle.Render("📁 Search Projects")
+	title := titleStyle.Render("📁 Projects")
 
 	// Search box
 	searchBoxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DF9E2F")).
 		Padding(0, 1).
 		Margin(1, 0)
 
 	var searchBoxBorder lipgloss.Color
 	if a.searchMode {
-		searchBoxBorder = lipgloss.Color("#FF8C42") // Bright orange when focused
+		searchBoxBorder = lipgloss.Color("#DF9E2F") // Bright orange when focused
 	} else {
-		searchBoxBorder = lipgloss.Color("#666666") // Gray when not focused
+		searchBoxBorder = lipgloss.Color("#8A8B8B") // Gray when not focused
 	}
 	searchBoxStyle = searchBoxStyle.BorderForeground(searchBoxBorder)
 
@@ -474,7 +474,7 @@ func (a *SimpleApp) renderProjectsView() string {
 		var items []string
 
 		selectedStyle := lipgloss.NewStyle().
-			Background(lipgloss.Color("#E95420")).
+			Background(lipgloss.Color("#DF9E2F")).
 			Foreground(lipgloss.Color("15")).
 			Padding(0, 1).
 			Bold(true)
@@ -496,7 +496,7 @@ func (a *SimpleApp) renderProjectsView() string {
 
 		listBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#E95420")).
+			BorderForeground(lipgloss.Color("#DF9E2F")).
 			Padding(1, 2).
 			Margin(1, 0)
 
@@ -536,7 +536,7 @@ func (a *SimpleApp) renderProjectDetailsView() string {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 0)
 
 	title := titleStyle.Render(fmt.Sprintf("📋 %s", a.selectedProject.Label))
@@ -577,7 +577,7 @@ func (a *SimpleApp) renderProjectDetailsView() string {
 	var items []string
 
 	selectedStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#E95420")).
+		Background(lipgloss.Color("#DF9E2F")).
 		Foreground(lipgloss.Color("15")).
 		Padding(0, 1).
 		Bold(true)
@@ -605,7 +605,7 @@ func (a *SimpleApp) renderProjectDetailsView() string {
 
 	listBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 2).
 		Margin(1, 0)
 
@@ -637,7 +637,7 @@ func (a *SimpleApp) renderActivitiesView() string {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 0)
 
 	title := titleStyle.Render(fmt.Sprintf("⚡ Activities for: %s", a.selectedTask.Label))
@@ -673,7 +673,7 @@ func (a *SimpleApp) renderActivitiesView() string {
 	var items []string
 
 	selectedStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#E95420")).
+		Background(lipgloss.Color("#DF9E2F")).
 		Foreground(lipgloss.Color("15")).
 		Padding(0, 1).
 		Bold(true)
@@ -715,7 +715,7 @@ func (a *SimpleApp) renderActivitiesView() string {
 
 	listBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 2).
 		Margin(1, 0)
 
@@ -747,7 +747,7 @@ func (a *SimpleApp) renderHistoryView() string {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 0)
 
 	title := titleStyle.Render(fmt.Sprintf("📊 History: %s - %s", a.selectedTask.Label, a.selectedActivity.Label))
@@ -779,7 +779,7 @@ func (a *SimpleApp) renderHistoryView() string {
 
 	listBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DF9E2F")).
 		Padding(1, 2).
 		Margin(1, 0).
 		MaxHeight(a.height - 10)
