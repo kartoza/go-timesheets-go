@@ -325,3 +325,57 @@ Testing Results:
 The application is fully functional and ready for deployment in both dynamically and statically linked configurations.
 
 ================================================================================
+
+Date: 2025-12-08
+Session: Build System and API Endpoint Discovery
+
+Prompt:
+Can you the static build be a make target
+
+Action Taken:
+- Created comprehensive Makefile with build targets for both dynamic and static binaries
+- Added make targets for: build, static, build-all, clean, test, deps, fmt, lint, check, install, uninstall, sample-data, dev, help, info
+- Verified static build target works correctly with proper LDFLAGS
+- Integrated version information from git tags/commits
+
+User Follow-up:
+can you see from the original reactjs application the api endpoints to get the list of projects, timesheet entries etc
+
+API Discovery Results:
+Comprehensive analysis of the Kartoza timesheet project repository revealed the complete API structure:
+
+**Core API Endpoints:**
+- Projects: `/project-list/` (GET), `/api/pull-projects/` (POST)
+- Timesheet CRUD: `/api/timesheet/` (POST/PATCH), `/api/timelog/` (GET), `/api/delete-time-log/` (POST)
+- Activities: `/activity-list/` (GET), `/task-list/{projectId}/` (GET)
+- Users: `/user-autocomplete/` (GET), `/api/user-activities/` (GET)
+- Submission: `/api/submit-timesheet/` (POST), `/api/clear-submitted-timesheets/` (POST)
+
+**Authentication:**
+- Django Allauth: `/accounts/` (login, logout, registration)
+- REST Framework: `/api-auth/` (session-based auth)
+- CSRF protection required for POST/PUT/DELETE requests
+
+**Additional Features:**
+- ERP integration endpoints for ERPNext synchronization
+- Reporting: burndown charts, employee summaries
+- Schedule management endpoints
+- Real-time user activity polling (10-second intervals)
+
+This API structure provides the foundation for potential future integration between our Go TUI application and the existing Django backend, enabling data synchronization and multi-user functionality.
+
+Build System Status:
+✅ Makefile created with comprehensive targets
+✅ Static build target functional: `make static`
+✅ Version information from git integrated
+✅ Quality assurance targets (fmt, lint, test, check)
+✅ Installation and cleanup targets
+✅ Development workflow targets
+
+API Analysis Complete:
+✅ Complete endpoint mapping documented
+✅ Authentication requirements identified
+✅ Data formats and structures understood
+✅ Integration possibilities assessed
+
+================================================================================

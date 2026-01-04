@@ -10,7 +10,11 @@
       "Bash(mv:*)",
       "Bash(go run:*)",
       "Bash(./kartoza-timesheet status)",
-      "Bash(gh repo create:*)"
+      "Bash(gh repo create:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch",
+      "Bash(./timesheet-test status)"
     ],
     "deny": [],
     "ask": []

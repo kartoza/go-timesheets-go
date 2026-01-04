@@ -32,8 +32,8 @@ Features:
 - Integration with waybar for desktop notifications
 - Workspace automation support`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Launch TUI application
-		app, err := tui.NewSimpleApp()
+		// Launch TUI application with authentication
+		app, err := tui.NewAppWithAuth()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
 			os.Exit(1)
