@@ -206,7 +206,7 @@ const ExampleConfigJSON = `{
     "refresh_rate_seconds": 30,
     "default_view": "menu"
   },
-  "storage_path": "/home/user/.kartoza-timesheet",
+  "storage_path": "/home/user/.config/kartoza-timesheets",
   "log_level": "info"
 }`
 

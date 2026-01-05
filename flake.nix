@@ -11,12 +11,9 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          config = {
-            allowUnfree = true;
-          };
+          config = { allowUnfree = true; };
         };
-        
-        
+
         # Development tools
         devTools = with pkgs; [
           # Go ecosystem
@@ -29,7 +26,7 @@
           gotests
           impl
           reftools
-          
+
           # General development
           git
           gh
@@ -37,7 +34,7 @@
           nodejs_20
           python311
           python311Packages.pip
-          
+
           # Terminal and shell utilities
           zsh
           fish
@@ -50,42 +47,41 @@
           tree
           jq
           yq
-          
+
           # Build tools
           gnumake
           gcc
           pkg-config
-          
+
           # Documentation
           mdbook
           pandoc
-          
+
           # Container tools
           docker
           docker-compose
-          
+
           # Nix tools
           nil # Nix LSP
           nixpkgs-fmt
           nixfmt-classic
-          
+
           # Security tools
           trivy
-          
+
           # System monitoring
           htop
           btop
-          
+
           # Text processing
           gawk
           gnused
         ];
-        
-      in
-      {
+
+      in {
         devShells.default = pkgs.mkShell {
           buildInputs = devTools;
-          
+
           shellHook = ''
             echo "🚀 Kartoza Timesheet App Development Environment"
             echo "=============================================="
@@ -101,26 +97,25 @@
             echo "  go get github.com/charmbracelet/bubbletea  # Add Bubbletea"
             echo "  pre-commit install  # Set up quality hooks"
             echo ""
-            echo "🌟 Ubuntu Philosophy: 'I am because we are'"
             echo ""
-            
+
             # Set up environment
             export EDITOR=nvim
             export VISUAL=nvim
             export GOPATH="$HOME/go"
             export PATH="$PATH:$GOPATH/bin"
-            
+
             # Go environment
             export GO111MODULE=on
             export GOPROXY=https://proxy.golang.org,direct
             export GOSUMDB=sum.golang.org
-            
-            
+
+
             # Initialize Go module if it doesn't exist
             if [ ! -f "go.mod" ]; then
               echo "💡 Run 'go mod init github.com/timlinux/kartoza-timesheet-app' to initialize Go module"
             fi
-            
+
             # Set up aliases for development
             alias ll='eza -la'
             alias la='eza -la'
@@ -130,7 +125,7 @@
             alias grep='rg'
             alias vim='nvim'
             alias vi='nvim'
-            
+
             # Go aliases
             alias gor='go run .'
             alias got='go test ./...'
@@ -138,7 +133,7 @@
             alias gom='go mod tidy'
             alias gof='gofmt -s -w .'
             alias goi='goimports -w .'
-            
+
             # Git aliases
             alias gs='git status'
             alias ga='git add'
@@ -146,7 +141,7 @@
             alias gp='git push'
             alias gl='git pull'
             alias gd='git diff'
-            
+
             # Check if Bubbletea is in go.mod
             if [ -f "go.mod" ] && grep -q "bubbletea" go.mod; then
               echo "🫧 Bubbletea is ready for TUI development!"
@@ -154,16 +149,16 @@
               echo "💡 Add Bubbletea: go get github.com/charmbracelet/bubbletea"
             fi
           '';
-          
+
           # Environment variables
           GO111MODULE = "on";
           GOPROXY = "https://proxy.golang.org,direct";
           GOSUMDB = "sum.golang.org";
         };
-        
+
         # Formatter for the flake
         formatter = pkgs.nixpkgs-fmt;
-        
+
         # Apps for easy execution
         apps = {
           setup = flake-utils.lib.mkApp {
@@ -173,17 +168,17 @@
                 go mod init github.com/timlinux/kartoza-timesheet-app
                 echo "✅ Go module initialized"
               fi
-              
+
               # Add Bubbletea and common dependencies
               go get github.com/charmbracelet/bubbletea@latest
               go get github.com/charmbracelet/lipgloss@latest
               go get github.com/charmbracelet/bubbles@latest
-              
+
               echo "✅ Bubbletea ecosystem installed"
               echo "🚀 Ready to build amazing TUIs!"
             '';
           };
         };
-      }
-    );
+      });
 }
+

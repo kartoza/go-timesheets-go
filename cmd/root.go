@@ -21,8 +21,7 @@ var rootCmd = &cobra.Command{
 	Use:   "kartoza-timesheet",
 	Short: "A beautiful TUI timesheet application for Kartoza",
 	Long: `Kartoza Timesheet App - A terminal-based timesheet application
-built with Go and Bubbletea, designed following Ubuntu philosophy:
-"I am because we are" - collaborative, inclusive, community-driven.
+built with Go and Bubbletea
 
 Features:
 - Time tracking with projects, tasks, and activities
@@ -59,7 +58,7 @@ func init() {
 
 	// Global flags
 	homeDir, _ := os.UserHomeDir()
-	defaultDataDir := filepath.Join(homeDir, ".kartoza-timesheet")
+	defaultDataDir := filepath.Join(homeDir, ".config/.kartoza-timesheets")
 	
 	rootCmd.PersistentFlags().StringVar(&dataDir, "data-dir", defaultDataDir, "Data directory for storing timesheet data")
 	rootCmd.PersistentFlags().StringVar(&userID, "user", "default-user", "User ID for timesheet entries")

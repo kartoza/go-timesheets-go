@@ -116,5 +116,4 @@ internal/tui/*.backup
 
 # Claude local settings
 .claude/settings.local.json
-go-timesheets-go-static
-go-timesheets-go
+kartoza-timesheets

@@ -1,8 +1,7 @@
 # Go Timesheets Go - Makefile
-# Ubuntu: "I am because we are"
 
 # Variables
-BINARY_NAME=go-timesheets-go
+BINARY_NAME=kartoza-timesheets
 BINARY_STATIC=$(BINARY_NAME)-static
 BUILD_DIR=build
 VERSION ?= $(shell git describe --tags --always --dirty)

@@ -410,7 +410,7 @@ func (m *EnhancedModel) View() string {
 // Menu view
 func (m *EnhancedModel) menuView() string {
 	title := titleStyle.Render("🕐 Kartoza Timesheet")
-	subtitle := subtitleStyle.Render("Ubuntu: \"I am because we are\"")
+	subtitle := subtitleStyle.Render("Tempus Fugit - Time Flies")
 
 	var status string
 	if m.currentEntry != nil {

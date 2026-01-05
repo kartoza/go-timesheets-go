@@ -1,6 +1,5 @@
 # Kartoza Timesheet App
 
-A beautiful terminal-based timesheet application built with Go and Bubbletea, designed following Ubuntu philosophy: **"I am because we are"** - collaborative, inclusive, community-driven.
 
 ## Features
 
@@ -12,7 +11,6 @@ A beautiful terminal-based timesheet application built with Go and Bubbletea, de
 - **CLI Commands**: Command-line interface for automation
 - **Waybar Integration**: Status output for desktop integration
 - **Beautiful TUI**: Terminal user interface with responsive design
-- **Ubuntu Philosophy**: Inclusive and community-driven approach
 
 ### 🚧 Core Functionality
 
@@ -247,9 +245,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 - Built with [Charm](https://charm.sh/) TUI libraries
-- Inspired by Ubuntu philosophy: "I am because we are"
-- Designed for the Kartoza team and open-source community
+- Designed for the Kartoza team 
 
 ---
 
-*Ubuntu: "I am because we are" - This application embodies the spirit of collaboration, inclusivity, and community that defines Ubuntu philosophy.*

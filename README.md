@@ -8,7 +8,6 @@
 
 **A beautiful terminal-based timesheet application built with Go and Bubbletea**
 
-*Following Ubuntu philosophy: "I am because we are" - collaborative, inclusive, community-driven*
 
 </div>
 
@@ -149,8 +148,6 @@ go test ./...
 
 ## 🤝 Contributing
 
-This project follows the Ubuntu philosophy of collaboration. Contributions welcome!
-
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
@@ -164,8 +161,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## 🙏 Acknowledgments
 
 - Built with [Charm](https://charm.sh/) TUI libraries
-- Inspired by Ubuntu philosophy: "I am because we are"
-- Created for the Kartoza team and open-source community
+- Created for the Kartoza team 
 
 ## 🔮 Roadmap
 
@@ -180,10 +176,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-<div align="center">
-
-**Ubuntu: "I am because we are"**
-
-*This application embodies the spirit of collaboration, inclusivity, and community that defines Ubuntu philosophy.*
-
-</div>

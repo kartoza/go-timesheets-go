@@ -446,6 +446,8 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.successMessage = "✓ Timesheet submitted and timer is running"
 		} else {
 			a.successMessage = "✓ Timesheet submitted and closed"
+			// Clear active entry when timer is stopped
+			a.activeEntry = nil
 		}
 
 	case runningTimerDetectedMsg:
@@ -494,6 +496,7 @@ func (a *SimpleApp) View() string {
 		content = a.renderCurrentView()
 	}
 
+	userHeader := a.renderUserHeader()
 	nav := a.renderNav()
 
 	if a.err != nil {
@@ -511,7 +514,7 @@ func (a *SimpleApp) View() string {
 		content = lipgloss.JoinVertical(lipgloss.Top, content, successMsg)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Top, nav, content)
+	return lipgloss.JoinVertical(lipgloss.Top, userHeader, nav, content)
 }
 
 func (a *SimpleApp) renderNav() string {
@@ -586,27 +589,75 @@ func (a *SimpleApp) renderNav() string {
 
 	// Display running status from history or active entry
 	if runningEntry != nil {
-		elapsed := time.Since(runningEntry.StartTime)
-		hours := int(elapsed.Hours())
-		minutes := int(elapsed.Minutes()) % 60
-		seconds := int(elapsed.Seconds()) % 60
-		status = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#51CF66")).
-			Bold(true).
-			Render(fmt.Sprintf("● Recording %02d:%02d:%02d", hours, minutes, seconds))
+		// Skip entries with zero/invalid start times
+		if !runningEntry.StartTime.IsZero() {
+			elapsed := time.Since(runningEntry.StartTime)
+			hours := int(elapsed.Hours())
+			minutes := int(elapsed.Minutes()) % 60
+			seconds := int(elapsed.Seconds()) % 60
+			status = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#E95420")).  // Red/orange color for recording
+				Bold(true).
+				Render(fmt.Sprintf("● Recording %02d:%02d:%02d", hours, minutes, seconds))
+		}
 	} else if a.activeEntry != nil {
 		elapsed := time.Since(a.activeEntry.StartTime)
 		hours := int(elapsed.Hours())
 		minutes := int(elapsed.Minutes()) % 60
 		seconds := int(elapsed.Seconds()) % 60
 		status = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#51CF66")).
+			Foreground(lipgloss.Color("#E95420")).  // Red/orange color for recording
 			Bold(true).
 			Render(fmt.Sprintf("● Recording %02d:%02d:%02d", hours, minutes, seconds))
 	}
 
 	nav := lipgloss.JoinHorizontal(lipgloss.Top, tab1, " ", tab2, " ", tab3, " ", tab4)
 	return lipgloss.JoinHorizontal(lipgloss.Top, nav, "    ", status)
+}
+
+func (a *SimpleApp) renderUserHeader() string {
+	// Get username from API client (default if not available)
+	username := "User"
+	userID := "N/A"
+	if a.apiClient != nil {
+		// Note: apiClient.username is private, so we'll use a default for now
+		// In production, you'd add a getter method to the Client struct
+		username = "Kartoza Admin"  // Placeholder - would come from API
+		userID = "1"                 // Placeholder - would come from API
+	}
+
+	// Calculate monthly total hours from all history
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	monthEnd := monthStart.AddDate(0, 1, 0).Add(-time.Second)
+
+	var monthlyHours float64
+	for _, entry := range a.history {
+		// Skip entries with zero/invalid times
+		if !entry.StartTime.IsZero() && entry.StartTime.After(monthStart) && entry.StartTime.Before(monthEnd) {
+			if !entry.EndTime.IsZero() {
+				// Completed entry
+				monthlyHours += entry.Duration
+			} else {
+				// Running entry - calculate current duration
+				monthlyHours += time.Since(entry.StartTime).Hours()
+			}
+		}
+	}
+
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#DF9E2F")).
+		Bold(true).
+		Padding(0, 2).
+		Width(a.width)
+
+	headerText := fmt.Sprintf("👤 %s (ID: %s) | 📅 %s | ⏱️  Month Total: %.1fh",
+		username,
+		userID,
+		now.Format("January 2006"),
+		monthlyHours)
+
+	return headerStyle.Render(headerText)
 }
 
 func (a *SimpleApp) renderProjectsView() string {
@@ -1141,24 +1192,40 @@ func (a *SimpleApp) renderEntriesTable() string {
 	var rows []string
 	for i := visibleStart; i < visibleEnd; i++ {
 		entry := a.history[i]
-		dateStr := entry.StartTime.Format("2006-01-02")
-		startStr := entry.StartTime.Format("15:04")
+
+		// Handle invalid/zero timestamps
+		var dateStr, startStr string
+		if !entry.StartTime.IsZero() {
+			dateStr = entry.StartTime.Format("2006-01-02")
+			startStr = entry.StartTime.Format("15:04")
+		} else {
+			dateStr = "----/--/--"
+			startStr = "--:--"
+		}
 
 		// Check if entry is running (no end time)
-		isRunning := entry.EndTime.IsZero()
+		isRunning := entry.EndTime.IsZero() && !entry.StartTime.IsZero()
 
 		var endStr string
 		var elapsedStr string
 
 		if isRunning {
 			endStr = "--:--"
-			// Calculate elapsed time from start to now
-			elapsed := time.Since(entry.StartTime)
-			hours := int(elapsed.Hours())
-			minutes := int(elapsed.Minutes()) % 60
-			elapsedStr = fmt.Sprintf("%dh %dm", hours, minutes)
+			// Calculate elapsed time from start to now (only if valid start time)
+			if !entry.StartTime.IsZero() {
+				elapsed := time.Since(entry.StartTime)
+				hours := int(elapsed.Hours())
+				minutes := int(elapsed.Minutes()) % 60
+				elapsedStr = fmt.Sprintf("%dh %dm", hours, minutes)
+			} else {
+				elapsedStr = "--h --m"
+			}
 		} else {
-			endStr = entry.EndTime.Format("15:04")
+			if !entry.EndTime.IsZero() {
+				endStr = entry.EndTime.Format("15:04")
+			} else {
+				endStr = "--:--"
+			}
 			hours := int(entry.Duration)
 			minutes := int((entry.Duration - float64(hours)) * 60)
 			elapsedStr = fmt.Sprintf("%dh %dm", hours, minutes)
@@ -1171,23 +1238,29 @@ func (a *SimpleApp) renderEntriesTable() string {
 
 		var editAction string
 		runningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#51CF66")).
+			Foreground(lipgloss.Color("#E95420")).  // Red/orange for running
 			Bold(true)
+
+		stoppedStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888")).  // Gray for stopped
+			Italic(true)
 
 		if isRunning {
 			editAction = runningStyle.Render("● Running")
 		} else if entry.IsSubmitted {
-			editAction = "✓ Done"
+			editAction = "✓ Submitted"
+		} else if !entry.EndTime.IsZero() {
+			editAction = stoppedStyle.Render("⏹ Stopped")
 		} else {
 			editAction = "[Edit]"
 		}
 
 		var row string
 		if i == a.historyCursor && !a.formMode {
-			// For selected row, don't style the action column if it's running (to preserve green color)
+			// For selected row, preserve status color (don't override with selection background)
 			actionCell := selectedStyle.Width(10).Render(editAction)
-			if isRunning {
-				// Keep the green color by not re-styling the already-styled running indicator
+			if isRunning || (!entry.EndTime.IsZero() && !entry.IsSubmitted) {
+				// Keep the status color by not re-styling the already-styled indicator
 				actionCell = lipgloss.NewStyle().Width(10).Render(editAction)
 			}
 			row = lipgloss.JoinHorizontal(lipgloss.Top,
@@ -1693,12 +1766,14 @@ func (a *SimpleApp) submitTimeEntry() tea.Cmd {
 			return errorMsg(err)
 		}
 
-		// Filter by selected task and activity
+		// Filter by selected task and activity, but always include running entries
 		var filtered []api.TimelogEntry
 		activityName := a.selectedActivity.Label
 
 		for _, entry := range timelogs {
-			if entry.TaskName == a.selectedTask.Label && entry.Activity == activityName {
+			// Include if it matches the filter OR if it's a running entry
+			if (entry.TaskName == a.selectedTask.Label && entry.Activity == activityName) ||
+				entry.EndTime.IsZero() {
 				filtered = append(filtered, entry)
 			}
 		}

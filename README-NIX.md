@@ -228,4 +228,3 @@ go test ./...
 
 **Happy coding with the power of Nix, Neovim, and Bubbletea!** 🚀🫧
 
-*Remember: "I am because we are" - Ubuntu Philosophy*
