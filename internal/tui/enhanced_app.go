@@ -86,7 +86,7 @@ type EnhancedModel struct {
 	projects   []api.ProjectListItem
 	activities []api.ActivityListItem
 	tasks      []api.TaskListItem
-	timelogs   map[string][]api.TimelogEntry
+	timelogs   []api.TimelogEntry
 
 	// Selection state
 	selectedProject  *api.ProjectListItem
@@ -521,13 +521,20 @@ func (m *EnhancedModel) timesheetListView() string {
 		)
 	}
 
+	// Group timelogs by date
+	groupedLogs := make(map[string][]api.TimelogEntry)
+	for _, entry := range m.timelogs {
+		date := entry.StartTime.Format("2006-01-02")
+		groupedLogs[date] = append(groupedLogs[date], entry)
+	}
+
 	var content strings.Builder
-	for date, entries := range m.timelogs {
+	for date, entries := range groupedLogs {
 		content.WriteString(activeStyle.Render(fmt.Sprintf("📅 %s\n", date)))
-		
+
 		for _, entry := range entries {
 			duration := formatDuration(time.Duration(entry.Duration * float64(time.Hour)))
-			content.WriteString(fmt.Sprintf("  ⏱️  %s - %s (%s)\n", 
+			content.WriteString(fmt.Sprintf("  ⏱️  %s - %s (%s)\n",
 				entry.ProjectName, entry.Activity, duration))
 			if entry.TaskName != "" {
 				content.WriteString(fmt.Sprintf("     Task: %s\n", entry.TaskName))
@@ -724,7 +731,7 @@ type enhancedTasksLoadedMsg struct {
 }
 
 type enhancedTimelogsLoadedMsg struct {
-	timelogs map[string][]api.TimelogEntry
+	timelogs []api.TimelogEntry
 	err      error
 }
 

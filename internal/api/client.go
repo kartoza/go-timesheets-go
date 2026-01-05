@@ -371,7 +371,7 @@ func (c *Client) GetTasks(projectID string) ([]TaskListItem, error) {
 }
 
 // GetTimelogs fetches timesheet entries
-func (c *Client) GetTimelogs() (map[string][]TimelogEntry, error) {
+func (c *Client) GetTimelogs() ([]TimelogEntry, error) {
 	resp, err := c.makeRequest("GET", "/api/timelog/", nil)
 	if err != nil {
 		return nil, err
@@ -382,7 +382,7 @@ func (c *Client) GetTimelogs() (map[string][]TimelogEntry, error) {
 		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
 	}
 
-	var timelogs map[string][]TimelogEntry
+	var timelogs []TimelogEntry
 	if err := json.NewDecoder(resp.Body).Decode(&timelogs); err != nil {
 		return nil, fmt.Errorf("failed to decode timelogs response: %w", err)
 	}

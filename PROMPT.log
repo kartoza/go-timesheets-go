@@ -379,3 +379,8 @@ API Analysis Complete:
 ✅ Integration possibilities assessed
 
 ================================================================================
+
+
+
+I would like to be able to run the app with command line args. if running this way, the app should not open the tui but rather just return a json document on 
+stdout. for example if i pass --status it would return a json doc showing the current timer that is running b
