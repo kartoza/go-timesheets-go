@@ -134,6 +134,10 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case activeTimerLoadedMsg:
 		m.activeTimer = msg.timer
 		m.updateMenuItems()
+		// If timer was stopped and we were on "Stop Running Timer", move focus to "Create New Timer"
+		if msg.timer == nil && m.selectedItem == 1 {
+			m.selectedItem = 0
+		}
 		return m, nil
 
 	case monthlyHoursLoadedMsg:

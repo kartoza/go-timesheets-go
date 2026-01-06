@@ -42,16 +42,17 @@ Example JSON output:
   "today_total_hours": 6.5
 }`,
 	Run: func(cmd *cobra.Command, args []string) {
-		service, err := getService()
+		// Use API client to stop timesheet on server
+		client, err := getAPIClient()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error initializing service: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error initializing API client: %v\n", err)
 			os.Exit(1)
 		}
 
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 
-		// Check if there's an active entry
-		activeEntry, err := service.GetActiveTimeEntry()
+		// Check if there's an active entry from API
+		activeEntry, err := client.GetActiveTimesheet()
 		if err != nil {
 			if jsonOutput {
 				result := map[string]interface{}{
@@ -83,12 +84,26 @@ Example JSON output:
 		}
 
 		// Calculate duration before stopping
-		startTime := activeEntry.StartTime
+		startTime, err := activeEntry.GetFromTimeAsTime()
+		if err != nil {
+			if jsonOutput {
+				result := map[string]interface{}{
+					"success": false,
+					"error":   "Error parsing start time",
+					"details": err.Error(),
+				}
+				jsonData, _ := json.MarshalIndent(result, "", "  ")
+				fmt.Println(string(jsonData))
+			} else {
+				fmt.Fprintf(os.Stderr, "Error parsing start time: %v\n", err)
+			}
+			os.Exit(1)
+		}
 		endTime := time.Now()
 		duration := endTime.Sub(startTime).Hours()
 
-		// Stop the active entry
-		err = service.StopActiveTimeEntry()
+		// Stop the active entry via API
+		_, err = client.BreakTimesheet(activeEntry.ID)
 		if err != nil {
 			if jsonOutput {
 				result := map[string]interface{}{
@@ -104,12 +119,20 @@ Example JSON output:
 			os.Exit(1)
 		}
 
-		// Get today's total for summary
+		// Get today's total for summary from API
 		var totalHours float64
-		todaysEntries, err := service.GetTodaysEntries()
+		timelogs, err := client.GetTimelogs()
 		if err == nil {
-			for _, entry := range todaysEntries {
-				totalHours += entry.Duration
+			now := time.Now()
+			todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+			for _, entry := range timelogs {
+				entryStart, err := entry.GetFromTimeAsTime()
+				if err != nil {
+					continue
+				}
+				if entryStart.After(todayStart) || entryStart.Equal(todayStart) {
+					totalHours += entry.Duration()
+				}
 			}
 		}
 
@@ -120,13 +143,13 @@ Example JSON output:
 				"action":  "stopped",
 				"entry": map[string]interface{}{
 					"id": activeEntry.ID,
-					"project": map[string]string{
+					"project": map[string]interface{}{
 						"id":   activeEntry.ProjectID,
 						"name": activeEntry.ProjectName,
 					},
-					"activity": map[string]string{
+					"activity": map[string]interface{}{
 						"id":   activeEntry.ActivityID,
-						"name": activeEntry.ActivityName,
+						"name": activeEntry.ActivityType,
 					},
 					"description":    activeEntry.Description,
 					"start_time":     startTime.Format(time.RFC3339),
@@ -137,9 +160,9 @@ Example JSON output:
 			}
 
 			// Add task if present
-			if activeEntry.TaskID != nil && activeEntry.TaskName != "" {
-				result["entry"].(map[string]interface{})["task"] = map[string]string{
-					"id":   *activeEntry.TaskID,
+			if activeEntry.TaskID.Value != 0 && activeEntry.TaskName != "" {
+				result["entry"].(map[string]interface{})["task"] = map[string]interface{}{
+					"id":   activeEntry.TaskID.Value,
 					"name": activeEntry.TaskName,
 				}
 			}
@@ -152,10 +175,7 @@ Example JSON output:
 			if activeEntry.TaskName != "" {
 				fmt.Printf("📝 Task: %s\n", activeEntry.TaskName)
 			}
-			fmt.Printf("⚡ Activity: %s\n", activeEntry.ActivityName)
-			if activeEntry.Description != "" {
-				fmt.Printf("📄 Description: %s\n", activeEntry.Description)
-			}
+			fmt.Printf("⚡ Activity: %s\n", activeEntry.ActivityType)
 			fmt.Printf("🕐 Started: %s\n", startTime.Format("15:04:05"))
 			fmt.Printf("🕐 Stopped: %s\n", endTime.Format("15:04:05"))
 			fmt.Printf("⏱️  Duration: %.2f hours\n", duration)
