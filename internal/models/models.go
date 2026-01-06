@@ -95,24 +95,6 @@ type ActiveTimeEntry struct {
 	ActivityName string `json:"activity_name,omitempty" yaml:"-"`
 }
 
-// NewTimeEntry creates a new time entry with generated ID and timestamps
-func NewTimeEntry(userID, projectID, activityID string, taskID *string, description string) *TimeEntry {
-	now := time.Now()
-	return &TimeEntry{
-		ID:          uuid.New().String(),
-		UserID:      userID,
-		ProjectID:   projectID,
-		TaskID:      taskID,
-		ActivityID:  activityID,
-		Description: description,
-		StartTime:   now,
-		Duration:    0,
-		IsSubmitted: false,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-}
-
 // NewProject creates a new project with generated ID and timestamps
 func NewProject(name, description string) *Project {
 	now := time.Now()
@@ -142,13 +124,24 @@ func NewTask(projectID, name, description string, expectedTime float64) *Task {
 	}
 }
 
-// NewActivity creates a new activity
-func NewActivity(name string) *Activity {
-	return &Activity{
-		ID:   uuid.New().String(),
-		Name: name,
+// NewTimeEntry creates a new time entry with generated ID and timestamps
+func NewTimeEntry(userID, projectID, activityID string, taskID *string, description string) *TimeEntry {
+	now := time.Now()
+	return &TimeEntry{
+		ID:          uuid.New().String(),
+		UserID:      userID,
+		ProjectID:   projectID,
+		TaskID:      taskID,
+		ActivityID:  activityID,
+		Description: description,
+		StartTime:   now,
+		Duration:    0,
+		IsSubmitted: false,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 }
+
 
 // Stop stops the time entry by setting the end time and calculating duration
 func (te *TimeEntry) Stop() {

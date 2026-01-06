@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/kartoza/go-timesheets-go/internal/api"
 )
 
 // statusCmd represents the status command for waybar integration
@@ -30,39 +31,55 @@ Example waybar configuration:
     }
 }`,
 	Run: func(cmd *cobra.Command, args []string) {
-		service, err := getService()
+		// Use API client to fetch real-time status from server
+		client, err := getAPIClient()
 		if err != nil {
-			printErrorStatus(fmt.Sprintf("Service error: %v", err))
+			printErrorStatus(fmt.Sprintf("API client error: %v", err))
 			return
 		}
 
-		activeEntry, err := service.GetActiveTimeEntry()
+		// Get active timesheet from API
+		activeEntry, err := client.GetActiveTimesheet()
 		if err != nil {
-			printErrorStatus(fmt.Sprintf("Failed to get active entry: %v", err))
+			printErrorStatus(fmt.Sprintf("Failed to get active timesheet: %v", err))
 			return
 		}
 
-		todaysEntries, err := service.GetTodaysEntries()
+		// Get all timelogs to calculate today's total
+		timelogs, err := client.GetTimelogs()
 		if err != nil {
-			printErrorStatus(fmt.Sprintf("Failed to get today's entries: %v", err))
+			printErrorStatus(fmt.Sprintf("Failed to get timelogs: %v", err))
 			return
 		}
 
 		// Calculate today's total hours
+		now := time.Now()
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		var totalHours float64
-		for _, entry := range todaysEntries {
-			totalHours += entry.Duration
+
+		for _, entry := range timelogs {
+			entryStart, err := entry.GetFromTimeAsTime()
+			if err != nil {
+				continue
+			}
+
+			// Only count entries from today
+			if entryStart.After(todayStart) || entryStart.Equal(todayStart) {
+				totalHours += entry.Duration()
+			}
 		}
 
-		// Add current session if active
+		// Calculate current session duration if active
 		var currentDuration time.Duration
 		if activeEntry != nil {
-			currentDuration = time.Since(activeEntry.StartTime)
-			totalHours += currentDuration.Hours()
+			startTime, err := activeEntry.GetFromTimeAsTime()
+			if err == nil {
+				currentDuration = time.Since(startTime)
+			}
 		}
 
 		status := createWaybarStatus(activeEntry, currentDuration, totalHours)
-		
+
 		jsonData, err := json.Marshal(status)
 		if err != nil {
 			printErrorStatus(fmt.Sprintf("JSON error: %v", err))
@@ -82,14 +99,45 @@ type WaybarStatus struct {
 	Icon     string `json:"icon,omitempty"`
 }
 
-func createWaybarStatus(activeEntry interface{}, currentDuration time.Duration, totalHours float64) WaybarStatus {
+func createWaybarStatus(activeEntry *api.TimelogEntry, currentDuration time.Duration, totalHours float64) WaybarStatus {
 	if activeEntry != nil {
 		// Recording state
 		elapsed := formatDuration(currentDuration)
+
+		// Build detailed tooltip with project/task/activity information
+		tooltipLines := []string{"Recording time"}
+
+		// Add project information
+		if activeEntry.ProjectName != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("Project: %s", activeEntry.ProjectName))
+		}
+
+		// Add task information
+		if activeEntry.TaskName != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("Task: %s", activeEntry.TaskName))
+		}
+
+		// Add activity information
+		if activeEntry.ActivityType != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("Activity: %s", activeEntry.ActivityType))
+		}
+
+		// Add timing information
+		tooltipLines = append(tooltipLines, fmt.Sprintf("Current session: %s", elapsed))
+		tooltipLines = append(tooltipLines, fmt.Sprintf("Today's total: %.2fh", totalHours))
+
+		tooltip := ""
+		for i, line := range tooltipLines {
+			if i > 0 {
+				tooltip += "\n"
+			}
+			tooltip += line
+		}
+
 		return WaybarStatus{
 			Text:    fmt.Sprintf("🔴 %s", elapsed),
 			Alt:     "recording",
-			Tooltip: fmt.Sprintf("Recording time\nCurrent session: %s\nToday's total: %.2fh", elapsed, totalHours),
+			Tooltip: tooltip,
 			Class:   "recording",
 			Icon:    "🔴",
 		}

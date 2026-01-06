@@ -51,10 +51,11 @@ const (
 	TabHistory
 )
 
-// SimpleApp represents a simplified TUI application
-type SimpleApp struct {
+// TimesheetApp represents a simplified TUI application
+type TimesheetApp struct {
 	service         *service.TimesheetService
 	apiClient       *api.Client
+	username        string
 	width           int
 	height          int
 	activeEntry     *models.ActiveTimeEntry
@@ -102,8 +103,8 @@ type SimpleApp struct {
 	successMessage string
 }
 
-// NewSimpleApp creates a simplified app
-func NewSimpleApp() (*SimpleApp, error) {
+// NewTimesheetApp creates a simplified app
+func NewTimesheetApp() (*TimesheetApp, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
@@ -161,7 +162,7 @@ func NewSimpleApp() (*SimpleApp, error) {
 	endTimeInput.CharLimit = 5
 	endTimeInput.Width = 10
 
-	app := &SimpleApp{
+	app := &TimesheetApp{
 		service:            service,
 		apiClient:          apiClient,
 		currentTab:         TabProjects,
@@ -181,7 +182,100 @@ func NewSimpleApp() (*SimpleApp, error) {
 	return app, nil
 }
 
-func (a *SimpleApp) Init() tea.Cmd {
+// NewTimesheetAppWithClient creates a new timesheet app with a provided API client
+func NewTimesheetAppWithClient(apiClient *api.Client, username string) (*TimesheetApp, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	dataDir := filepath.Join(homeDir, ".kartoza-timesheet")
+	storage, err := storage.New(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
+	service := service.New(storage, "default-user")
+
+	// Initialize project search input
+	projectSearchInput := textinput.New()
+	projectSearchInput.Placeholder = "Type project name (min 2 chars)..."
+	projectSearchInput.CharLimit = 100
+	projectSearchInput.Width = 50
+	projectSearchInput.Focus() // Focus the input so it accepts typing
+
+	// Initialize timer form inputs
+	descriptionInput := textinput.New()
+	descriptionInput.Placeholder = "Description..."
+	descriptionInput.CharLimit = 200
+	descriptionInput.Width = 60
+
+	dateInput := textinput.New()
+	dateInput.Placeholder = "YYYY-MM-DD"
+	dateInput.CharLimit = 10
+	dateInput.Width = 15
+	dateInput.SetValue(time.Now().Format("2006-01-02"))
+
+	startTimeInput := textinput.New()
+	startTimeInput.Placeholder = "HH:MM"
+	startTimeInput.CharLimit = 5
+	startTimeInput.Width = 10
+
+	endTimeInput := textinput.New()
+	endTimeInput.Placeholder = "HH:MM"
+	endTimeInput.CharLimit = 5
+	endTimeInput.Width = 10
+
+	app := &TimesheetApp{
+		service:            service,
+		apiClient:          apiClient,
+		username:           username,
+		width:              80,  // Default width
+		height:             24,  // Default height
+		currentTab:         TabProjects,
+		projectSearchInput: projectSearchInput,
+		searchMode:         true, // Start in search mode on Tab 1
+		descriptionInput:   descriptionInput,
+		dateInput:          dateInput,
+		startTimeInput:     startTimeInput,
+		endTimeInput:       endTimeInput,
+		historyPageSize:    30,
+		historyPage:        0,
+	}
+
+	// Load session state to restore previous selections
+	app.loadSessionState()
+
+	return app, nil
+}
+
+// NewTimesheetAppWithTab creates a new timesheet app starting on a specific tab
+func NewTimesheetAppWithTab(initialTab Tab) (*TimesheetApp, error) {
+	app, err := NewTimesheetApp()
+	if err != nil {
+		return nil, err
+	}
+
+	// Override the initial tab
+	app.currentTab = initialTab
+
+	return app, nil
+}
+
+// NewTimesheetAppWithClientAndTab creates a new timesheet app with a provided API client and initial tab
+func NewTimesheetAppWithClientAndTab(apiClient *api.Client, username string, initialTab Tab) (*TimesheetApp, error) {
+	app, err := NewTimesheetAppWithClient(apiClient, username)
+	if err != nil {
+		return nil, err
+	}
+
+	// Override the initial tab
+	app.currentTab = initialTab
+
+	return app, nil
+}
+
+func (a *TimesheetApp) Init() tea.Cmd {
 	return tea.Batch(
 		// Don't load projects initially - wait for user to type
 		a.loadActivities(),
@@ -194,7 +288,7 @@ func (a *SimpleApp) Init() tea.Cmd {
 	)
 }
 
-func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -209,11 +303,15 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return a, tea.Quit
 			case "esc":
-				// Exit search mode, go to list navigation
-				if len(a.projects) > 0 {
-					a.searchMode = false
-					a.projectSearchInput.Blur()
+				// If in search mode with no projects, go back to main menu
+				if len(a.projects) == 0 {
+					return a, func() tea.Msg {
+						return backToMenuMsg{}
+					}
 				}
+				// Exit search mode, go to list navigation
+				a.searchMode = false
+				a.projectSearchInput.Blur()
 			case "tab":
 				// Switch from search to list navigation
 				if len(a.projects) > 0 {
@@ -369,10 +467,10 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch a.currentTab {
 			case TabProjects:
 				if !a.searchMode {
-					// Go back to search mode
-					a.searchMode = true
-					a.projectSearchInput.Focus()
-					cmds = append(cmds, textinput.Blink)
+					// Go back to main menu
+					return a, func() tea.Msg {
+						return backToMenuMsg{}
+					}
 				}
 			case TabProjectDetails:
 				a.currentTab = TabProjects
@@ -524,7 +622,7 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
-func (a *SimpleApp) View() string {
+func (a *TimesheetApp) View() string {
 	if a.width == 0 {
 		return "Loading..."
 	}
@@ -565,7 +663,7 @@ func (a *SimpleApp) View() string {
 	return lipgloss.JoinVertical(lipgloss.Top, userHeader, nav, content)
 }
 
-func (a *SimpleApp) renderNav() string {
+func (a *TimesheetApp) renderNav() string {
 	activeStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("#DF9E2F")).
 		Foreground(lipgloss.Color("15")).
@@ -670,15 +768,11 @@ func (a *SimpleApp) renderNav() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, nav, "    ", status)
 }
 
-func (a *SimpleApp) renderUserHeader() string {
-	// Get username from API client (default if not available)
-	username := "User"
-	userID := "N/A"
-	if a.apiClient != nil {
-		// Note: apiClient.username is private, so we'll use a default for now
-		// In production, you'd add a getter method to the Client struct
-		username = "Kartoza Admin"  // Placeholder - would come from API
-		userID = "1"                 // Placeholder - would come from API
+func (a *TimesheetApp) renderUserHeader() string {
+	// Get username from stored field (populated during app creation)
+	username := a.username
+	if username == "" {
+		username = "User"
 	}
 
 	// Calculate monthly total hours from all history
@@ -706,16 +800,20 @@ func (a *SimpleApp) renderUserHeader() string {
 		Padding(0, 2).
 		Width(a.width)
 
-	headerText := fmt.Sprintf("👤 %s (ID: %s) | 📅 %s | ⏱️  Month Total: %.1fh",
+	// Fetch status from API
+	status := a.getStatusFromAPI()
+
+	// Format: User Name | 06 January 2026 | Month total: 10.5h | Status: Idle
+	headerText := fmt.Sprintf("%s | %s | Month total: %.1fh | Status: %s",
 		username,
-		userID,
-		now.Format("January 2006"),
-		monthlyHours)
+		now.Format("02 January 2006"),
+		monthlyHours,
+		status)
 
 	return headerStyle.Render(headerText)
 }
 
-func (a *SimpleApp) renderProjectsView() string {
+func (a *TimesheetApp) renderProjectsView() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#DF9E2F")).
@@ -838,7 +936,7 @@ func (a *SimpleApp) renderProjectsView() string {
 	return lipgloss.JoinVertical(lipgloss.Top, title, searchBox, resultsContent, helpText)
 }
 
-func (a *SimpleApp) renderProjectDetailsView() string {
+func (a *TimesheetApp) renderProjectDetailsView() string {
 	if a.selectedProject == nil {
 		return "No project selected"
 	}
@@ -935,7 +1033,7 @@ func (a *SimpleApp) renderProjectDetailsView() string {
 	return lipgloss.JoinVertical(lipgloss.Top, title, subtitle, list, helpText)
 }
 
-func (a *SimpleApp) renderActivitiesView() string {
+func (a *TimesheetApp) renderActivitiesView() string {
 	if a.selectedTask == nil {
 		return "No task selected"
 	}
@@ -1045,7 +1143,7 @@ func (a *SimpleApp) renderActivitiesView() string {
 	return lipgloss.JoinVertical(lipgloss.Top, title, list, helpText)
 }
 
-func (a *SimpleApp) renderCurrentView() string {
+func (a *TimesheetApp) renderCurrentView() string {
 	if a.selectedActivity == nil {
 		return "No activity selected"
 	}
@@ -1066,7 +1164,7 @@ func (a *SimpleApp) renderCurrentView() string {
 	return lipgloss.JoinVertical(lipgloss.Top, formView, "", title, "", tableView)
 }
 
-func (a *SimpleApp) renderTimerForm() string {
+func (a *TimesheetApp) renderTimerForm() string {
 	formStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#DF9E2F")).
@@ -1186,7 +1284,7 @@ func (a *SimpleApp) renderTimerForm() string {
 	return formStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formFields...))
 }
 
-func (a *SimpleApp) renderEntriesTable() string {
+func (a *TimesheetApp) renderEntriesTable() string {
 	if len(a.history) == 0 {
 		noCurrent := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
@@ -1369,7 +1467,7 @@ func (a *SimpleApp) renderEntriesTable() string {
 	return lipgloss.JoinVertical(lipgloss.Top, result, summary)
 }
 
-func (a *SimpleApp) renderHistoryView() string {
+func (a *TimesheetApp) renderHistoryView() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#DF9E2F")).
@@ -1575,7 +1673,7 @@ func renderDescription(html string, width int) string {
 }
 
 // Navigation helpers
-func (a *SimpleApp) moveCursorUp() {
+func (a *TimesheetApp) moveCursorUp() {
 	switch a.currentTab {
 	case TabProjects:
 		if a.projectCursor > 0 {
@@ -1600,7 +1698,7 @@ func (a *SimpleApp) moveCursorUp() {
 	}
 }
 
-func (a *SimpleApp) moveCursorDown() {
+func (a *TimesheetApp) moveCursorDown() {
 	switch a.currentTab {
 	case TabProjects:
 		if a.projectCursor < len(a.projects)-1 {
@@ -1632,7 +1730,7 @@ func (a *SimpleApp) moveCursorDown() {
 	}
 }
 
-func (a *SimpleApp) handleSelection() tea.Cmd {
+func (a *TimesheetApp) handleSelection() tea.Cmd {
 	switch a.currentTab {
 	case TabProjects:
 		if a.projectCursor < len(a.projects) {
@@ -1677,7 +1775,7 @@ func (a *SimpleApp) handleSelection() tea.Cmd {
 }
 
 // Data loading commands
-func (a *SimpleApp) searchProjects(query string) tea.Cmd {
+func (a *TimesheetApp) searchProjects(query string) tea.Cmd {
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -1691,7 +1789,7 @@ func (a *SimpleApp) searchProjects(query string) tea.Cmd {
 	}
 }
 
-func (a *SimpleApp) loadTasks(projectID int) tea.Cmd {
+func (a *TimesheetApp) loadTasks(projectID int) tea.Cmd {
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -1705,7 +1803,7 @@ func (a *SimpleApp) loadTasks(projectID int) tea.Cmd {
 	}
 }
 
-func (a *SimpleApp) loadActivities() tea.Cmd {
+func (a *TimesheetApp) loadActivities() tea.Cmd {
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -1719,7 +1817,7 @@ func (a *SimpleApp) loadActivities() tea.Cmd {
 	}
 }
 
-func (a *SimpleApp) loadCurrent() tea.Cmd {
+func (a *TimesheetApp) loadCurrent() tea.Cmd {
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -1745,7 +1843,7 @@ func (a *SimpleApp) loadCurrent() tea.Cmd {
 	}
 }
 
-func (a *SimpleApp) loadAllHistory() tea.Cmd {
+func (a *TimesheetApp) loadAllHistory() tea.Cmd {
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -1766,8 +1864,9 @@ func (a *SimpleApp) loadAllHistory() tea.Cmd {
 	}
 }
 
-func (a *SimpleApp) loadActiveEntry() tea.Cmd {
+func (a *TimesheetApp) loadActiveEntry() tea.Cmd {
 	return func() tea.Msg {
+		// Fallback to local service
 		entry, err := a.service.GetActiveTimeEntry()
 		if err != nil {
 			return errorMsg(err)
@@ -1776,7 +1875,33 @@ func (a *SimpleApp) loadActiveEntry() tea.Cmd {
 	}
 }
 
-func (a *SimpleApp) checkForRunningTimer() tea.Cmd {
+// getStatusFromAPI checks the API for active timesheet status
+func (a *TimesheetApp) getStatusFromAPI() string {
+	if a.apiClient == nil {
+		// Fallback to local check
+		if a.activeEntry != nil {
+			return "Active"
+		}
+		return "Idle"
+	}
+
+	// Fetch from API
+	activeEntry, err := a.apiClient.GetActiveTimesheet()
+	if err != nil {
+		// On error, fallback to local status
+		if a.activeEntry != nil {
+			return "Active"
+		}
+		return "Idle"
+	}
+
+	if activeEntry != nil {
+		return "Active"
+	}
+	return "Idle"
+}
+
+func (a *TimesheetApp) checkForRunningTimer() tea.Cmd {
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return nil
@@ -1854,7 +1979,7 @@ type SessionState struct {
 }
 
 // Session state management
-func (a *SimpleApp) loadSessionState() {
+func (a *TimesheetApp) loadSessionState() {
 	// Try to load from a preferences file
 	homeDir, _ := os.UserHomeDir()
 	prefsPath := filepath.Join(homeDir, ".config", "kartoza-timesheets", "session.json")
@@ -1875,7 +2000,7 @@ func (a *SimpleApp) loadSessionState() {
 	// The cursor positions will be set when the data is loaded and we can match IDs
 }
 
-func (a *SimpleApp) saveSessionState() {
+func (a *TimesheetApp) saveSessionState() {
 	homeDir, _ := os.UserHomeDir()
 	prefsDir := filepath.Join(homeDir, ".config", "kartoza-timesheets")
 	prefsPath := filepath.Join(prefsDir, "session.json")
@@ -1911,7 +2036,7 @@ func (a *SimpleApp) saveSessionState() {
 }
 
 // loadLastUsedActivity loads the last used activity from session state
-func (a *SimpleApp) loadLastUsedActivity() {
+func (a *TimesheetApp) loadLastUsedActivity() {
 	a.loadSessionState()
 
 	// Set cursor to last used activity
@@ -1924,13 +2049,13 @@ func (a *SimpleApp) loadLastUsedActivity() {
 }
 
 // saveLastUsedActivity saves the last used activity to session state
-func (a *SimpleApp) saveLastUsedActivity(activityID int) {
+func (a *TimesheetApp) saveLastUsedActivity(activityID int) {
 	a.lastUsedActivityID = activityID
 	a.saveSessionState()
 }
 
 // Form mode helpers
-func (a *SimpleApp) enterNewEntryMode() {
+func (a *TimesheetApp) enterNewEntryMode() {
 	a.formMode = true
 	a.editingEntryID = 0
 	a.focusedFormField = 0
@@ -1945,7 +2070,7 @@ func (a *SimpleApp) enterNewEntryMode() {
 	a.focusFormField()
 }
 
-func (a *SimpleApp) enterEditMode() {
+func (a *TimesheetApp) enterEditMode() {
 	if len(a.history) == 0 || a.historyCursor >= len(a.history) {
 		return
 	}
@@ -1964,7 +2089,7 @@ func (a *SimpleApp) enterEditMode() {
 	a.focusFormField()
 }
 
-func (a *SimpleApp) focusFormField() {
+func (a *TimesheetApp) focusFormField() {
 	switch a.focusedFormField {
 	case 0:
 		a.descriptionInput.Focus()
@@ -1977,14 +2102,14 @@ func (a *SimpleApp) focusFormField() {
 	}
 }
 
-func (a *SimpleApp) blurAllFormFields() {
+func (a *TimesheetApp) blurAllFormFields() {
 	a.descriptionInput.Blur()
 	a.dateInput.Blur()
 	a.startTimeInput.Blur()
 	a.endTimeInput.Blur()
 }
 
-func (a *SimpleApp) submitTimeEntry() tea.Cmd {
+func (a *TimesheetApp) submitTimeEntry() tea.Cmd {
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -2078,14 +2203,14 @@ func (a *SimpleApp) submitTimeEntry() tea.Cmd {
 	}
 }
 
-func (a *SimpleApp) Run() error {
+func (a *TimesheetApp) Run() error {
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
 
 // clearMessages clears both error and success messages
-func (a *SimpleApp) clearMessages() {
+func (a *TimesheetApp) clearMessages() {
 	a.err = nil
 	a.successMessage = ""
 }

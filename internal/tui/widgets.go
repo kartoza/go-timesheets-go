@@ -254,7 +254,7 @@ func (cb *ComboBox) Blur() {
 }
 
 // ProjectComboBox creates a combo box for project selection
-func NewProjectComboBox(projects []api.ProjectListItem, width, height int) ComboBox {
+func ProjectComboBox(projects []api.ProjectListItem, width, height int) ComboBox {
 	items := make([]ComboBoxItem, len(projects))
 	for i, project := range projects {
 		items[i] = ComboBoxItem{
@@ -268,7 +268,7 @@ func NewProjectComboBox(projects []api.ProjectListItem, width, height int) Combo
 }
 
 // TaskComboBox creates a combo box for task selection
-func NewTaskComboBox(tasks []api.TaskListItem, width, height int) ComboBox {
+func TaskComboBox(tasks []api.TaskListItem, width, height int) ComboBox {
 	items := make([]ComboBoxItem, len(tasks))
 	for i, task := range tasks {
 		items[i] = ComboBoxItem{
@@ -282,7 +282,7 @@ func NewTaskComboBox(tasks []api.TaskListItem, width, height int) ComboBox {
 }
 
 // ActivityComboBox creates a combo box for activity selection
-func NewActivityComboBox(activities []api.ActivityListItem, width, height int) ComboBox {
+func ActivityComboBox(activities []api.ActivityListItem, width, height int) ComboBox {
 	items := make([]ComboBoxItem, len(activities))
 	for i, activity := range activities {
 		items[i] = ComboBoxItem{
@@ -296,7 +296,7 @@ func NewActivityComboBox(activities []api.ActivityListItem, width, height int) C
 }
 
 // TimeEntryComboBox creates a combo box for time entry selection
-func NewTimeEntryComboBox(entries []api.TimelogEntry, width, height int) ComboBox {
+func TimesheetEntryComboBox(entries []api.TimelogEntry, width, height int) ComboBox {
 	items := make([]ComboBoxItem, len(entries))
 	for i, entry := range entries {
 		description := fmt.Sprintf("%s - %s | %.1fh",

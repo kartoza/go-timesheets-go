@@ -359,19 +359,25 @@ func (m *MainMenuModel) handleMenuSelection() tea.Cmd {
 
 	switch action {
 	case MenuCreateTimer:
-		// TODO: Launch the create timer wizard
-		return nil
+		// Launch the timer creation wizard
+		return func() tea.Msg {
+			return launchTimerCreationMsg{}
+		}
 
 	case MenuStopTimer:
 		return m.stopActiveTimer()
 
 	case MenuWorkspaceAssociations:
-		// TODO: Launch workspace associations screen
-		return nil
+		// Launch workspace associations screen
+		return func() tea.Msg {
+			return launchWorkspaceAssociationsMsg{}
+		}
 
 	case MenuViewHistory:
-		// TODO: Launch history view
-		return nil
+		// Launch history view
+		return func() tea.Msg {
+			return launchHistoryViewMsg{}
+		}
 
 	case MenuLogOut:
 		// Show confirmation dialog

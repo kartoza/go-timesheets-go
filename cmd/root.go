@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/kartoza/go-timesheets-go/internal/api"
+	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/service"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 	"github.com/kartoza/go-timesheets-go/internal/tui"
@@ -80,4 +82,27 @@ func getService() (*service.TimesheetService, error) {
 	}
 
 	return service.New(storage, userID), nil
+}
+
+// getAPIClient returns an authenticated API client
+func getAPIClient() (*api.Client, error) {
+	// Load auth token
+	token, err := config.LoadToken()
+	if err != nil || token == nil {
+		return nil, fmt.Errorf("not logged in: please run the TUI first to authenticate")
+	}
+
+	// Create API client
+	client, err := api.NewClient(api.Config{
+		BaseURL:   token.BaseURL,
+		AuthToken: token.Token,
+		Timeout:   30,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	client.SetAuthToken(token.Token)
+	client.SetUsername(token.Username)
+	return client, nil
 }

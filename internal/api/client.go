@@ -122,6 +122,16 @@ func (c *Client) GetAuthToken() string {
 	return c.authToken
 }
 
+// GetUsername returns the currently authenticated username
+func (c *Client) GetUsername() string {
+	return c.username
+}
+
+// SetUsername sets the username (used when loading from saved token)
+func (c *Client) SetUsername(username string) {
+	c.username = username
+}
+
 // authenticate performs login and retrieves CSRF token
 func (c *Client) authenticate() error {
 	// Get CSRF token from login page
@@ -289,30 +299,62 @@ type TaskListItem struct {
 	Label string `json:"label"`
 }
 
+// FlexibleInt is a type that can unmarshal from both int and string
+type FlexibleInt struct {
+	Value int
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (fi *FlexibleInt) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as int first
+	var i int
+	if err := json.Unmarshal(data, &i); err == nil {
+		fi.Value = i
+		return nil
+	}
+
+	// Try to unmarshal as string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		// Empty string or non-numeric = 0
+		if s == "" {
+			fi.Value = 0
+			return nil
+		}
+		// Try to parse string as int
+		if _, err := fmt.Sscanf(s, "%d", &fi.Value); err == nil {
+			return nil
+		}
+	}
+
+	fi.Value = 0
+	return nil
+}
+
 // TimelogEntry represents a timesheet entry from the API
 // This struct matches the complete API response from /api/timelog/
 type TimelogEntry struct {
-	ID            int     `json:"id"`
-	Description   *string `json:"description"` // nullable in API
-	ActivityType  string  `json:"activity_type"`
-	Owner         string  `json:"owner"`
-	ProjectName   string  `json:"project_name"`
-	Project       string  `json:"project"`
-	ProjectID     string  `json:"project_id"`
-	Task          string  `json:"task"`
-	TaskName      string  `json:"task_name"`
-	TaskID        string  `json:"task_id"`
-	ActivityID    string  `json:"activity_id"`
-	FromTime      string  `json:"from_time"`
-	ToTime        string  `json:"to_time"`
-	Hours         string  `json:"hours"`
-	Submitted     bool    `json:"submitted"`
-	Timezone      string  `json:"timezone"`
-	Parent        *int    `json:"parent"` // nullable in API
-	TotalChildren string  `json:"total_children"`
-	AllFromTime   string  `json:"all_from_time"`
-	AllToTime     string  `json:"all_to_time"`
-	AllHours      string  `json:"all_hours"`
+	ID            int          `json:"id"`
+	Description   *string      `json:"description"` // nullable in API
+	ActivityType  string       `json:"activity_type"`
+	Owner         string       `json:"owner"`
+	ProjectName   string       `json:"project_name"`
+	Project       string       `json:"project"`
+	ProjectID     int          `json:"project_id"`
+	Task          string       `json:"task"`
+	TaskName      string       `json:"task_name"`
+	TaskID        FlexibleInt  `json:"task_id"`
+	ActivityID    int          `json:"activity_id"`
+	FromTime      string       `json:"from_time"`
+	ToTime        string       `json:"to_time"`
+	Hours         float64      `json:"hours"`
+	Submitted     bool         `json:"submitted"`
+	Timezone      string       `json:"timezone"`
+	Parent        *int         `json:"parent"` // nullable in API
+	TotalChildren FlexibleInt  `json:"total_children"`
+	AllFromTime   string       `json:"all_from_time"`
+	AllToTime     string       `json:"all_to_time"`
+	AllHours      float64      `json:"all_hours"`
 }
 
 // GetFromTimeAsTime parses the from_time string to time.Time
@@ -333,11 +375,9 @@ func (t *TimelogEntry) GetDescriptionString() string {
 	return *t.Description
 }
 
-// GetHoursAsFloat parses the hours string to float64
+// GetHoursAsFloat returns the hours as float64
 func (t *TimelogEntry) GetHoursAsFloat() float64 {
-	var hours float64
-	fmt.Sscanf(t.Hours, "%f", &hours)
-	return hours
+	return t.Hours
 }
 
 // Compatibility properties for backward compatibility with existing TUI code
