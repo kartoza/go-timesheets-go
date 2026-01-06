@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -46,6 +48,7 @@ const (
 	TabProjectDetails
 	TabActivities
 	TabCurrent
+	TabHistory
 )
 
 // SimpleApp represents a simplified TUI application
@@ -74,6 +77,12 @@ type SimpleApp struct {
 	taskCursor      int
 	activityCursor  int
 	historyCursor   int
+
+	// History tab pagination
+	historyPage      int   // Current page (0-indexed)
+	historyPageSize  int   // Items per page
+	allHistory       []api.TimelogEntry // All history entries
+	historyCursorPage int  // Cursor within current page
 
 	// Search inputs
 	projectSearchInput textinput.Model
@@ -162,6 +171,8 @@ func NewSimpleApp() (*SimpleApp, error) {
 		dateInput:          dateInput,
 		startTimeInput:     startTimeInput,
 		endTimeInput:       endTimeInput,
+		historyPageSize:    30,
+		historyPage:        0,
 	}
 
 	// Load session state to restore previous selections
@@ -328,6 +339,15 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.saveSessionState() // Save session state on tab switch
 			}
 
+		case "h", "5":
+			// History tab - always available
+			a.clearMessages()
+			a.currentTab = TabHistory
+			a.historyPage = 0
+			a.historyCursorPage = 0
+			a.saveSessionState() // Save session state on tab switch
+			cmds = append(cmds, a.loadAllHistory())
+
 		case "n":
 			// New entry (only on Tab 4)
 			if a.currentTab == TabCurrent {
@@ -338,7 +358,7 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "e":
 			// Edit selected entry (only on Tab 4)
-			if a.currentTab == TabCurrent && len(a.history) > 0 && !a.history[a.historyCursor].IsSubmitted {
+			if a.currentTab == TabCurrent && len(a.history) > 0 && !a.history[a.historyCursor].IsSubmitted() {
 				a.clearMessages()
 				a.enterEditMode()
 				cmds = append(cmds, textinput.Blink)
@@ -366,6 +386,9 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case TabCurrent:
 				a.currentTab = TabActivities
 				a.saveSessionState() // Save session state on tab navigation
+			case TabHistory:
+				a.currentTab = TabProjects
+				a.saveSessionState() // Save session state on tab navigation
 			}
 
 		case "up", "k":
@@ -386,6 +409,23 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.searchMode = true
 				a.projectSearchInput.Focus()
 				cmds = append(cmds, textinput.Blink)
+			}
+
+		case "left", "pgup":
+			// Previous page in history tab
+			if a.currentTab == TabHistory && a.historyPage > 0 {
+				a.historyPage--
+				a.historyCursorPage = 0
+			}
+
+		case "right", "pgdown":
+			// Next page in history tab
+			if a.currentTab == TabHistory {
+				totalPages := (len(a.allHistory) + a.historyPageSize - 1) / a.historyPageSize
+				if a.historyPage < totalPages-1 {
+					a.historyPage++
+					a.historyCursorPage = 0
+				}
 			}
 		}
 
@@ -417,11 +457,17 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case historyLoadedMsg:
-		a.history = []api.TimelogEntry(msg)
-		// Sort by start time, most recent first
-		sort.Slice(a.history, func(i, j int) bool {
-			return a.history[i].StartTime.After(a.history[j].StartTime)
-		})
+		// Check if this is for the history tab (all history) or current tab (filtered history)
+		if a.currentTab == TabHistory {
+			a.allHistory = []api.TimelogEntry(msg)
+			// Already sorted in loadAllHistory
+		} else {
+			a.history = []api.TimelogEntry(msg)
+			// Sort by start time, most recent first
+			sort.Slice(a.history, func(i, j int) bool {
+				return a.history[i].StartTime().After(a.history[j].StartTime())
+			})
+		}
 		a.historyCursor = 0
 		// Exit form mode if it was active (after successful submission)
 		a.formMode = false
@@ -432,7 +478,7 @@ func (a *SimpleApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.history = msg.history
 		// Sort by start time, most recent first
 		sort.Slice(a.history, func(i, j int) bool {
-			return a.history[i].StartTime.After(a.history[j].StartTime)
+			return a.history[i].StartTime().After(a.history[j].StartTime())
 		})
 		a.historyCursor = 0
 		// Exit form mode
@@ -494,6 +540,8 @@ func (a *SimpleApp) View() string {
 		content = a.renderActivitiesView()
 	case TabCurrent:
 		content = a.renderCurrentView()
+	case TabHistory:
+		content = a.renderHistoryView()
 	}
 
 	userHeader := a.renderUserHeader()
@@ -534,7 +582,7 @@ func (a *SimpleApp) renderNav() string {
 		Foreground(lipgloss.Color("240")).
 		Padding(0, 1)
 
-	var tab1, tab2, tab3, tab4 string
+	var tab1, tab2, tab3, tab4, tab5 string
 
 	// Tab 1: Projects
 	if a.currentTab == TabProjects {
@@ -576,12 +624,19 @@ func (a *SimpleApp) renderNav() string {
 		tab4 = disabledStyle.Render("4. Current")
 	}
 
+	// Tab 5: History (always available with 'h' key)
+	if a.currentTab == TabHistory {
+		tab5 = activeStyle.Render("5. History [h]")
+	} else {
+		tab5 = inactiveStyle.Render("5. History [h]")
+	}
+
 	status := "● Idle"
 
 	// Check for running entries in history
 	var runningEntry *api.TimelogEntry
 	for i := range a.history {
-		if a.history[i].EndTime.IsZero() {
+		if a.history[i].EndTime().IsZero() {
 			runningEntry = &a.history[i]
 			break
 		}
@@ -590,8 +645,8 @@ func (a *SimpleApp) renderNav() string {
 	// Display running status from history or active entry
 	if runningEntry != nil {
 		// Skip entries with zero/invalid start times
-		if !runningEntry.StartTime.IsZero() {
-			elapsed := time.Since(runningEntry.StartTime)
+		if !runningEntry.StartTime().IsZero() {
+			elapsed := time.Since(runningEntry.StartTime())
 			hours := int(elapsed.Hours())
 			minutes := int(elapsed.Minutes()) % 60
 			seconds := int(elapsed.Seconds()) % 60
@@ -611,7 +666,7 @@ func (a *SimpleApp) renderNav() string {
 			Render(fmt.Sprintf("● Recording %02d:%02d:%02d", hours, minutes, seconds))
 	}
 
-	nav := lipgloss.JoinHorizontal(lipgloss.Top, tab1, " ", tab2, " ", tab3, " ", tab4)
+	nav := lipgloss.JoinHorizontal(lipgloss.Top, tab1, " ", tab2, " ", tab3, " ", tab4, " ", tab5)
 	return lipgloss.JoinHorizontal(lipgloss.Top, nav, "    ", status)
 }
 
@@ -634,13 +689,13 @@ func (a *SimpleApp) renderUserHeader() string {
 	var monthlyHours float64
 	for _, entry := range a.history {
 		// Skip entries with zero/invalid times
-		if !entry.StartTime.IsZero() && entry.StartTime.After(monthStart) && entry.StartTime.Before(monthEnd) {
-			if !entry.EndTime.IsZero() {
+		if !entry.StartTime().IsZero() && entry.StartTime().After(monthStart) && entry.StartTime().Before(monthEnd) {
+			if !entry.EndTime().IsZero() {
 				// Completed entry
-				monthlyHours += entry.Duration
+				monthlyHours += entry.Duration()
 			} else {
 				// Running entry - calculate current duration
-				monthlyHours += time.Since(entry.StartTime).Hours()
+				monthlyHours += time.Since(entry.StartTime()).Hours()
 			}
 		}
 	}
@@ -843,11 +898,7 @@ func (a *SimpleApp) renderProjectDetailsView() string {
 	for i := visibleStart; i < visibleEnd; i++ {
 		task := a.tasks[i]
 		prefix := "  "
-		taskInfo := fmt.Sprintf("%s (Expected: %.1fh", task.Label, task.ExpectedTime)
-		if task.ActualTime > 0 {
-			taskInfo += fmt.Sprintf(" | Actual: %.1fh", task.ActualTime)
-		}
-		taskInfo += ")"
+		taskInfo := task.Label
 
 		if i == a.taskCursor {
 			prefix = "▶ "
@@ -1195,16 +1246,16 @@ func (a *SimpleApp) renderEntriesTable() string {
 
 		// Handle invalid/zero timestamps
 		var dateStr, startStr string
-		if !entry.StartTime.IsZero() {
-			dateStr = entry.StartTime.Format("2006-01-02")
-			startStr = entry.StartTime.Format("15:04")
+		if !entry.StartTime().IsZero() {
+			dateStr = entry.StartTime().Format("2006-01-02")
+			startStr = entry.StartTime().Format("15:04")
 		} else {
 			dateStr = "----/--/--"
 			startStr = "--:--"
 		}
 
 		// Check if entry is running (no end time)
-		isRunning := entry.EndTime.IsZero() && !entry.StartTime.IsZero()
+		isRunning := entry.EndTime().IsZero() && !entry.StartTime().IsZero()
 
 		var endStr string
 		var elapsedStr string
@@ -1212,8 +1263,8 @@ func (a *SimpleApp) renderEntriesTable() string {
 		if isRunning {
 			endStr = "--:--"
 			// Calculate elapsed time from start to now (only if valid start time)
-			if !entry.StartTime.IsZero() {
-				elapsed := time.Since(entry.StartTime)
+			if !entry.StartTime().IsZero() {
+				elapsed := time.Since(entry.StartTime())
 				hours := int(elapsed.Hours())
 				minutes := int(elapsed.Minutes()) % 60
 				elapsedStr = fmt.Sprintf("%dh %dm", hours, minutes)
@@ -1221,17 +1272,17 @@ func (a *SimpleApp) renderEntriesTable() string {
 				elapsedStr = "--h --m"
 			}
 		} else {
-			if !entry.EndTime.IsZero() {
-				endStr = entry.EndTime.Format("15:04")
+			if !entry.EndTime().IsZero() {
+				endStr = entry.EndTime().Format("15:04")
 			} else {
 				endStr = "--:--"
 			}
-			hours := int(entry.Duration)
-			minutes := int((entry.Duration - float64(hours)) * 60)
+			hours := int(entry.Duration())
+			minutes := int((entry.Duration() - float64(hours)) * 60)
 			elapsedStr = fmt.Sprintf("%dh %dm", hours, minutes)
 		}
 
-		descStr := entry.Description
+		descStr := entry.GetDescriptionString()
 		if len(descStr) > 38 {
 			descStr = descStr[:35] + "..."
 		}
@@ -1247,9 +1298,9 @@ func (a *SimpleApp) renderEntriesTable() string {
 
 		if isRunning {
 			editAction = runningStyle.Render("● Running")
-		} else if entry.IsSubmitted {
+		} else if entry.IsSubmitted() {
 			editAction = "✓ Submitted"
-		} else if !entry.EndTime.IsZero() {
+		} else if !entry.EndTime().IsZero() {
 			editAction = stoppedStyle.Render("⏹ Stopped")
 		} else {
 			editAction = "[Edit]"
@@ -1259,7 +1310,7 @@ func (a *SimpleApp) renderEntriesTable() string {
 		if i == a.historyCursor && !a.formMode {
 			// For selected row, preserve status color (don't override with selection background)
 			actionCell := selectedStyle.Width(10).Render(editAction)
-			if isRunning || (!entry.EndTime.IsZero() && !entry.IsSubmitted) {
+			if isRunning || (!entry.EndTime().IsZero() && !entry.IsSubmitted()) {
 				// Keep the status color by not re-styling the already-styled indicator
 				actionCell = lipgloss.NewStyle().Width(10).Render(editAction)
 			}
@@ -1292,7 +1343,7 @@ func (a *SimpleApp) renderEntriesTable() string {
 
 	var total float64
 	for _, entry := range a.history {
-		total += entry.Duration
+		total += entry.Duration()
 	}
 
 	summaryStyle := lipgloss.NewStyle().
@@ -1318,6 +1369,211 @@ func (a *SimpleApp) renderEntriesTable() string {
 	return lipgloss.JoinVertical(lipgloss.Top, result, summary)
 }
 
+func (a *SimpleApp) renderHistoryView() string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#DF9E2F")).
+		Padding(1, 0)
+
+	if len(a.allHistory) == 0 {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Padding(2, 0)
+
+		var msg string
+		if a.err != nil {
+			msg = fmt.Sprintf("Error loading history: %v", a.err)
+		} else {
+			msg = "Loading timesheet history from API...\n\nThis may take a moment on first load.\nPress ESC to go back."
+		}
+
+		return lipgloss.JoinVertical(lipgloss.Top, titleStyle.Render("📜 Timesheet History"), loadingStyle.Render(msg))
+	}
+
+	// Calculate pagination
+	totalPages := (len(a.allHistory) + a.historyPageSize - 1) / a.historyPageSize
+	if a.historyPage >= totalPages {
+		a.historyPage = totalPages - 1
+	}
+	if a.historyPage < 0 {
+		a.historyPage = 0
+	}
+
+	startIdx := a.historyPage * a.historyPageSize
+	endIdx := startIdx + a.historyPageSize
+	if endIdx > len(a.allHistory) {
+		endIdx = len(a.allHistory)
+	}
+
+	pageEntries := a.allHistory[startIdx:endIdx]
+
+	// Title with pagination info
+	title := titleStyle.Render(fmt.Sprintf("📜 Timesheet History - Page %d of %d (%d total entries)", a.historyPage+1, totalPages, len(a.allHistory)))
+
+	// Table styles
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#DF9E2F")).
+		Width(18).
+		Align(lipgloss.Left)
+
+	cellStyle := lipgloss.NewStyle().
+		Width(18).
+		Align(lipgloss.Left)
+
+	selectedRowStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(lipgloss.Color("#DF9E2F"))
+
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245")).
+		Width(110).
+		Align(lipgloss.Left)
+
+	selectedDescStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(lipgloss.Color("#DF9E2F")).
+		Width(110).
+		Align(lipgloss.Left)
+
+	// Table header
+	header := lipgloss.JoinHorizontal(lipgloss.Top,
+		headerStyle.Render("Project"),
+		headerStyle.Render("Activity"),
+		headerStyle.Render("Task"),
+		headerStyle.Render("Date"),
+		headerStyle.Width(12).Render("Hours"),
+		headerStyle.Width(14).Render("Status"))
+
+	// Build table rows (2 rows per entry)
+	var rows []string
+	for i, entry := range pageEntries {
+		isSelected := i == a.historyCursorPage
+
+		// Prepare data
+		project := entry.ProjectName
+		if len(project) > 16 {
+			project = project[:13] + "..."
+		}
+
+		activity := entry.Activity()
+		if len(activity) > 16 {
+			activity = activity[:13] + "..."
+		}
+
+		task := entry.TaskName
+		if len(task) > 16 {
+			task = task[:13] + "..."
+		}
+
+		dateStr := entry.StartTime().Format("2006-01-02")
+		hoursStr := fmt.Sprintf("%.2fh", entry.Duration())
+
+		status := "Pending"
+		if entry.IsSubmitted() {
+			status = "✓ Submitted"
+		}
+
+		// Row 1: Main data
+		var row1 string
+		if isSelected {
+			row1 = lipgloss.JoinHorizontal(lipgloss.Top,
+				selectedRowStyle.Width(18).Render(project),
+				selectedRowStyle.Width(18).Render(activity),
+				selectedRowStyle.Width(18).Render(task),
+				selectedRowStyle.Width(18).Render(dateStr),
+				selectedRowStyle.Width(12).Render(hoursStr),
+				selectedRowStyle.Width(14).Render(status))
+		} else {
+			row1 = lipgloss.JoinHorizontal(lipgloss.Top,
+				cellStyle.Render(project),
+				cellStyle.Render(activity),
+				cellStyle.Render(task),
+				cellStyle.Render(dateStr),
+				cellStyle.Width(12).Render(hoursStr),
+				cellStyle.Width(14).Render(status))
+		}
+
+		// Row 2: Description (rendered from HTML/Markdown)
+		description := entry.GetDescriptionString()
+		if description == "" {
+			description = "(no description)"
+		}
+
+		// Render HTML/Markdown to terminal
+		renderedDesc := renderDescription(description, 106) // 110 - 4 for padding
+
+		// Apply styling
+		var row2 string
+		if isSelected {
+			row2 = selectedDescStyle.Render("  " + renderedDesc)
+		} else {
+			row2 = descStyle.Render("  " + renderedDesc)
+		}
+
+		rows = append(rows, row1)
+		rows = append(rows, row2)
+
+		// Add separator line between entries (except last)
+		if i < len(pageEntries)-1 {
+			separator := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240")).
+				Render("─────────────────────────────────────────────────────────────────────────────────────────────────────────")
+			rows = append(rows, separator)
+		}
+	}
+
+	tableContent := lipgloss.JoinVertical(lipgloss.Left, append([]string{header, ""}, rows...)...)
+
+	tableStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#DF9E2F")).
+		Padding(1, 2)
+
+	// Navigation help
+	helpStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Italic(true).
+		Margin(1, 0)
+
+	help := helpStyle.Render("Navigation: ↑/↓ navigate • left/right or pgup/pgdn change page • esc back")
+
+	return lipgloss.JoinVertical(lipgloss.Top, title, "", tableStyle.Render(tableContent), help)
+}
+
+// renderDescription renders HTML/Markdown description to plain terminal text
+func renderDescription(html string, width int) string {
+	if html == "" {
+		return "(no description)"
+	}
+
+	// Create a glamour renderer with custom styles for compact display
+	r, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		// Fallback to plain text if glamour fails
+		return strings.TrimSpace(html)
+	}
+
+	// Render the HTML/Markdown
+	rendered, err := r.Render(html)
+	if err != nil {
+		// Fallback to plain text if rendering fails
+		return strings.TrimSpace(html)
+	}
+
+	// Clean up the rendered output (remove excessive newlines)
+	rendered = strings.TrimSpace(rendered)
+	// Replace multiple newlines with single newline
+	for strings.Contains(rendered, "\n\n") {
+		rendered = strings.ReplaceAll(rendered, "\n\n", "\n")
+	}
+
+	return rendered
+}
+
 // Navigation helpers
 func (a *SimpleApp) moveCursorUp() {
 	switch a.currentTab {
@@ -1336,6 +1592,10 @@ func (a *SimpleApp) moveCursorUp() {
 	case TabCurrent:
 		if a.historyCursor > 0 {
 			a.historyCursor--
+		}
+	case TabHistory:
+		if a.historyCursorPage > 0 {
+			a.historyCursorPage--
 		}
 	}
 }
@@ -1357,6 +1617,17 @@ func (a *SimpleApp) moveCursorDown() {
 	case TabCurrent:
 		if a.historyCursor < len(a.history)-1 {
 			a.historyCursor++
+		}
+	case TabHistory:
+		// Calculate max cursor position for current page
+		startIdx := a.historyPage * a.historyPageSize
+		endIdx := startIdx + a.historyPageSize
+		if endIdx > len(a.allHistory) {
+			endIdx = len(a.allHistory)
+		}
+		pageSize := endIdx - startIdx
+		if a.historyCursorPage < pageSize-1 {
+			a.historyCursorPage++
 		}
 	}
 }
@@ -1465,12 +1736,33 @@ func (a *SimpleApp) loadCurrent() tea.Cmd {
 		activityName := a.selectedActivity.Label
 
 		for _, entry := range timelogs {
-			if entry.TaskName == a.selectedTask.Label && entry.Activity == activityName {
+			if entry.TaskName == a.selectedTask.Label && entry.Activity() == activityName {
 				filtered = append(filtered, entry)
 			}
 		}
 
 		return historyLoadedMsg(filtered)
+	}
+}
+
+func (a *SimpleApp) loadAllHistory() tea.Cmd {
+	return func() tea.Msg {
+		if a.apiClient == nil {
+			return errorMsg(fmt.Errorf("API client not available"))
+		}
+
+		// Get all timelogs
+		timelogs, err := a.apiClient.GetTimelogs()
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		// Sort by start time descending (newest first)
+		sort.Slice(timelogs, func(i, j int) bool {
+			return timelogs[i].StartTime().After(timelogs[j].StartTime())
+		})
+
+		return historyLoadedMsg(timelogs)
 	}
 }
 
@@ -1498,7 +1790,7 @@ func (a *SimpleApp) checkForRunningTimer() tea.Cmd {
 
 		// Find first running timer (entry with zero end time)
 		for _, entry := range timelogs {
-			if entry.EndTime.IsZero() {
+			if entry.EndTime().IsZero() {
 				// Found a running timer - need to load project, task, and activity details
 				projects, err := a.apiClient.GetProjects(entry.ProjectName)
 				if err != nil || len(projects) == 0 {
@@ -1531,7 +1823,7 @@ func (a *SimpleApp) checkForRunningTimer() tea.Cmd {
 				// Find matching activity
 				var matchedActivity *api.ActivityListItem
 				for _, activity := range activities {
-					if activity.Label == entry.Activity {
+					if activity.Label == entry.Activity() {
 						matchedActivity = &activity
 						break
 					}
@@ -1664,10 +1956,10 @@ func (a *SimpleApp) enterEditMode() {
 	a.focusedFormField = 0
 
 	// Populate form fields with entry data
-	a.descriptionInput.SetValue(entry.Description)
-	a.dateInput.SetValue(entry.StartTime.Format("2006-01-02"))
-	a.startTimeInput.SetValue(entry.StartTime.Format("15:04"))
-	a.endTimeInput.SetValue(entry.EndTime.Format("15:04"))
+	a.descriptionInput.SetValue(entry.GetDescriptionString())
+	a.dateInput.SetValue(entry.StartTime().Format("2006-01-02"))
+	a.startTimeInput.SetValue(entry.StartTime().Format("15:04"))
+	a.endTimeInput.SetValue(entry.EndTime().Format("15:04"))
 
 	a.focusFormField()
 }
@@ -1772,8 +2064,8 @@ func (a *SimpleApp) submitTimeEntry() tea.Cmd {
 
 		for _, entry := range timelogs {
 			// Include if it matches the filter OR if it's a running entry
-			if (entry.TaskName == a.selectedTask.Label && entry.Activity == activityName) ||
-				entry.EndTime.IsZero() {
+			if (entry.TaskName == a.selectedTask.Label && entry.Activity() == activityName) ||
+				entry.EndTime().IsZero() {
 				filtered = append(filtered, entry)
 			}
 		}

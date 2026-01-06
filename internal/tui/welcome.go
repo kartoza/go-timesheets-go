@@ -172,20 +172,29 @@ func (m LoginModel) View() string {
 	// Title
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#DF9E2F")).
+		Foreground(lipgloss.Color("#E95420")).
 		Padding(1, 0).
 		Align(lipgloss.Center)
 
-	title := titleStyle.Render("🕐 Kartoza Timesheets")
+	title := titleStyle.Render("Kartoza Timesheets")
 	content = append(content, title)
 
-	// Subtitle
-	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#8A8B8B")).
+	// Subtitle/Motto
+	mottoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#888888")).
+		Italic(true).
 		Align(lipgloss.Center)
 
-	subtitle := subtitleStyle.Render("Tempus fugit")
-	content = append(content, subtitle)
+	motto := mottoStyle.Render("Time Flies")
+	content = append(content, motto)
+	content = append(content, "")
+
+	// Divider
+	dividerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#666666")).
+		Align(lipgloss.Center)
+	divider := dividerStyle.Render("────────────────────────────────────────────────────────────")
+	content = append(content, divider)
 	content = append(content, "")
 
 	// Login form box

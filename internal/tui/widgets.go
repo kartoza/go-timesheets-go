@@ -271,15 +271,10 @@ func NewProjectComboBox(projects []api.ProjectListItem, width, height int) Combo
 func NewTaskComboBox(tasks []api.TaskListItem, width, height int) ComboBox {
 	items := make([]ComboBoxItem, len(tasks))
 	for i, task := range tasks {
-		description := fmt.Sprintf("Expected: %.1fh", task.ExpectedTime)
-		if task.ActualTime > 0 {
-			description += fmt.Sprintf(" | Actual: %.1fh", task.ActualTime)
-		}
-		
 		items[i] = ComboBoxItem{
 			ID:          fmt.Sprintf("%d", task.ID),
 			Label:       task.Label,
-			Description: description,
+			Description: task.Name,
 			Value:       task,
 		}
 	}
@@ -304,18 +299,18 @@ func NewActivityComboBox(activities []api.ActivityListItem, width, height int) C
 func NewTimeEntryComboBox(entries []api.TimelogEntry, width, height int) ComboBox {
 	items := make([]ComboBoxItem, len(entries))
 	for i, entry := range entries {
-		description := fmt.Sprintf("%s - %s | %.1fh", 
-			entry.ProjectName, 
-			entry.Activity, 
-			entry.Duration)
-		
-		if entry.IsSubmitted {
+		description := fmt.Sprintf("%s - %s | %.1fh",
+			entry.ProjectName,
+			entry.Activity(),
+			entry.Duration())
+
+		if entry.IsSubmitted() {
 			description += " [SUBMITTED]"
 		}
-		
+
 		items[i] = ComboBoxItem{
 			ID:          fmt.Sprintf("%d", entry.ID),
-			Label:       fmt.Sprintf("%s: %s", entry.TaskName, entry.Description),
+			Label:       fmt.Sprintf("%s: %s", entry.TaskName, entry.GetDescriptionString()),
 			Description: description,
 			Value:       entry,
 		}

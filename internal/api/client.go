@@ -284,24 +284,147 @@ type ActivityListItem struct {
 
 // TaskListItem represents a task from the API
 type TaskListItem struct {
-	ID           int     `json:"id"`
-	Label        string  `json:"label"`
-	Value        string  `json:"value"`
-	ActualTime   float64 `json:"actual_time"`
-	ExpectedTime float64 `json:"expected_time"`
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
 }
 
 // TimelogEntry represents a timesheet entry from the API
+// This struct matches the complete API response from /api/timelog/
 type TimelogEntry struct {
-	ID          int       `json:"id"`
-	ProjectName string    `json:"project_name"`
-	TaskName    string    `json:"task_name"`
-	Activity    string    `json:"activity"`
-	Description string    `json:"description"`
-	StartTime   time.Time `json:"start_time"`
-	EndTime     time.Time `json:"end_time"`
-	Duration    float64   `json:"duration"`
-	IsSubmitted bool      `json:"is_submitted"`
+	ID            int     `json:"id"`
+	Description   *string `json:"description"` // nullable in API
+	ActivityType  string  `json:"activity_type"`
+	Owner         string  `json:"owner"`
+	ProjectName   string  `json:"project_name"`
+	Project       string  `json:"project"`
+	ProjectID     string  `json:"project_id"`
+	Task          string  `json:"task"`
+	TaskName      string  `json:"task_name"`
+	TaskID        string  `json:"task_id"`
+	ActivityID    string  `json:"activity_id"`
+	FromTime      string  `json:"from_time"`
+	ToTime        string  `json:"to_time"`
+	Hours         string  `json:"hours"`
+	Submitted     bool    `json:"submitted"`
+	Timezone      string  `json:"timezone"`
+	Parent        *int    `json:"parent"` // nullable in API
+	TotalChildren string  `json:"total_children"`
+	AllFromTime   string  `json:"all_from_time"`
+	AllToTime     string  `json:"all_to_time"`
+	AllHours      string  `json:"all_hours"`
+}
+
+// GetFromTimeAsTime parses the from_time string to time.Time
+func (t *TimelogEntry) GetFromTimeAsTime() (time.Time, error) {
+	return parseTimeString(t.FromTime)
+}
+
+// GetToTimeAsTime parses the to_time string to time.Time
+func (t *TimelogEntry) GetToTimeAsTime() (time.Time, error) {
+	return parseTimeString(t.ToTime)
+}
+
+// GetDescriptionString safely returns the description as a string
+func (t *TimelogEntry) GetDescriptionString() string {
+	if t.Description == nil {
+		return ""
+	}
+	return *t.Description
+}
+
+// GetHoursAsFloat parses the hours string to float64
+func (t *TimelogEntry) GetHoursAsFloat() float64 {
+	var hours float64
+	fmt.Sscanf(t.Hours, "%f", &hours)
+	return hours
+}
+
+// Compatibility properties for backward compatibility with existing TUI code
+
+// StartTime returns the parsed from_time as time.Time (for backward compatibility)
+func (t *TimelogEntry) StartTime() time.Time {
+	parsed, _ := t.GetFromTimeAsTime()
+	return parsed
+}
+
+// EndTime returns the parsed to_time as time.Time (for backward compatibility)
+func (t *TimelogEntry) EndTime() time.Time {
+	if t.ToTime == "" {
+		return time.Time{} // Zero time if not set
+	}
+	parsed, _ := t.GetToTimeAsTime()
+	return parsed
+}
+
+// Duration returns hours as float64 (for backward compatibility)
+func (t *TimelogEntry) Duration() float64 {
+	return t.GetHoursAsFloat()
+}
+
+// Activity returns the activity type (for backward compatibility)
+func (t *TimelogEntry) Activity() string {
+	return t.ActivityType
+}
+
+// IsSubmitted returns the submitted status (for backward compatibility)
+func (t *TimelogEntry) IsSubmitted() bool {
+	return t.Submitted
+}
+
+// TimesheetCreateRequest represents the request body for creating a timesheet
+type TimesheetCreateRequest struct {
+	Description string                      `json:"description"` // HTML supported
+	StartTime   string                      `json:"start_time"`  // datetime
+	EndTime     *string                     `json:"end_time,omitempty"`
+	Task        TimesheetObjectReference    `json:"task"`
+	Project     TimesheetObjectReference    `json:"project"`
+	Activity    TimesheetObjectReference    `json:"activity"`
+	Timezone    string                      `json:"timezone"`
+	Parent      int                         `json:"parent,omitempty"` // default: 0
+	User        *TimesheetObjectReference   `json:"user,omitempty"`
+}
+
+// TimesheetObjectReference represents an object reference in the API (task, project, activity, user)
+type TimesheetObjectReference struct {
+	ID int `json:"id"`
+}
+
+// BreakTimesheetResponse represents the response from breaking a timesheet
+type BreakTimesheetResponse struct {
+	Detail string `json:"detail"`
+}
+
+// DeleteTimeLogRequest represents the request body for deleting a time log
+type DeleteTimeLogRequest struct {
+	ID string `json:"id"`
+}
+
+// parseTimeString attempts to parse time from various formats
+func parseTimeString(timeStr string) (time.Time, error) {
+	if timeStr == "" {
+		return time.Time{}, fmt.Errorf("empty time string")
+	}
+
+	// Try different time formats
+	formats := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05.999999Z",
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02",
+	}
+
+	for _, format := range formats {
+		if parsed, err := time.Parse(format, timeStr); err == nil {
+			return parsed, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unable to parse time: %s", timeStr)
 }
 
 // GetProjects fetches the list of projects with optional search query
@@ -707,4 +830,78 @@ func (c *Client) HealthCheck() error {
 		return fmt.Errorf("health check failed: %w", err)
 	}
 	return nil
+}
+
+// BreakTimesheet stops a running timesheet (timer)
+func (c *Client) BreakTimesheet(timelogID int) (*BreakTimesheetResponse, error) {
+	endpoint := fmt.Sprintf("/api/break-timesheet/%d/", timelogID)
+	resp, err := c.makeRequest("POST", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to break timesheet (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var breakResp BreakTimesheetResponse
+	if err := json.NewDecoder(resp.Body).Decode(&breakResp); err != nil {
+		return nil, fmt.Errorf("failed to decode break timesheet response: %w", err)
+	}
+
+	return &breakResp, nil
+}
+
+// DeleteTimeLog deletes a time log entry
+func (c *Client) DeleteTimeLog(id string) error {
+	req := DeleteTimeLogRequest{ID: id}
+	resp, err := c.makeRequest("POST", "/api/delete-time-log/", req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete time log (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// GetActiveTimesheet returns the currently running timesheet (if any)
+func (c *Client) GetActiveTimesheet() (*TimelogEntry, error) {
+	timelogs, err := c.GetTimelogs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the first entry where to_time is empty (running timer)
+	for _, entry := range timelogs {
+		if entry.ToTime == "" {
+			return &entry, nil
+		}
+	}
+
+	return nil, nil // No active timesheet
+}
+
+// GetUnsubmittedTimesheets returns timesheets that are stopped but not submitted
+func (c *Client) GetUnsubmittedTimesheets() ([]TimelogEntry, error) {
+	timelogs, err := c.GetTimelogs()
+	if err != nil {
+		return nil, err
+	}
+
+	var unsubmitted []TimelogEntry
+	for _, entry := range timelogs {
+		// Entry must have both from_time and to_time (stopped) and not be submitted
+		if entry.ToTime != "" && !entry.Submitted {
+			unsubmitted = append(unsubmitted, entry)
+		}
+	}
+
+	return unsubmitted, nil
 }

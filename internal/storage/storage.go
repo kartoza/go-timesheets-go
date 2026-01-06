@@ -302,7 +302,7 @@ func (s *Storage) LoadActiveTimeEntry() (*models.ActiveTimeEntry, error) {
 // DeleteTimeEntry removes a time entry from storage
 func (s *Storage) DeleteTimeEntry(entryID string) error {
 	filePath := filepath.Join(s.dataDir, "time_entries.json")
-	
+
 	var entries []models.TimeEntry
 	if data, err := os.ReadFile(filePath); err == nil {
 		if err := json.Unmarshal(data, &entries); err != nil {

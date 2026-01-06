@@ -524,8 +524,11 @@ func (m *EnhancedModel) timesheetListView() string {
 	// Group timelogs by date
 	groupedLogs := make(map[string][]api.TimelogEntry)
 	for _, entry := range m.timelogs {
-		date := entry.StartTime.Format("2006-01-02")
-		groupedLogs[date] = append(groupedLogs[date], entry)
+		fromTime, err := entry.GetFromTimeAsTime()
+		if err == nil {
+			date := fromTime.Format("2006-01-02")
+			groupedLogs[date] = append(groupedLogs[date], entry)
+		}
 	}
 
 	var content strings.Builder
@@ -533,14 +536,14 @@ func (m *EnhancedModel) timesheetListView() string {
 		content.WriteString(activeStyle.Render(fmt.Sprintf("📅 %s\n", date)))
 
 		for _, entry := range entries {
-			duration := formatDuration(time.Duration(entry.Duration * float64(time.Hour)))
 			content.WriteString(fmt.Sprintf("  ⏱️  %s - %s (%s)\n",
-				entry.ProjectName, entry.Activity, duration))
+				entry.ProjectName, entry.ActivityType, entry.Hours))
 			if entry.TaskName != "" {
 				content.WriteString(fmt.Sprintf("     Task: %s\n", entry.TaskName))
 			}
-			if entry.Description != "" {
-				content.WriteString(fmt.Sprintf("     %s\n", entry.Description))
+			desc := entry.GetDescriptionString()
+			if desc != "" {
+				content.WriteString(fmt.Sprintf("     %s\n", desc))
 			}
 		}
 		content.WriteString("\n")
@@ -822,15 +825,10 @@ func (m *EnhancedModel) loadTasksForProject(projectID string) tea.Cmd {
 		// Convert to combo box items
 		items := make([]ComboBoxItem, len(tasks))
 		for i, task := range tasks {
-			description := fmt.Sprintf("Expected: %.1fh", task.ExpectedTime)
-			if task.ActualTime > 0 {
-				description += fmt.Sprintf(" | Actual: %.1fh", task.ActualTime)
-			}
-			
 			items[i] = ComboBoxItem{
 				ID:          fmt.Sprintf("%d", task.ID),
 				Label:       task.Label,
-				Description: description,
+				Description: task.Name,
 				Value:       task,
 			}
 		}

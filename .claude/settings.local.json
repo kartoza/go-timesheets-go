@@ -14,7 +14,8 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebSearch",
-      "Bash(./timesheet-test status)"
+      "Bash(./timesheet-test status)",
+      "WebFetch(domain:timesheets.kartoza.com)"
     ],
     "deny": [],
     "ask": []

@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
 )
 
@@ -43,15 +44,15 @@ func NewAppWithAuth() (*AppWithAuth, error) {
 		// Token exists, try to use it
 		app.tokenLoaded = true
 
-		// Try to create the main app - it will load the token and handle API errors gracefully
-		// We don't do a health check here because network issues or API downtime
-		// shouldn't delete a valid token
-		mainApp, err := NewSimpleApp()
+		// Create API client with the stored token
+		apiClient, err := createAPIClient(token.Token, token.BaseURL)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create main app: %w", err)
+			return nil, fmt.Errorf("failed to create API client: %w", err)
 		}
 
-		app.mainApp = mainApp
+		// Create main menu
+		mainMenu := NewMainMenu(apiClient, token.Username)
+		app.mainApp = mainMenu
 		app.state = StateMain
 		return app, nil
 	}
@@ -132,12 +133,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case LoginSuccessMsg:
-		// Login succeeded, transition to main app
-		mainApp, err := NewSimpleApp()
+		// Login succeeded, create API client and transition to main menu
+		apiClient, err := createAPIClient(msg.Token, msg.BaseURL)
 		if err != nil {
 			// Handle error - stay on login screen with error
 			if a.loginModel != nil {
-				errMsg := LoginErrorMsg{Err: fmt.Errorf("failed to initialize app: %w", err)}
+				errMsg := LoginErrorMsg{Err: fmt.Errorf("failed to create API client: %w", err)}
 				model, c := a.loginModel.Update(errMsg)
 				if m, ok := model.(LoginModel); ok {
 					a.loginModel = &m
@@ -147,7 +148,9 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-		a.mainApp = mainApp
+		// Create main menu
+		mainMenu := NewMainMenu(apiClient, msg.Username)
+		a.mainApp = mainMenu
 		a.state = StateMain
 		return a, a.mainApp.Init()
 
@@ -207,4 +210,18 @@ func (a *AppWithAuth) Run() error {
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
+}
+
+// createAPIClient creates an API client with the given token and base URL
+func createAPIClient(token, baseURL string) (*api.Client, error) {
+	client, err := api.NewClient(api.Config{
+		BaseURL: baseURL,
+		Timeout: 30,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	client.SetAuthToken(token)
+	return client, nil
 }
