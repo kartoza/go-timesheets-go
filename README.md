@@ -25,6 +25,58 @@
 
 ### Installation
 
+#### Using Nix Flakes (Recommended)
+
+You can install this package directly from the flake:
+
+```bash
+# Try it without installing
+nix run github:kartoza/go-timesheets-go
+
+# Install to your profile
+nix profile install github:kartoza/go-timesheets-go
+
+# Or add to your NixOS configuration
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    kartoza-timesheet.url = "github:kartoza/go-timesheets-go";
+  };
+
+  outputs = { self, nixpkgs, kartoza-timesheet, ... }: {
+    # For NixOS
+    nixosConfigurations.your-hostname = nixpkgs.lib.nixosSystem {
+      # ... your config
+      modules = [
+        {
+          environment.systemPackages = [
+            kartoza-timesheet.packages.${system}.default
+          ];
+        }
+      ];
+    };
+
+    # For home-manager
+    homeConfigurations.your-username = home-manager.lib.homeManagerConfiguration {
+      # ... your config
+      modules = [
+        {
+          home.packages = [
+            kartoza-timesheet.packages.${system}.default
+          ];
+        }
+      ];
+    };
+  };
+}
+```
+
+The package includes a `.desktop` file that will be automatically installed, allowing you to launch the application from your application menu.
+
+**For detailed Nix flake usage instructions, see [README-NIX.md](README-NIX.md)**
+
+#### Traditional Installation
+
 ```bash
 # Clone the repository
 git clone https://github.com/kartoza/go-timesheets-go.git
