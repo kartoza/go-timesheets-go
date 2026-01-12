@@ -6,7 +6,7 @@
 *.dylib
 *.test
 *.out
-go.sum
+# go.sum should be tracked for reproducible builds
 vendor/
 *.prof
 

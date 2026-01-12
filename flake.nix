@@ -78,7 +78,38 @@
           gnused
         ];
 
+        # The kartoza-timesheet package
+        kartoza-timesheet = pkgs.buildGoModule {
+          pname = "kartoza-timesheet";
+          version = "0.1.0";
+          src = ./.;
+
+          vendorHash = "";
+
+          ldflags = [ "-s" "-w" ];
+
+          postInstall = ''
+            # Install the .desktop file
+            mkdir -p $out/share/applications
+            cp $src/kartoza-timesheet.desktop $out/share/applications/
+          '';
+
+          meta = with pkgs.lib; {
+            description = "A beautiful terminal-based timesheet application";
+            homepage = "https://github.com/kartoza/go-timesheets-go";
+            license = licenses.mit;
+            maintainers = [ ];
+            platforms = platforms.linux ++ platforms.darwin;
+          };
+        };
+
       in {
+        # Package output for installing the app
+        packages = {
+          default = self.packages.${system}.kartoza-timesheet;
+          kartoza-timesheet = kartoza-timesheet;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = devTools;
 
@@ -161,8 +192,13 @@
 
         # Apps for easy execution
         apps = {
+          default = flake-utils.lib.mkApp {
+            drv = kartoza-timesheet;
+          };
+
           setup = flake-utils.lib.mkApp {
             drv = pkgs.writeShellScriptBin "setup" ''
+              #!/usr/bin/env bash
               echo "Setting up development environment..."
               if [ ! -f "go.mod" ]; then
                 go mod init github.com/timlinux/kartoza-timesheet-app
