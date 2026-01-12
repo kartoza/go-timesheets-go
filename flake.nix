@@ -89,6 +89,9 @@
           ldflags = [ "-s" "-w" ];
 
           postInstall = ''
+            # Rename binary to kartoza-timesheet for consistency with Makefile
+            mv $out/bin/go-timesheets-go $out/bin/kartoza-timesheet
+
             # Install the .desktop file
             mkdir -p $out/share/applications
             cp $src/kartoza-timesheet.desktop $out/share/applications/
