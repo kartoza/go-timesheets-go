@@ -22,7 +22,7 @@ type AppState int
 const (
 	StateLogin AppState = iota
 	StateMainMenu
-	StateTimerCreation
+	StateTimesheetCreation
 	StateHistoryView
 	StateWorkspaceAssociations
 )
@@ -32,8 +32,8 @@ type AppWithAuth struct {
 	state              AppState
 	loginModel         *LoginModel
 	mainMenu           *MainMenuModel
-	timerCreationView  *TimesheetApp
-	historyView        *TimesheetApp
+	timesheetCreator   *TimesheetCreator
+	historyView        *HistoryView
 	workspaceView      *WorkspaceAssociationsModel
 	width              int
 	height             int
@@ -126,9 +126,9 @@ func (a *AppWithAuth) Init() tea.Cmd {
 			cmds = append(cmds, a.mainMenu.Init())
 		}
 
-	case StateTimerCreation:
-		if a.timerCreationView != nil {
-			cmds = append(cmds, a.timerCreationView.Init())
+	case StateTimesheetCreation:
+		if a.timesheetCreator != nil {
+			cmds = append(cmds, a.timesheetCreator.Init())
 		}
 
 	case StateHistoryView:
@@ -177,21 +177,13 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				cmds = append(cmds, c)
 			}
-		case StateTimerCreation:
-			if a.timerCreationView != nil {
-				model, c := a.timerCreationView.Update(msg)
-				if m, ok := model.(*TimesheetApp); ok {
-					a.timerCreationView = m
-				}
-				cmds = append(cmds, c)
+		case StateTimesheetCreation:
+			if a.timesheetCreator != nil {
+				a.timesheetCreator, _ = a.timesheetCreator.Update(msg)
 			}
 		case StateHistoryView:
 			if a.historyView != nil {
-				model, c := a.historyView.Update(msg)
-				if m, ok := model.(*TimesheetApp); ok {
-					a.historyView = m
-				}
-				cmds = append(cmds, c)
+				a.historyView, _ = a.historyView.Update(msg)
 			}
 		case StateWorkspaceAssociations:
 			if a.workspaceView != nil {
@@ -225,20 +217,16 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				cmds = append(cmds, c)
 			}
-		case StateTimerCreation:
-			if a.timerCreationView != nil {
-				model, c := a.timerCreationView.Update(msg)
-				if m, ok := model.(*TimesheetApp); ok {
-					a.timerCreationView = m
-				}
+		case StateTimesheetCreation:
+			if a.timesheetCreator != nil {
+				var c tea.Cmd
+				a.timesheetCreator, c = a.timesheetCreator.Update(msg)
 				cmds = append(cmds, c)
 			}
 		case StateHistoryView:
 			if a.historyView != nil {
-				model, c := a.historyView.Update(msg)
-				if m, ok := model.(*TimesheetApp); ok {
-					a.historyView = m
-				}
+				var c tea.Cmd
+				a.historyView, c = a.historyView.Update(msg)
 				cmds = append(cmds, c)
 			}
 		case StateWorkspaceAssociations:
@@ -285,22 +273,18 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case launchTimerCreationMsg:
-		// Transition to timer creation with authenticated API client
-		timerApp, err := NewTimesheetAppWithClient(a.apiClient, a.username)
-		if err != nil {
-			// Handle error
-			return a, func() tea.Msg {
-				return errorMsg(fmt.Errorf("failed to create timer app: %w", err))
-			}
-		}
-		a.timerCreationView = timerApp
-		a.state = StateTimerCreation
-		return a, a.timerCreationView.Init()
+		// Transition to new unified timesheet creator
+		timesheetCreator := NewTimesheetCreator(a.apiClient, a.username)
+		timesheetCreator.width = a.width
+		timesheetCreator.height = a.height
+		a.timesheetCreator = timesheetCreator
+		a.state = StateTimesheetCreation
+		return a, a.timesheetCreator.Init()
 
 	case backToMenuMsg:
-		// Return to main menu from timer creation
+		// Return to main menu
 		a.state = StateMainMenu
-		a.timerCreationView = nil
+		a.timesheetCreator = nil
 		a.historyView = nil
 		a.workspaceView = nil
 		// Reload main menu to refresh state
@@ -310,15 +294,11 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case launchHistoryViewMsg:
-		// Transition to history view with authenticated API client
-		historyApp, err := NewTimesheetAppWithClientAndTab(a.apiClient, a.username, TabHistory)
-		if err != nil {
-			// Handle error
-			return a, func() tea.Msg {
-				return errorMsg(fmt.Errorf("failed to create history view: %w", err))
-			}
-		}
-		a.historyView = historyApp
+		// Transition to history view
+		historyView := NewHistoryView(a.apiClient, a.username)
+		historyView.width = a.width
+		historyView.height = a.height
+		a.historyView = historyView
 		a.state = StateHistoryView
 		return a, a.historyView.Init()
 
@@ -348,20 +328,16 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				cmds = append(cmds, c)
 			}
-		case StateTimerCreation:
-			if a.timerCreationView != nil {
-				model, c := a.timerCreationView.Update(msg)
-				if m, ok := model.(*TimesheetApp); ok {
-					a.timerCreationView = m
-				}
+		case StateTimesheetCreation:
+			if a.timesheetCreator != nil {
+				var c tea.Cmd
+				a.timesheetCreator, c = a.timesheetCreator.Update(msg)
 				cmds = append(cmds, c)
 			}
 		case StateHistoryView:
 			if a.historyView != nil {
-				model, c := a.historyView.Update(msg)
-				if m, ok := model.(*TimesheetApp); ok {
-					a.historyView = m
-				}
+				var c tea.Cmd
+				a.historyView, c = a.historyView.Update(msg)
 				cmds = append(cmds, c)
 			}
 		case StateWorkspaceAssociations:
@@ -397,11 +373,11 @@ func (a *AppWithAuth) View() string {
 		}
 		return "Loading main menu..."
 
-	case StateTimerCreation:
-		if a.timerCreationView != nil {
-			return a.timerCreationView.View()
+	case StateTimesheetCreation:
+		if a.timesheetCreator != nil {
+			return a.timesheetCreator.View()
 		}
-		return a.renderLoadingScreen("Loading timer creation")
+		return a.renderLoadingScreen("Loading timesheet creator")
 
 	case StateHistoryView:
 		if a.historyView != nil {

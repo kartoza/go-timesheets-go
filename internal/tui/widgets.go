@@ -411,8 +411,11 @@ func (rcb *RefreshableComboBox) Update(msg tea.Msg) (RefreshableComboBox, tea.Cm
 		rcb.ComboBox.textInput.Placeholder = fmt.Sprintf("Error: %v", msg.Err)
 		return *rcb, nil
 	}
-	
+
 	var cmd tea.Cmd
 	rcb.ComboBox, cmd = rcb.ComboBox.Update(msg)
 	return *rcb, cmd
 }
+
+// Common message types used across TUI components
+type errorMsg error
