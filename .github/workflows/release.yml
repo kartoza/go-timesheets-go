@@ -1,0 +1,76 @@
+name: Build and Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:  # Allow manual trigger for testing
+
+jobs:
+  build-releases:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build Linux AMD64
+        run: |
+          nix build .#linux-amd64
+          mkdir -p artifacts
+          cp -L result/bin/kartoza-timesheet artifacts/kartoza-timesheet-linux-amd64
+          cp -L result/dist/*.tar.gz artifacts/ || true
+
+      - name: Build Linux ARM64
+        run: |
+          nix build .#linux-arm64
+          cp -L result/bin/kartoza-timesheet artifacts/kartoza-timesheet-linux-arm64
+          cp -L result/dist/*.tar.gz artifacts/ || true
+
+      - name: Build macOS AMD64
+        run: |
+          nix build .#darwin-amd64
+          cp -L result/bin/kartoza-timesheet artifacts/kartoza-timesheet-darwin-amd64
+          cp -L result/dist/*.tar.gz artifacts/ || true
+
+      - name: Build macOS ARM64 (Apple Silicon)
+        run: |
+          nix build .#darwin-arm64
+          cp -L result/bin/kartoza-timesheet artifacts/kartoza-timesheet-darwin-arm64
+          cp -L result/dist/*.tar.gz artifacts/ || true
+
+      - name: Build Windows AMD64
+        run: |
+          nix build .#windows-amd64
+          cp -L result/bin/kartoza-timesheet.exe artifacts/kartoza-timesheet-windows-amd64.exe
+          cp -L result/dist/*.tar.gz artifacts/ || true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Upload artifacts to release
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} artifacts/* --clobber
+
+      - name: Upload artifacts (for manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts/*
+          retention-days: 7

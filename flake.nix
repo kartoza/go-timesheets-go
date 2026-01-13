@@ -7,6 +7,85 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
+    let
+      # Version - update this with each release
+      version = "0.2.0";
+
+      # Helper function to build for a specific platform
+      mkPackage = { pkgs, system, GOOS, GOARCH }:
+        let
+          # For Windows, we need to add .exe extension
+          binaryName = if GOOS == "windows" then "kartoza-timesheet.exe" else "kartoza-timesheet";
+          platformSuffix = "${GOOS}-${GOARCH}";
+        in
+        pkgs.buildGoModule {
+          pname = "kartoza-timesheet-${platformSuffix}";
+          inherit version;
+          src = ./.;
+
+          vendorHash = "sha256-IxY0DhustargOiLY+Rd2IMwKnveJ/a7cPUgSiK9griY=";
+
+          ldflags = [
+            "-s"
+            "-w"
+            "-X main.version=${version}"
+          ];
+
+          # Set cross-compilation environment variables
+          # These need to be in preBuild to avoid conflicts
+          preBuild = ''
+            export CGO_ENABLED=0
+            export GOOS=${GOOS}
+            export GOARCH=${GOARCH}
+          '';
+
+          # For cross-compilation, we need to skip tests
+          doCheck = false;
+
+          postInstall = ''
+            # Handle Go's cross-compilation directory structure
+            # Go sometimes creates platform-specific subdirectories
+            if [ -d "$out/bin/${GOOS}_${GOARCH}" ]; then
+              mv $out/bin/${GOOS}_${GOARCH}/* $out/bin/
+              rmdir $out/bin/${GOOS}_${GOARCH}
+            fi
+
+            # Rename binary for consistency
+            # Windows builds automatically add .exe extension
+            if [ -f "$out/bin/go-timesheets-go.exe" ]; then
+              mv $out/bin/go-timesheets-go.exe $out/bin/${binaryName}
+            elif [ -f "$out/bin/go-timesheets-go" ]; then
+              mv $out/bin/go-timesheets-go $out/bin/${binaryName}
+            fi
+
+            # Remove scripts binary (we only want the main app)
+            rm -f $out/bin/scripts $out/bin/scripts.exe
+
+            # Only install .desktop file for Linux
+            ${if GOOS == "linux" then ''
+              mkdir -p $out/share/applications
+              cp $src/kartoza-timesheet.desktop $out/share/applications/
+            '' else ""}
+
+            # Create a tarball for distribution
+            mkdir -p $out/dist
+            cd $out/bin
+
+            # Only create tarball for the main binary
+            if [ -f "${binaryName}" ]; then
+              tar czf $out/dist/kartoza-timesheet-${version}-${platformSuffix}.tar.gz ${binaryName}
+            fi
+          '';
+
+          meta = with pkgs.lib; {
+            description = "A beautiful terminal-based timesheet application";
+            homepage = "https://github.com/kartoza/go-timesheets-go";
+            license = licenses.mit;
+            maintainers = [ ];
+            platforms = platforms.all;
+          };
+        };
+    in
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -78,39 +157,75 @@
           gnused
         ];
 
-        # The kartoza-timesheet package
-        kartoza-timesheet = pkgs.buildGoModule {
-          pname = "kartoza-timesheet";
-          version = "0.1.0";
-          src = ./.;
+        # Native package (for current system)
+        kartoza-timesheet = mkPackage {
+          inherit pkgs system;
+          GOOS = if pkgs.stdenv.isLinux then "linux"
+                 else if pkgs.stdenv.isDarwin then "darwin"
+                 else throw "Unsupported system";
+          GOARCH = if pkgs.stdenv.isx86_64 then "amd64"
+                   else if pkgs.stdenv.isAarch64 then "arm64"
+                   else throw "Unsupported architecture";
+        };
 
-          vendorHash = "sha256-IxY0DhustargOiLY+Rd2IMwKnveJ/a7cPUgSiK9griY=";
+        # Cross-compilation packages
+        # Linux builds
+        linux-amd64 = mkPackage {
+          inherit pkgs system;
+          GOOS = "linux";
+          GOARCH = "amd64";
+        };
 
-          ldflags = [ "-s" "-w" ];
+        linux-arm64 = mkPackage {
+          inherit pkgs system;
+          GOOS = "linux";
+          GOARCH = "arm64";
+        };
 
-          postInstall = ''
-            # Rename binary to kartoza-timesheet for consistency with Makefile
-            mv $out/bin/go-timesheets-go $out/bin/kartoza-timesheet
+        # macOS builds
+        darwin-amd64 = mkPackage {
+          inherit pkgs system;
+          GOOS = "darwin";
+          GOARCH = "amd64";
+        };
 
-            # Install the .desktop file
-            mkdir -p $out/share/applications
-            cp $src/kartoza-timesheet.desktop $out/share/applications/
-          '';
+        darwin-arm64 = mkPackage {
+          inherit pkgs system;
+          GOOS = "darwin";
+          GOARCH = "arm64";
+        };
 
-          meta = with pkgs.lib; {
-            description = "A beautiful terminal-based timesheet application";
-            homepage = "https://github.com/kartoza/go-timesheets-go";
-            license = licenses.mit;
-            maintainers = [ ];
-            platforms = platforms.linux ++ platforms.darwin;
-          };
+        # Windows builds
+        windows-amd64 = mkPackage {
+          inherit pkgs system;
+          GOOS = "windows";
+          GOARCH = "amd64";
         };
 
       in {
-        # Package output for installing the app
+        # Package outputs for installing the app
         packages = {
-          default = self.packages.${system}.kartoza-timesheet;
+          default = kartoza-timesheet;
           kartoza-timesheet = kartoza-timesheet;
+
+          # Cross-compilation packages
+          linux-amd64 = linux-amd64;
+          linux-arm64 = linux-arm64;
+          darwin-amd64 = darwin-amd64;
+          darwin-arm64 = darwin-arm64;
+          windows-amd64 = windows-amd64;
+
+          # Convenience package to build all release artifacts
+          all-releases = pkgs.symlinkJoin {
+            name = "kartoza-timesheet-all-releases";
+            paths = [
+              linux-amd64
+              linux-arm64
+              darwin-amd64
+              darwin-arm64
+              windows-amd64
+            ];
+          };
         };
 
         devShells.default = pkgs.mkShell {

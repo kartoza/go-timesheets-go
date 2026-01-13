@@ -89,6 +89,9 @@ type TimesheetApp struct {
 	projectSearchInput textinput.Model
 	searchMode         bool // true when user is typing in search box
 
+	// Project search cache - key is first 2 letters, value is cached projects
+	projectCache map[string][]api.ProjectListItem
+
 	// Timer control form inputs (Tab 4)
 	descriptionInput textinput.Model
 	dateInput        textinput.Model
@@ -174,6 +177,7 @@ func NewTimesheetApp() (*TimesheetApp, error) {
 		endTimeInput:       endTimeInput,
 		historyPageSize:    30,
 		historyPage:        0,
+		projectCache:       make(map[string][]api.ProjectListItem), // Initialize cache
 	}
 
 	// Load session state to restore previous selections
@@ -241,6 +245,7 @@ func NewTimesheetAppWithClient(apiClient *api.Client, username string) (*Timeshe
 		endTimeInput:       endTimeInput,
 		historyPageSize:    30,
 		historyPage:        0,
+		projectCache:       make(map[string][]api.ProjectListItem), // Initialize cache
 	}
 
 	// Load session state to restore previous selections
@@ -333,7 +338,20 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Trigger search if >= 2 characters
 				query := a.projectSearchInput.Value()
 				if len(query) >= 2 {
-					cmds = append(cmds, a.searchProjects(query))
+					// Check cache first for immediate response
+					cacheKey := strings.ToLower(query)
+					if len(cacheKey) > 2 {
+						cacheKey = cacheKey[:2]
+					}
+
+					if cachedProjects, hasCached := a.projectCache[cacheKey]; hasCached {
+						// Use cached data synchronously - no async command needed!
+						a.projects = a.filterProjectsLocally(cachedProjects, query)
+						a.projectCursor = 0
+					} else {
+						// Cache miss - need to fetch from API
+						cmds = append(cmds, a.searchProjects(query))
+					}
 				} else if len(query) == 0 {
 					// Clear results if query is empty
 					a.projects = nil
@@ -404,6 +422,12 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Logout - delete token and quit
 			config.DeleteToken()
 			return a, tea.Quit
+
+		case "ctrl+r":
+			// Clear project cache
+			if a.currentTab == TabProjects {
+				a.clearProjectCache()
+			}
 
 		case "1":
 			a.clearMessages()
@@ -926,11 +950,11 @@ func (a *TimesheetApp) renderProjectsView() string {
 	if a.searchMode {
 		helpText = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
-			Render("Tab/Esc: Navigate results | Enter: Select | Ctrl+C: Quit")
+			Render("Tab/Esc: Navigate results | Enter: Select | Ctrl+R: Clear cache | Ctrl+C: Quit")
 	} else {
 		helpText = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
-			Render("↑/↓: Navigate | Enter: Select | /: Search | Esc: Back to search | Ctrl+C: Quit")
+			Render("↑/↓: Navigate | Enter: Select | /: Search | Esc: Back to search | Ctrl+R: Clear cache | Ctrl+C: Quit")
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Top, title, searchBox, resultsContent, helpText)
@@ -1781,12 +1805,53 @@ func (a *TimesheetApp) searchProjects(query string) tea.Cmd {
 			return errorMsg(fmt.Errorf("API client not available"))
 		}
 
-		projects, err := a.apiClient.GetProjects(query)
+		// Get cache key (first 2 letters, lowercase)
+		cacheKey := strings.ToLower(query)
+		if len(cacheKey) > 2 {
+			cacheKey = cacheKey[:2]
+		}
+
+		// Check cache first
+		cachedProjects, hasCached := a.projectCache[cacheKey]
+
+		// If we have cached data, filter locally
+		if hasCached {
+			// Filter the cached results locally
+			filtered := a.filterProjectsLocally(cachedProjects, query)
+			return projectsLoadedMsg(filtered)
+		}
+
+		// Cache miss - fetch from API with the 2-letter prefix
+		projects, err := a.apiClient.GetProjects(cacheKey)
 		if err != nil {
 			return errorMsg(err)
 		}
-		return projectsLoadedMsg(projects)
+
+		// Cache the result
+		a.projectCache[cacheKey] = projects
+
+		// Filter the result for the actual query
+		filtered := a.filterProjectsLocally(projects, query)
+		return projectsLoadedMsg(filtered)
 	}
+}
+
+// filterProjectsLocally filters projects locally by query string
+func (a *TimesheetApp) filterProjectsLocally(projects []api.ProjectListItem, query string) []api.ProjectListItem {
+	if query == "" {
+		return projects
+	}
+
+	query = strings.ToLower(query)
+	var filtered []api.ProjectListItem
+
+	for _, project := range projects {
+		if strings.Contains(strings.ToLower(project.Label), query) {
+			filtered = append(filtered, project)
+		}
+	}
+
+	return filtered
 }
 
 func (a *TimesheetApp) loadTasks(projectID int) tea.Cmd {
@@ -2213,4 +2278,10 @@ func (a *TimesheetApp) Run() error {
 func (a *TimesheetApp) clearMessages() {
 	a.err = nil
 	a.successMessage = ""
+}
+
+// clearProjectCache clears the project search cache
+func (a *TimesheetApp) clearProjectCache() {
+	a.projectCache = make(map[string][]api.ProjectListItem)
+	a.successMessage = "✓ Project cache cleared"
 }
