@@ -518,6 +518,14 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.saveSessionState() // Save session state on tab switch
 			cmds = append(cmds, a.loadAllHistory())
 
+		case "q":
+			// Return to main menu (home) from anywhere
+			if a.currentTab != TabProjects {
+				return a, func() tea.Msg {
+					return backToMenuMsg{}
+				}
+			}
+
 		case "n":
 			// New entry (only on Tab 4)
 			if a.currentTab == TabCurrent {
@@ -1043,7 +1051,7 @@ func (a *TimesheetApp) renderProjectsView() string {
 	} else {
 		helpText = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
-			Render("↑/↓: Navigate | Enter: Select | /: Search | Esc: Back to search | Ctrl+R: Clear cache | Ctrl+C: Quit")
+			Render("↑/↓: Navigate | Enter: Select | /: Search | Esc: Back to search | q: Home | Ctrl+R: Clear cache | Ctrl+C: Quit")
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Top, title, searchBox, resultsContent, helpText)
@@ -1138,7 +1146,7 @@ func (a *TimesheetApp) renderProjectDetailsView() string {
 
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
-		Render("↑/↓: Navigate | Enter: Select | Esc: Back | Ctrl+C: Quit")
+		Render("↑/↓: Navigate | Enter: Select | Esc: Back | q: Home | Ctrl+C: Quit")
 
 	if scrollInfo != "" {
 		return lipgloss.JoinVertical(lipgloss.Top, title, subtitle, scrollInfo, list, helpText)
@@ -1248,7 +1256,7 @@ func (a *TimesheetApp) renderActivitiesView() string {
 
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
-		Render("↑/↓: Navigate | Enter: Select | Esc: Back | Ctrl+C: Quit")
+		Render("↑/↓: Navigate | Enter: Select | Esc: Back | q: Home | Ctrl+C: Quit")
 
 	if scrollInfo != "" {
 		return lipgloss.JoinVertical(lipgloss.Top, title, scrollInfo, list, helpText)
@@ -1391,7 +1399,7 @@ func (a *TimesheetApp) renderTimerForm() string {
 	if a.formMode {
 		formFields = append(formFields, helpStyle.Render("Tab: Next Field | Shift+Tab: Previous | Enter: Submit | Esc: Exit Form"))
 	} else {
-		formFields = append(formFields, helpStyle.Render("n: New Entry | e: Edit Selected | ↑/↓: Navigate | Esc: Back"))
+		formFields = append(formFields, helpStyle.Render("n: New Entry | e: Edit Selected | ↑/↓: Navigate | Esc: Back | q: Home"))
 	}
 
 	return formStyle.Render(lipgloss.JoinVertical(lipgloss.Left, formFields...))
@@ -1747,7 +1755,7 @@ func (a *TimesheetApp) renderHistoryView() string {
 		Italic(true).
 		Margin(1, 0)
 
-	help := helpStyle.Render("Navigation: ↑/↓ navigate • left/right or pgup/pgdn change page • esc back")
+	help := helpStyle.Render("Navigation: ↑/↓ navigate • left/right or pgup/pgdn change page • esc back • q home")
 
 	return lipgloss.JoinVertical(lipgloss.Top, title, "", tableStyle.Render(tableContent), help)
 }
