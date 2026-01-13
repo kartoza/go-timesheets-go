@@ -239,12 +239,14 @@
             echo "✅ Git and GitHub CLI tools"
             echo "✅ Pre-commit hooks ready"
             echo "✅ System Neovim available"
+            echo "✅ expvarmon for monitoring"
             echo ""
             echo "🔧 Quick commands:"
             echo "  nvim .           # Open Neovim in current directory"
             echo "  go mod init      # Initialize Go module"
             echo "  go get github.com/charmbracelet/bubbletea  # Add Bubbletea"
             echo "  pre-commit install  # Set up quality hooks"
+            echo "  make monitor     # Monitor app with expvarmon TUI"
             echo ""
             echo ""
 
@@ -296,6 +298,12 @@
               echo "🫧 Bubbletea is ready for TUI development!"
             elif [ -f "go.mod" ]; then
               echo "💡 Add Bubbletea: go get github.com/charmbracelet/bubbletea"
+            fi
+
+            # Install expvarmon if not already installed
+            if ! command -v expvarmon >/dev/null 2>&1; then
+              echo "📊 Installing expvarmon for monitoring..."
+              go install github.com/divan/expvarmon@latest >/dev/null 2>&1 &
             fi
           '';
 

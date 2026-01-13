@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,6 +13,7 @@ import (
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
+	"github.com/kartoza/go-timesheets-go/internal/monitoring"
 )
 
 // AppState represents the application state
@@ -36,6 +41,8 @@ type AppWithAuth struct {
 	apiClient          *api.Client
 	username           string
 	spinner            spinner.Model
+	monitoringServer   *monitoring.Server
+	metrics            *monitoring.Metrics
 }
 
 // NewAppWithAuth creates a new app with authentication
@@ -44,9 +51,28 @@ func NewAppWithAuth() (*AppWithAuth, error) {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#E95420"))
 
+	// Initialize monitoring
+	homeDir, _ := os.UserHomeDir()
+	logDir := filepath.Join(homeDir, ".config/.kartoza-timesheets/logs")
+	metrics, err := monitoring.Initialize(logDir)
+	if err != nil {
+		// Log error but don't fail app startup
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize monitoring: %v\n", err)
+	}
+
+	// Start monitoring server
+	monitoringServer := monitoring.NewServer(6060)
+	if err := monitoringServer.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to start monitoring server: %v\n", err)
+	} else if metrics != nil {
+		fmt.Fprintf(os.Stderr, "Monitoring server started on http://localhost:6060\n")
+	}
+
 	app := &AppWithAuth{
-		state:   StateLogin,
-		spinner: s,
+		state:            StateLogin,
+		spinner:          s,
+		monitoringServer: monitoringServer,
+		metrics:          metrics,
 	}
 
 	// Check if token exists
@@ -61,7 +87,7 @@ func NewAppWithAuth() (*AppWithAuth, error) {
 		app.tokenLoaded = true
 
 		// Create API client with the stored token
-		apiClient, err := createAPIClient(token.Token, token.Username, token.BaseURL)
+		apiClient, err := createAPIClient(token.Token, token.Username, token.BaseURL, metrics)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create API client: %w", err)
 		}
@@ -225,7 +251,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LoginSuccessMsg:
 		// Login succeeded, create API client and transition to main menu
-		apiClient, err := createAPIClient(msg.Token, msg.Username, msg.BaseURL)
+		apiClient, err := createAPIClient(msg.Token, msg.Username, msg.BaseURL, a.metrics)
 		if err != nil {
 			// Handle error - stay on login screen with error
 			if a.loginModel != nil {
@@ -419,11 +445,23 @@ func (a *AppWithAuth) renderLoadingScreen(message string) string {
 func (a *AppWithAuth) Run() error {
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	_, err := p.Run()
+
+	// Cleanup on exit
+	if a.monitoringServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		a.monitoringServer.Stop(ctx)
+	}
+
+	if a.metrics != nil {
+		a.metrics.Close()
+	}
+
 	return err
 }
 
 // createAPIClient creates an API client with the given token, username and base URL
-func createAPIClient(token, username, baseURL string) (*api.Client, error) {
+func createAPIClient(token, username, baseURL string, metrics *monitoring.Metrics) (*api.Client, error) {
 	client, err := api.NewClient(api.Config{
 		BaseURL: baseURL,
 		Timeout: 30,
@@ -434,5 +472,11 @@ func createAPIClient(token, username, baseURL string) (*api.Client, error) {
 
 	client.SetAuthToken(token)
 	client.SetUsername(username)
+
+	// Set metrics if available
+	if metrics != nil {
+		client.SetMetrics(metrics)
+	}
+
 	return client, nil
 }

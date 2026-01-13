@@ -170,6 +170,155 @@ Add to your waybar config:
 }
 ```
 
+## 📊 Monitoring and Metrics
+
+The application includes built-in monitoring with expvar metrics and request logging.
+
+### Automatic Monitoring Server
+
+When you run the application, a monitoring server automatically starts on `http://localhost:6060`:
+
+```bash
+# Start the application - monitoring server starts automatically
+kartoza-timesheet
+
+# In another terminal, view metrics in your browser
+xdg-open http://localhost:6060
+```
+
+The monitoring server exposes:
+- `/` - Monitoring dashboard with links and usage instructions
+- `/debug/vars` - Raw JSON metrics (expvar format)
+- `/health` - Health check endpoint
+
+### Metrics Tracked
+
+The application tracks the following metrics:
+
+- **API Requests**:
+  - `api.requests.total` - Total API requests made
+  - `api.requests.inflight` - Currently in-flight requests
+  - `api.requests.errors` - Failed requests (4xx/5xx status or errors)
+  - `api.requests.duration_ms` - Last request duration in milliseconds
+  - `api.requests.by_path` - Request counts per endpoint
+
+- **Cache Performance**:
+  - `cache.hits` - Cache hit count
+  - `cache.misses` - Cache miss count
+  - `api.cache_hit_ratio` - Cache hit percentage
+
+### API Request Logs
+
+All API requests are logged to daily log files:
+
+```
+~/.config/.kartoza-timesheets/logs/api-requests-YYYY-MM-DD.log
+```
+
+Each log entry includes:
+- Timestamp
+- HTTP method and endpoint
+- Status code
+- Request duration
+- Error message (if any)
+
+### Using the Monitor Command
+
+The application includes a built-in `monitor` command to view API request logs:
+
+```bash
+# View today's API request logs
+kartoza-timesheet monitor
+
+# Follow logs in real-time (like tail -f)
+kartoza-timesheet monitor --follow
+
+# Show logs from the last hour
+kartoza-timesheet monitor --since 1h
+
+# Filter logs by endpoint path
+kartoza-timesheet monitor --path /api/project
+
+# Combine filters
+kartoza-timesheet monitor --follow --since 5m --path /api/timelog
+```
+
+### Using expvarmon for Real-Time Monitoring
+
+For advanced real-time monitoring with a TUI dashboard, use [expvarmon](https://github.com/divan/expvarmon):
+
+#### Installation
+
+**Option 1: Using Nix (Recommended)**
+```bash
+# Enter the development shell - expvarmon auto-installs
+nix develop
+
+# expvarmon is now available
+expvarmon --help
+```
+
+**Option 2: Using Make**
+```bash
+# Start the timesheet app in one terminal
+./kartoza-timesheet
+
+# In another terminal, run the monitoring TUI
+make monitor
+```
+
+**Option 3: Manual Installation**
+```bash
+# Install expvarmon directly
+go install github.com/divan/expvarmon@latest
+
+# Run it manually
+expvarmon -ports="localhost:6060" \
+  -vars="api.requests.total,api.requests.errors,api.requests.inflight,api.cache_hit_ratio,api.requests.duration_ms" \
+  -i 1s
+```
+
+#### What You'll See
+
+The expvarmon TUI provides a live dashboard showing:
+- **Total API requests** - Cumulative count over time (line graph)
+- **Error rate** - Failed requests (4xx/5xx) over time (line graph)
+- **Concurrent requests** - In-flight requests at this moment (gauge)
+- **Cache hit ratio** - Percentage of cached responses (gauge)
+- **Request duration** - Last request latency in milliseconds (gauge)
+
+All metrics update every second, giving you real-time insight into API performance.
+
+#### Example Session
+
+```bash
+# Terminal 1: Start the app
+./kartoza-timesheet
+
+# Terminal 2: Monitor with expvarmon TUI
+make monitor
+
+# Or using Makefile helpers for logs:
+make logs          # View last hour of API logs
+make logs-follow   # Follow logs in real-time (tail -f style)
+```
+
+### Example Log Output
+
+```
+[2026-01-13 11:47:59] GET /api/project/ | Status: 200 | Duration: 234ms
+[2026-01-13 11:48:01] POST /api/timelog/ | Status: 201 | Duration: 456ms
+[2026-01-13 11:48:05] GET /api/timelog/ | Status: 200 | Duration: 123ms | Error: timeout
+```
+
+### Monitoring in Production
+
+For production deployments, you can:
+
+1. **Export metrics to monitoring systems**: The `/debug/vars` endpoint provides JSON metrics compatible with most monitoring tools
+2. **Analyze logs**: Parse the daily log files for performance analysis and debugging
+3. **Set up alerts**: Monitor error rates and response times using the exposed metrics
+
 ## 📱 Screenshots
 
 <div align="center">

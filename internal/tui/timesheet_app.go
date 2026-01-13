@@ -24,7 +24,16 @@ import (
 // Message types
 type tickMsg time.Time
 type activeEntryMsg *models.ActiveTimeEntry
-type projectsLoadedMsg []api.ProjectListItem
+type projectsLoadedMsg struct {
+	Projects    []api.ProjectListItem
+	CacheKey    string
+	AllProjects []api.ProjectListItem // Full API response for caching
+	Query       string                // Original query for filtering
+}
+type projectSearchErrorMsg struct {
+	Err      error
+	CacheKey string
+}
 type tasksLoadedMsg []api.TaskListItem
 type activitiesLoadedMsg []api.ActivityListItem
 type historyLoadedMsg []api.TimelogEntry
@@ -91,6 +100,22 @@ type TimesheetApp struct {
 
 	// Project search cache - key is first 2 letters, value is cached projects
 	projectCache map[string][]api.ProjectListItem
+	// Track in-flight API requests to prevent duplicates
+	projectSearchInFlight map[string]bool
+
+	// Task cache - keyed by project ID
+	taskCache          map[int][]api.TaskListItem
+	taskCacheInFlight  map[int]bool
+
+	// Activity cache - activities don't change often, global cache
+	activityCache         []api.ActivityListItem
+	activityCacheValid    bool
+	activityCacheInFlight bool
+
+	// Cached monthly hours to avoid recalculating on every render
+	cachedMonthlyHours float64
+	cachedMonth        time.Month
+	cachedYear         int
 
 	// Timer control form inputs (Tab 4)
 	descriptionInput textinput.Model
@@ -166,18 +191,23 @@ func NewTimesheetApp() (*TimesheetApp, error) {
 	endTimeInput.Width = 10
 
 	app := &TimesheetApp{
-		service:            service,
-		apiClient:          apiClient,
-		currentTab:         TabProjects,
-		projectSearchInput: projectSearchInput,
-		searchMode:         true, // Start in search mode on Tab 1
-		descriptionInput:   descriptionInput,
-		dateInput:          dateInput,
-		startTimeInput:     startTimeInput,
-		endTimeInput:       endTimeInput,
-		historyPageSize:    30,
-		historyPage:        0,
-		projectCache:       make(map[string][]api.ProjectListItem), // Initialize cache
+		service:               service,
+		apiClient:             apiClient,
+		currentTab:            TabProjects,
+		projectSearchInput:    projectSearchInput,
+		searchMode:            true, // Start in search mode on Tab 1
+		descriptionInput:      descriptionInput,
+		dateInput:             dateInput,
+		startTimeInput:        startTimeInput,
+		endTimeInput:          endTimeInput,
+		historyPageSize:       30,
+		historyPage:           0,
+		projectCache:          make(map[string][]api.ProjectListItem), // Initialize project cache
+		projectSearchInFlight: make(map[string]bool),                  // Initialize in-flight tracker
+		taskCache:             make(map[int][]api.TaskListItem),       // Initialize task cache
+		taskCacheInFlight:     make(map[int]bool),                     // Initialize task in-flight tracker
+		activityCacheValid:    false,                                  // Activities not yet cached
+		activityCacheInFlight: false,                                  // No activity request in flight
 	}
 
 	// Load session state to restore previous selections
@@ -231,21 +261,26 @@ func NewTimesheetAppWithClient(apiClient *api.Client, username string) (*Timeshe
 	endTimeInput.Width = 10
 
 	app := &TimesheetApp{
-		service:            service,
-		apiClient:          apiClient,
-		username:           username,
-		width:              80,  // Default width
-		height:             24,  // Default height
-		currentTab:         TabProjects,
-		projectSearchInput: projectSearchInput,
-		searchMode:         true, // Start in search mode on Tab 1
-		descriptionInput:   descriptionInput,
-		dateInput:          dateInput,
-		startTimeInput:     startTimeInput,
-		endTimeInput:       endTimeInput,
-		historyPageSize:    30,
-		historyPage:        0,
-		projectCache:       make(map[string][]api.ProjectListItem), // Initialize cache
+		service:               service,
+		apiClient:             apiClient,
+		username:              username,
+		width:                 80,  // Default width
+		height:                24,  // Default height
+		currentTab:            TabProjects,
+		projectSearchInput:    projectSearchInput,
+		searchMode:            true, // Start in search mode on Tab 1
+		descriptionInput:      descriptionInput,
+		dateInput:             dateInput,
+		startTimeInput:        startTimeInput,
+		endTimeInput:          endTimeInput,
+		historyPageSize:       30,
+		historyPage:           0,
+		projectCache:          make(map[string][]api.ProjectListItem), // Initialize project cache
+		projectSearchInFlight: make(map[string]bool),                  // Initialize in-flight tracker
+		taskCache:             make(map[int][]api.TaskListItem),       // Initialize task cache
+		taskCacheInFlight:     make(map[int]bool),                     // Initialize task in-flight tracker
+		activityCacheValid:    false,                                  // Activities not yet cached
+		activityCacheInFlight: false,                                  // No activity request in flight
 	}
 
 	// Load session state to restore previous selections
@@ -282,10 +317,10 @@ func NewTimesheetAppWithClientAndTab(apiClient *api.Client, username string, ini
 
 func (a *TimesheetApp) Init() tea.Cmd {
 	return tea.Batch(
-		// Don't load projects initially - wait for user to type
-		a.loadActivities(),
+		// Don't load anything initially - wait for user interaction
+		// Activities will be loaded when user selects a task
+		// History will be loaded when user switches to history tab
 		a.loadActiveEntry(),
-		a.checkForRunningTimer(),
 		textinput.Blink,
 		tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
@@ -350,7 +385,12 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						a.projectCursor = 0
 					} else {
 						// Cache miss - need to fetch from API
-						cmds = append(cmds, a.searchProjects(query))
+						// But only if we're not already fetching this cache key
+						if !a.projectSearchInFlight[cacheKey] {
+							a.projectSearchInFlight[cacheKey] = true
+							cmds = append(cmds, a.searchProjects(query))
+						}
+						// If request is in-flight, do nothing - wait for it to complete
 					}
 				} else if len(query) == 0 {
 					// Clear results if query is empty
@@ -560,14 +600,41 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.activeEntry = (*models.ActiveTimeEntry)(msg)
 
 	case projectsLoadedMsg:
-		a.projects = []api.ProjectListItem(msg)
+		// Clear in-flight flag for this cache key
+		if msg.CacheKey != "" {
+			delete(a.projectSearchInFlight, msg.CacheKey)
+
+			// Cache the full API response (only if we got new data from API)
+			if len(msg.AllProjects) > 0 {
+				a.projectCache[msg.CacheKey] = msg.AllProjects
+			}
+		}
+
+		// Update displayed projects with filtered results
+		a.projects = msg.Projects
+		a.projectCursor = 0
 
 	case tasksLoadedMsg:
-		a.tasks = []api.TaskListItem(msg)
+		tasks := []api.TaskListItem(msg)
+
+		// Cache the tasks for the selected project
+		if a.selectedProject != nil {
+			a.taskCache[a.selectedProject.ID] = tasks
+			delete(a.taskCacheInFlight, a.selectedProject.ID)
+		}
+
+		a.tasks = tasks
 		a.taskCursor = 0
 
 	case activitiesLoadedMsg:
-		a.activities = []api.ActivityListItem(msg)
+		activities := []api.ActivityListItem(msg)
+
+		// Cache activities globally
+		a.activityCache = activities
+		a.activityCacheValid = true
+		a.activityCacheInFlight = false
+
+		a.activities = activities
 		// Set cursor to last used activity if available
 		if a.lastUsedActivityID > 0 {
 			for i, act := range a.activities {
@@ -596,6 +663,9 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.blurAllFormFields()
 		a.saveSessionState() // Save session state after successful submission
 
+		// Invalidate monthly hours cache when history changes
+		a.invalidateMonthlyHoursCache()
+
 	case timesheetSubmittedMsg:
 		a.history = msg.history
 		// Sort by start time, most recent first
@@ -607,6 +677,9 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.formMode = false
 		a.blurAllFormFields()
 		a.saveSessionState()
+
+		// Invalidate monthly hours cache when history changes
+		a.invalidateMonthlyHoursCache()
 
 		// Clear any previous error and set success message based on running status
 		a.err = nil
@@ -638,6 +711,13 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Save session state
 		a.saveSessionState()
+
+	case projectSearchErrorMsg:
+		// Clear in-flight flag on error
+		if msg.CacheKey != "" {
+			delete(a.projectSearchInFlight, msg.CacheKey)
+		}
+		a.err = msg.Err
 
 	case errorMsg:
 		a.err = error(msg)
@@ -799,24 +879,8 @@ func (a *TimesheetApp) renderUserHeader() string {
 		username = "User"
 	}
 
-	// Calculate monthly total hours from all history
-	now := time.Now()
-	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	monthEnd := monthStart.AddDate(0, 1, 0).Add(-time.Second)
-
-	var monthlyHours float64
-	for _, entry := range a.history {
-		// Skip entries with zero/invalid times
-		if !entry.StartTime().IsZero() && entry.StartTime().After(monthStart) && entry.StartTime().Before(monthEnd) {
-			if !entry.EndTime().IsZero() {
-				// Completed entry
-				monthlyHours += entry.Duration()
-			} else {
-				// Running entry - calculate current duration
-				monthlyHours += time.Since(entry.StartTime()).Hours()
-			}
-		}
-	}
+	// Get monthly hours from cache (recalculated only when history changes)
+	monthlyHours := a.getMonthlyHours()
 
 	headerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#DF9E2F")).
@@ -828,6 +892,7 @@ func (a *TimesheetApp) renderUserHeader() string {
 	status := a.getStatusFromAPI()
 
 	// Format: User Name | 06 January 2026 | Month total: 10.5h | Status: Idle
+	now := time.Now()
 	headerText := fmt.Sprintf("%s | %s | Month total: %.1fh | Status: %s",
 		username,
 		now.Format("02 January 2006"),
@@ -1774,12 +1839,15 @@ func (a *TimesheetApp) handleSelection() tea.Cmd {
 			a.activityCursor = 0
 			a.selectedActivity = nil
 
+			// Load activities (will use cache if available)
+			cmd := a.loadActivities()
+
 			// Load last used activity from config
 			a.loadLastUsedActivity()
 
 			a.saveSessionState() // Save session state when task is selected
 
-			return nil
+			return cmd
 		}
 
 	case TabActivities:
@@ -1811,28 +1879,33 @@ func (a *TimesheetApp) searchProjects(query string) tea.Cmd {
 			cacheKey = cacheKey[:2]
 		}
 
-		// Check cache first
-		cachedProjects, hasCached := a.projectCache[cacheKey]
-
-		// If we have cached data, filter locally
-		if hasCached {
-			// Filter the cached results locally
-			filtered := a.filterProjectsLocally(cachedProjects, query)
-			return projectsLoadedMsg(filtered)
-		}
-
-		// Cache miss - fetch from API with the 2-letter prefix
+		// Fetch from API with the 2-letter prefix
+		// NOTE: Cache checking is done in Update(), not here!
+		// This Cmd runs in a goroutine and should NOT access shared state
 		projects, err := a.apiClient.GetProjects(cacheKey)
 		if err != nil {
-			return errorMsg(err)
+			return projectSearchErrorMsg{
+				Err:      err,
+				CacheKey: cacheKey,
+			}
 		}
 
-		// Cache the result
-		a.projectCache[cacheKey] = projects
-
 		// Filter the result for the actual query
-		filtered := a.filterProjectsLocally(projects, query)
-		return projectsLoadedMsg(filtered)
+		var filtered []api.ProjectListItem
+		queryLower := strings.ToLower(query)
+		for _, project := range projects {
+			if strings.Contains(strings.ToLower(project.Label), queryLower) {
+				filtered = append(filtered, project)
+			}
+		}
+
+		// Return both filtered results AND full API response for caching
+		return projectsLoadedMsg{
+			Projects:    filtered,
+			CacheKey:    cacheKey,
+			AllProjects: projects,
+			Query:       query,
+		}
 	}
 }
 
@@ -1855,6 +1928,22 @@ func (a *TimesheetApp) filterProjectsLocally(projects []api.ProjectListItem, que
 }
 
 func (a *TimesheetApp) loadTasks(projectID int) tea.Cmd {
+	// Check cache first (in Update function, not in Cmd)
+	if cachedTasks, hasCached := a.taskCache[projectID]; hasCached {
+		// Return cached tasks immediately
+		return func() tea.Msg {
+			return tasksLoadedMsg(cachedTasks)
+		}
+	}
+
+	// Check if request is already in flight
+	if a.taskCacheInFlight[projectID] {
+		return nil // Don't make duplicate request
+	}
+
+	// Mark as in-flight
+	a.taskCacheInFlight[projectID] = true
+
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -1862,13 +1951,33 @@ func (a *TimesheetApp) loadTasks(projectID int) tea.Cmd {
 
 		tasks, err := a.apiClient.GetTasks(fmt.Sprintf("%d", projectID))
 		if err != nil {
+			// Clear in-flight flag on error
+			delete(a.taskCacheInFlight, projectID)
 			return errorMsg(err)
 		}
+
+		// Cache the result (will be done in Update handler)
 		return tasksLoadedMsg(tasks)
 	}
 }
 
 func (a *TimesheetApp) loadActivities() tea.Cmd {
+	// Check if activities are already cached
+	if a.activityCacheValid {
+		// Return cached activities immediately
+		return func() tea.Msg {
+			return activitiesLoadedMsg(a.activityCache)
+		}
+	}
+
+	// Check if request is already in flight
+	if a.activityCacheInFlight {
+		return nil // Don't make duplicate request
+	}
+
+	// Mark as in-flight
+	a.activityCacheInFlight = true
+
 	return func() tea.Msg {
 		if a.apiClient == nil {
 			return errorMsg(fmt.Errorf("API client not available"))
@@ -1876,8 +1985,11 @@ func (a *TimesheetApp) loadActivities() tea.Cmd {
 
 		activities, err := a.apiClient.GetActivities()
 		if err != nil {
+			// Clear in-flight flag on error
 			return errorMsg(err)
 		}
+
+		// Cache will be updated in Update handler
 		return activitiesLoadedMsg(activities)
 	}
 }
@@ -2280,8 +2392,65 @@ func (a *TimesheetApp) clearMessages() {
 	a.successMessage = ""
 }
 
-// clearProjectCache clears the project search cache
+// clearProjectCache clears the project search cache and in-flight requests
 func (a *TimesheetApp) clearProjectCache() {
 	a.projectCache = make(map[string][]api.ProjectListItem)
+	a.projectSearchInFlight = make(map[string]bool)
 	a.successMessage = "✓ Project cache cleared"
+}
+
+// clearAllCaches clears all API caches
+func (a *TimesheetApp) clearAllCaches() {
+	a.projectCache = make(map[string][]api.ProjectListItem)
+	a.projectSearchInFlight = make(map[string]bool)
+	a.taskCache = make(map[int][]api.TaskListItem)
+	a.taskCacheInFlight = make(map[int]bool)
+	a.activityCache = nil
+	a.activityCacheValid = false
+	a.activityCacheInFlight = false
+	a.invalidateMonthlyHoursCache()
+	a.successMessage = "✓ All caches cleared"
+}
+
+// getMonthlyHours returns cached monthly hours, recalculating only if month changed
+func (a *TimesheetApp) getMonthlyHours() float64 {
+	now := time.Now()
+	currentMonth := now.Month()
+	currentYear := now.Year()
+
+	// Check if cache is valid for current month
+	if a.cachedMonth == currentMonth && a.cachedYear == currentYear {
+		return a.cachedMonthlyHours
+	}
+
+	// Cache miss or new month - recalculate
+	monthStart := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location())
+	monthEnd := monthStart.AddDate(0, 1, 0).Add(-time.Second)
+
+	var monthlyHours float64
+	for _, entry := range a.history {
+		// Skip entries with zero/invalid times
+		if !entry.StartTime().IsZero() && entry.StartTime().After(monthStart) && entry.StartTime().Before(monthEnd) {
+			if !entry.EndTime().IsZero() {
+				// Completed entry
+				monthlyHours += entry.Duration()
+			} else {
+				// Running entry - calculate current duration
+				monthlyHours += time.Since(entry.StartTime()).Hours()
+			}
+		}
+	}
+
+	// Update cache
+	a.cachedMonthlyHours = monthlyHours
+	a.cachedMonth = currentMonth
+	a.cachedYear = currentYear
+
+	return monthlyHours
+}
+
+// invalidateMonthlyHoursCache marks the monthly hours cache as invalid
+func (a *TimesheetApp) invalidateMonthlyHoursCache() {
+	a.cachedMonth = 0
+	a.cachedYear = 0
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kartoza/go-timesheets-go/internal/models"
+	"github.com/kartoza/go-timesheets-go/internal/monitoring"
 )
 
 // Client represents an API client for the Django backend
@@ -22,6 +23,7 @@ type Client struct {
 	username   string
 	password   string
 	authToken  string // API token for authentication
+	metrics    *monitoring.Metrics
 }
 
 // Config holds configuration for the API client
@@ -132,6 +134,11 @@ func (c *Client) SetUsername(username string) {
 	c.username = username
 }
 
+// SetMetrics sets the metrics tracker for the client
+func (c *Client) SetMetrics(metrics *monitoring.Metrics) {
+	c.metrics = metrics
+}
+
 // authenticate performs login and retrieves CSRF token
 func (c *Client) authenticate() error {
 	// Get CSRF token from login page
@@ -217,6 +224,13 @@ func extractCSRFToken(html string) (string, error) {
 
 // makeRequest makes an authenticated HTTP request
 func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.Response, error) {
+	// Track request start time and metrics
+	startTime := time.Now()
+	if c.metrics != nil {
+		c.metrics.StartAPIRequest()
+		defer c.metrics.EndAPIRequest()
+	}
+
 	url := c.baseURL + endpoint
 
 	var reqBody io.Reader
@@ -250,6 +264,17 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 	}
 
 	resp, err := c.httpClient.Do(req)
+	duration := time.Since(startTime)
+
+	// Record metrics
+	statusCode := 0
+	if resp != nil {
+		statusCode = resp.StatusCode
+	}
+	if c.metrics != nil {
+		c.metrics.RecordAPIRequest(method, endpoint, statusCode, duration, err)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}

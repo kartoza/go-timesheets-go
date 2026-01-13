@@ -15,7 +15,10 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebSearch",
       "Bash(./timesheet-test status)",
-      "WebFetch(domain:timesheets.kartoza.com)"
+      "WebFetch(domain:timesheets.kartoza.com)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd Nix flake package with .desktop file\n\n- Add proper package output to flake.nix for kartoza-timesheet\n- Create .desktop file for launching app in terminal\n- Update .gitignore to track go.sum for reproducible builds\n- Update README with Nix flake installation instructions\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(nix flake check:*)"
     ],
     "deny": [],
     "ask": []

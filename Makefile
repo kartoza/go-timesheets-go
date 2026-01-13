@@ -1,7 +1,7 @@
 # Go Timesheets Go - Makefile
 
 # Variables
-BINARY_NAME=kartoza-timesheets
+BINARY_NAME=kartoza-timesheet
 BINARY_STATIC=$(BINARY_NAME)-static
 BUILD_DIR=build
 VERSION ?= $(shell git describe --tags --always --dirty)
@@ -89,24 +89,52 @@ dev:
 	@echo "Starting development TUI..."
 	go run .
 
+# Monitor application metrics with expvarmon
+.PHONY: monitor
+monitor:
+	@echo "Starting expvarmon monitoring..."
+	@echo "Make sure the timesheet app is running in another terminal!"
+	@echo ""
+	@command -v expvarmon >/dev/null 2>&1 || { echo "Error: expvarmon not found. Install with: go install github.com/divan/expvarmon@latest"; echo "Or use 'nix develop' which includes expvarmon"; exit 1; }
+	expvarmon -ports="localhost:6060" \
+	  -vars="api.requests.total,api.requests.errors,api.requests.inflight,api.cache_hit_ratio,api.requests.duration_ms" \
+	  -i 1s
+
+# View API request logs (built-in monitor command)
+.PHONY: logs
+logs:
+	@echo "Viewing API request logs..."
+	@test -f $(BINARY_NAME) || { echo "Error: $(BINARY_NAME) not found. Run 'make build' first."; exit 1; }
+	./$(BINARY_NAME) monitor --since 1h
+
+# Follow API request logs in real-time
+.PHONY: logs-follow
+logs-follow:
+	@echo "Following API request logs..."
+	@test -f $(BINARY_NAME) || { echo "Error: $(BINARY_NAME) not found. Run 'make build' first."; exit 1; }
+	./$(BINARY_NAME) monitor --follow
+
 # Show help
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  build       - Build dynamic binary"
-	@echo "  static      - Build static binary"
-	@echo "  build-all   - Build both dynamic and static binaries"
-	@echo "  clean       - Clean build artifacts"
-	@echo "  test        - Run tests"
-	@echo "  deps        - Install dependencies"
-	@echo "  fmt         - Format code"
-	@echo "  lint        - Lint code"
-	@echo "  check       - Run all quality checks (fmt, lint, test)"
-	@echo "  install     - Install static binary to /usr/local/bin"
-	@echo "  uninstall   - Remove binary from /usr/local/bin"
-	@echo "  sample-data - Setup sample data for testing"
-	@echo "  dev         - Start development TUI"
-	@echo "  help        - Show this help message"
+	@echo "  build        - Build dynamic binary"
+	@echo "  static       - Build static binary"
+	@echo "  build-all    - Build both dynamic and static binaries"
+	@echo "  clean        - Clean build artifacts"
+	@echo "  test         - Run tests"
+	@echo "  deps         - Install dependencies"
+	@echo "  fmt          - Format code"
+	@echo "  lint         - Lint code"
+	@echo "  check        - Run all quality checks (fmt, lint, test)"
+	@echo "  install      - Install static binary to /usr/local/bin"
+	@echo "  uninstall    - Remove binary from /usr/local/bin"
+	@echo "  sample-data  - Setup sample data for testing"
+	@echo "  dev          - Start development TUI"
+	@echo "  monitor      - Monitor app metrics with expvarmon TUI (requires app running)"
+	@echo "  logs         - View API request logs from last hour"
+	@echo "  logs-follow  - Follow API request logs in real-time"
+	@echo "  help         - Show this help message"
 
 # Build info
 .PHONY: info
