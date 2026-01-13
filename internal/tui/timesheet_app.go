@@ -23,6 +23,7 @@ import (
 
 // Message types
 type tickMsg time.Time
+type statusUpdateMsg string
 type activeEntryMsg *models.ActiveTimeEntry
 type projectsLoadedMsg struct {
 	Projects    []api.ProjectListItem
@@ -117,6 +118,10 @@ type TimesheetApp struct {
 	cachedMonth        time.Month
 	cachedYear         int
 
+	// Cached status to avoid API call on every render
+	cachedStatus string
+	lastStatusUpdate time.Time
+
 	// Timer control form inputs (Tab 4)
 	descriptionInput textinput.Model
 	dateInput        textinput.Model
@@ -208,6 +213,7 @@ func NewTimesheetApp() (*TimesheetApp, error) {
 		taskCacheInFlight:     make(map[int]bool),                     // Initialize task in-flight tracker
 		activityCacheValid:    false,                                  // Activities not yet cached
 		activityCacheInFlight: false,                                  // No activity request in flight
+		cachedStatus:          "Idle",                                 // Initialize status cache
 	}
 
 	// Load session state to restore previous selections
@@ -281,6 +287,7 @@ func NewTimesheetAppWithClient(apiClient *api.Client, username string) (*Timeshe
 		taskCacheInFlight:     make(map[int]bool),                     // Initialize task in-flight tracker
 		activityCacheValid:    false,                                  // Activities not yet cached
 		activityCacheInFlight: false,                                  // No activity request in flight
+		cachedStatus:          "Idle",                                 // Initialize status cache
 	}
 
 	// Load session state to restore previous selections
@@ -321,6 +328,7 @@ func (a *TimesheetApp) Init() tea.Cmd {
 		// Activities will be loaded when user selects a task
 		// History will be loaded when user switches to history tab
 		a.loadActiveEntry(),
+		a.fetchStatusAsync(), // Fetch initial status asynchronously
 		textinput.Blink,
 		tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
@@ -596,6 +604,16 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return tickMsg(t)
 		}))
 
+		// Update status from API every 5 minutes to avoid blocking renders
+		if time.Since(a.lastStatusUpdate) > 5*time.Minute {
+			a.lastStatusUpdate = time.Now()
+			cmds = append(cmds, a.fetchStatusAsync())
+		}
+
+	case statusUpdateMsg:
+		// Update cached status from background fetch
+		a.cachedStatus = string(msg)
+
 	case activeEntryMsg:
 		a.activeEntry = (*models.ActiveTimeEntry)(msg)
 
@@ -666,6 +684,9 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Invalidate monthly hours cache when history changes
 		a.invalidateMonthlyHoursCache()
 
+		// Refresh status since history changed (likely due to timesheet action)
+		cmds = append(cmds, a.fetchStatusAsync())
+
 	case timesheetSubmittedMsg:
 		a.history = msg.history
 		// Sort by start time, most recent first
@@ -680,6 +701,9 @@ func (a *TimesheetApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Invalidate monthly hours cache when history changes
 		a.invalidateMonthlyHoursCache()
+
+		// Refresh status since we just created/updated a timesheet
+		cmds = append(cmds, a.fetchStatusAsync())
 
 		// Clear any previous error and set success message based on running status
 		a.err = nil
@@ -888,8 +912,8 @@ func (a *TimesheetApp) renderUserHeader() string {
 		Padding(0, 2).
 		Width(a.width)
 
-	// Fetch status from API
-	status := a.getStatusFromAPI()
+	// Use cached status (updated periodically in background)
+	status := a.cachedStatus
 
 	// Format: User Name | 06 January 2026 | Month total: 10.5h | Status: Idle
 	now := time.Now()
@@ -2053,29 +2077,32 @@ func (a *TimesheetApp) loadActiveEntry() tea.Cmd {
 }
 
 // getStatusFromAPI checks the API for active timesheet status
-func (a *TimesheetApp) getStatusFromAPI() string {
-	if a.apiClient == nil {
-		// Fallback to local check
-		if a.activeEntry != nil {
-			return "Active"
+// fetchStatusAsync fetches status from API in background and returns a message
+func (a *TimesheetApp) fetchStatusAsync() tea.Cmd {
+	return func() tea.Msg {
+		if a.apiClient == nil {
+			// Fallback to local check
+			if a.activeEntry != nil {
+				return statusUpdateMsg("Active")
+			}
+			return statusUpdateMsg("Idle")
 		}
-		return "Idle"
-	}
 
-	// Fetch from API
-	activeEntry, err := a.apiClient.GetActiveTimesheet()
-	if err != nil {
-		// On error, fallback to local status
-		if a.activeEntry != nil {
-			return "Active"
+		// Fetch from API asynchronously
+		activeEntry, err := a.apiClient.GetActiveTimesheet()
+		if err != nil {
+			// On error, fallback to local status
+			if a.activeEntry != nil {
+				return statusUpdateMsg("Active")
+			}
+			return statusUpdateMsg("Idle")
 		}
-		return "Idle"
-	}
 
-	if activeEntry != nil {
-		return "Active"
+		if activeEntry != nil {
+			return statusUpdateMsg("Active")
+		}
+		return statusUpdateMsg("Idle")
 	}
-	return "Idle"
 }
 
 func (a *TimesheetApp) checkForRunningTimer() tea.Cmd {
