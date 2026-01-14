@@ -214,6 +214,7 @@ const ExampleConfigJSON = `{
 type TokenStorage struct {
 	Token    string `json:"token"`
 	Username string `json:"username"`
+	Password string `json:"password,omitempty"` // Stored for session auth (file is mode 0600)
 	BaseURL  string `json:"base_url"`
 }
 
@@ -226,6 +227,11 @@ func GetTokenPath() string {
 
 // SaveToken saves the authentication token to disk
 func SaveToken(token, username, baseURL string) error {
+	return SaveTokenWithPassword(token, username, "", baseURL)
+}
+
+// SaveTokenWithPassword saves the authentication token and password to disk
+func SaveTokenWithPassword(token, username, password, baseURL string) error {
 	tokenPath := GetTokenPath()
 
 	// Create config directory if it doesn't exist
@@ -237,6 +243,7 @@ func SaveToken(token, username, baseURL string) error {
 	tokenStorage := TokenStorage{
 		Token:    token,
 		Username: username,
+		Password: password,
 		BaseURL:  baseURL,
 	}
 

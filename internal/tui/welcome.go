@@ -28,6 +28,7 @@ type LoginSuccessMsg struct {
 	Token    string
 	Username string
 	BaseURL  string
+	Password string
 }
 
 // LoginErrorMsg is sent when login fails
@@ -297,8 +298,8 @@ func (m *LoginModel) performLogin() tea.Cmd {
 			return LoginErrorMsg{Err: err}
 		}
 
-		// Save token to disk
-		if err := config.SaveToken(loginResp.Token, username, baseURL); err != nil {
+		// Save token and password to disk (password needed for session auth on POST requests)
+		if err := config.SaveTokenWithPassword(loginResp.Token, username, password, baseURL); err != nil {
 			return LoginErrorMsg{Err: fmt.Errorf("failed to save token: %w", err)}
 		}
 
@@ -306,6 +307,7 @@ func (m *LoginModel) performLogin() tea.Cmd {
 			Token:    loginResp.Token,
 			Username: username,
 			BaseURL:  baseURL,
+			Password: password,
 		}
 	}
 }

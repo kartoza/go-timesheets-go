@@ -5,15 +5,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/monitoring"
 )
+
+var debugLog *log.Logger
+
+func init() {
+	// Create debug log file
+	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		debugLog = log.New(io.Discard, "", 0)
+	} else {
+		debugLog = log.New(f, "API: ", log.LstdFlags|log.Lshortfile)
+	}
+}
 
 // Client represents an API client for the Django backend
 type Client struct {
@@ -251,8 +265,10 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 
 	// Use token-based auth if available, otherwise fall back to session auth
 	if c.authToken != "" {
+		debugLog.Printf("makeRequest: Using token auth (token length: %d)", len(c.authToken))
 		req.Header.Set("Authorization", "Token "+c.authToken)
 	} else {
+		debugLog.Printf("makeRequest: No auth token, using session auth")
 		// Ensure we're authenticated via session
 		if c.csrfToken == "" {
 			if err := c.authenticate(); err != nil {
@@ -575,55 +591,98 @@ func (c *Client) GetTimelogs() ([]TimelogEntry, error) {
 		return nil, fmt.Errorf("failed to decode timelogs response: %w", err)
 	}
 
+	debugLog.Printf("GetTimelogs: got %d entries", len(timelogs))
+	for i, entry := range timelogs {
+		if i < 3 { // Log first 3 entries
+			debugLog.Printf("  Entry %d: ID=%d, ProjectName='%s', TaskName='%s', ToTime='%s'",
+				i, entry.ID, entry.ProjectName, entry.TaskName, entry.ToTime)
+		}
+	}
+
 	return timelogs, nil
 }
 
 // CreateTimesheet creates a new timesheet entry
 func (c *Client) CreateTimesheet(entry models.TimeEntry) error {
+	debugLog.Printf("CreateTimesheet called")
+	debugLog.Printf("  ProjectID: %s", entry.ProjectID)
+	debugLog.Printf("  ActivityID: %s", entry.ActivityID)
+	debugLog.Printf("  Description: %s", entry.Description)
+	debugLog.Printf("  StartTime: %s", entry.StartTime.Format(time.RFC3339))
+	debugLog.Printf("  Duration: %f", entry.Duration)
+	if entry.TaskID != nil {
+		debugLog.Printf("  TaskID: %s", *entry.TaskID)
+	}
+	if entry.EndTime != nil {
+		debugLog.Printf("  EndTime: %s", entry.EndTime.Format(time.RFC3339))
+	}
+
 	// Convert our internal model to API format
+	// The Django API expects nested objects for project, task, activity
 	apiEntry := map[string]interface{}{
-		"project":     entry.ProjectID,
-		"activity":    entry.ActivityID,
+		"project":     map[string]interface{}{"id": entry.ProjectID},
+		"activity":    map[string]interface{}{"id": entry.ActivityID},
 		"description": entry.Description,
 		"start_time":  entry.StartTime.Format(time.RFC3339),
-		"duration":    entry.Duration,
+		"timezone":    "UTC",
 	}
 
 	if entry.TaskID != nil {
-		apiEntry["task"] = *entry.TaskID
+		apiEntry["task"] = map[string]interface{}{"id": *entry.TaskID}
+	} else {
+		apiEntry["task"] = map[string]interface{}{"id": "-"}
 	}
 
 	if entry.EndTime != nil {
 		apiEntry["end_time"] = entry.EndTime.Format(time.RFC3339)
 	}
 
+	jsonBytes, _ := json.MarshalIndent(apiEntry, "", "  ")
+	debugLog.Printf("API Request body:\n%s", string(jsonBytes))
+
 	resp, err := c.makeRequest("POST", "/api/timesheet/", apiEntry)
 	if err != nil {
+		debugLog.Printf("makeRequest error: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	debugLog.Printf("Response status: %d", resp.StatusCode)
+	debugLog.Printf("Response body: %s", string(bodyBytes))
+
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to create timesheet entry (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	// Check if response is HTML (login redirect) instead of JSON
+	contentType := resp.Header.Get("Content-Type")
+	bodyStr := string(bodyBytes)
+	if strings.Contains(contentType, "text/html") || strings.Contains(bodyStr, "<!DOCTYPE html>") || strings.Contains(bodyStr, "<html>") {
+		debugLog.Printf("ERROR: Received HTML response instead of JSON - authentication may have failed")
+		return fmt.Errorf("authentication failed: session may have expired. Please log out and log in again")
+	}
+
+	debugLog.Printf("CreateTimesheet successful")
 	return nil
 }
 
 // UpdateTimesheet updates an existing timesheet entry
 func (c *Client) UpdateTimesheet(entryID string, entry models.TimeEntry) error {
 	// Convert our internal model to API format
+	// The Django API expects nested objects for project, task, activity
 	apiEntry := map[string]interface{}{
-		"project":     entry.ProjectID,
-		"activity":    entry.ActivityID,
+		"project":     map[string]interface{}{"id": entry.ProjectID},
+		"activity":    map[string]interface{}{"id": entry.ActivityID},
 		"description": entry.Description,
 		"start_time":  entry.StartTime.Format(time.RFC3339),
-		"duration":    entry.Duration,
+		"timezone":    "UTC",
 	}
 
 	if entry.TaskID != nil {
-		apiEntry["task"] = *entry.TaskID
+		apiEntry["task"] = map[string]interface{}{"id": *entry.TaskID}
+	} else {
+		apiEntry["task"] = map[string]interface{}{"id": "-"}
 	}
 
 	if entry.EndTime != nil {

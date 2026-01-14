@@ -2,6 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"io"
+	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -12,6 +15,17 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 )
+
+var tuiDebugLog *log.Logger
+
+func init() {
+	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		tuiDebugLog = log.New(io.Discard, "", 0)
+	} else {
+		tuiDebugLog = log.New(f, "TUI: ", log.LstdFlags|log.Lshortfile)
+	}
+}
 
 // TimesheetField represents which field is currently focused
 type TimesheetField int
@@ -148,6 +162,11 @@ func (t *TimesheetCreator) Update(msg tea.Msg) (*TimesheetCreator, tea.Cmd) {
 		t.height = msg.Height
 
 	case tea.KeyMsg:
+		// Clear error message on any key press
+		if t.err != nil {
+			t.err = nil
+		}
+
 		// Handle global keys
 		switch msg.String() {
 		case "ctrl+c":
@@ -318,19 +337,59 @@ func (t *TimesheetCreator) View() string {
 
 	// Add error/success messages
 	if t.err != nil {
-		errorStyle := lipgloss.NewStyle().
+		errorBoxStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#FF6B6B")).
+			Padding(1, 2).
+			Width(60)
+
+		errorTitleStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF6B6B")).
-			Bold(true).
-			Align(lipgloss.Center)
-		content = lipgloss.JoinVertical(lipgloss.Center, content, "", errorStyle.Render("Error: "+t.err.Error()))
+			Bold(true)
+
+		errorMsgStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF"))
+
+		helpStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Italic(true)
+
+		errorContent := lipgloss.JoinVertical(
+			lipgloss.Left,
+			errorTitleStyle.Render("⚠ Submission Failed"),
+			"",
+			errorMsgStyle.Render(t.err.Error()),
+			"",
+			helpStyle.Render("Troubleshooting tips:"),
+			helpStyle.Render("  • Check your network connection"),
+			helpStyle.Render("  • Verify all required fields are filled"),
+			helpStyle.Render("  • Ensure start time is before end time"),
+			helpStyle.Render("  • Check logs: /tmp/kartoza-timesheet-debug.log"),
+		)
+		content = lipgloss.JoinVertical(lipgloss.Center, content, "", errorBoxStyle.Render(errorContent))
 	}
 
 	if t.successMessage != "" {
-		successStyle := lipgloss.NewStyle().
+		successBoxStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#569FC6")).
+			Padding(1, 2).
+			Width(50)
+
+		successTitleStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#569FC6")).
-			Bold(true).
-			Align(lipgloss.Center)
-		content = lipgloss.JoinVertical(lipgloss.Center, content, "", successStyle.Render(t.successMessage))
+			Bold(true)
+
+		successMsgStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF"))
+
+		successContent := lipgloss.JoinVertical(
+			lipgloss.Center,
+			successTitleStyle.Render("✓ Success"),
+			"",
+			successMsgStyle.Render(t.successMessage),
+		)
+		content = lipgloss.JoinVertical(lipgloss.Center, content, "", successBoxStyle.Render(successContent))
 	}
 
 	// Center on screen
@@ -933,8 +992,14 @@ func (t *TimesheetCreator) loadActivities() tea.Cmd {
 
 // submitEntry submits the timesheet entry
 func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
+	tuiDebugLog.Printf("submitEntry called")
+	tuiDebugLog.Printf("  selectedProject: %v", t.selectedProject)
+	tuiDebugLog.Printf("  selectedTask: %v", t.selectedTask)
+	tuiDebugLog.Printf("  selectedActivity: %v", t.selectedActivity)
+
 	// Validate
 	if t.selectedProject == nil || t.selectedTask == nil || t.selectedActivity == nil {
+		tuiDebugLog.Printf("Validation failed: missing project, task, or activity")
 		t.err = fmt.Errorf("please select project, task, and activity")
 		return t, nil
 	}
@@ -943,22 +1008,30 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 	t.err = nil
 
 	return t, func() tea.Msg {
+		tuiDebugLog.Printf("submitEntry command executing")
 		// Parse times
 		dateStr := t.dateInput.Value()
 		startTimeStr := t.startTimeInput.Value()
 		endTimeStr := t.endTimeInput.Value()
+
+		tuiDebugLog.Printf("  dateStr: %s", dateStr)
+		tuiDebugLog.Printf("  startTimeStr: %s", startTimeStr)
+		tuiDebugLog.Printf("  endTimeStr: %s", endTimeStr)
 
 		var startTime time.Time
 		var err error
 
 		if startTimeStr == "" {
 			startTime = time.Now()
+			tuiDebugLog.Printf("  Using current time as start time: %s", startTime.Format(time.RFC3339))
 		} else {
 			startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
 			startTime, err = time.Parse("2006-01-02 15:04", startStr)
 			if err != nil {
+				tuiDebugLog.Printf("  Invalid start time: %v", err)
 				return timesheetSubmitErrorMsg{err: fmt.Errorf("invalid start time: %w", err)}
 			}
+			tuiDebugLog.Printf("  Parsed start time: %s", startTime.Format(time.RFC3339))
 		}
 
 		var endTimePtr *time.Time
@@ -968,13 +1041,16 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
 			endTime, err := time.Parse("2006-01-02 15:04", endStr)
 			if err != nil {
+				tuiDebugLog.Printf("  Invalid end time: %v", err)
 				return timesheetSubmitErrorMsg{err: fmt.Errorf("invalid end time: %w", err)}
 			}
 			duration = endTime.Sub(startTime).Hours()
 			if duration <= 0 {
+				tuiDebugLog.Printf("  End time must be after start time")
 				return timesheetSubmitErrorMsg{err: fmt.Errorf("end time must be after start time")}
 			}
 			endTimePtr = &endTime
+			tuiDebugLog.Printf("  Parsed end time: %s, duration: %f", endTime.Format(time.RFC3339), duration)
 		}
 
 		// Create entry
@@ -992,12 +1068,15 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 			entry.TaskID = &taskID
 		}
 
+		tuiDebugLog.Printf("  Calling CreateTimesheet...")
 		// Submit
 		err = t.apiClient.CreateTimesheet(entry)
 		if err != nil {
+			tuiDebugLog.Printf("  CreateTimesheet error: %v", err)
 			return timesheetSubmitErrorMsg{err: err}
 		}
 
+		tuiDebugLog.Printf("  CreateTimesheet successful!")
 		msg := "Timer started successfully!"
 		if endTimePtr != nil {
 			msg = "Timesheet entry created successfully!"

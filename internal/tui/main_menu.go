@@ -2,6 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"io"
+	"log"
+	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -10,6 +13,17 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
 )
+
+var menuDebugLog *log.Logger
+
+func init() {
+	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		menuDebugLog = log.New(io.Discard, "", 0)
+	} else {
+		menuDebugLog = log.New(f, "MENU: ", log.LstdFlags|log.Lshortfile)
+	}
+}
 
 // Polling interval for active timer updates
 const timerPollInterval = 1 * time.Minute
@@ -594,6 +608,12 @@ func (m *MainMenuModel) updateDashboard() {
 	m.dashboard.ShiftTarget = 8.0
 
 	if m.activeTimer != nil {
+		menuDebugLog.Printf("updateDashboard: activeTimer found")
+		menuDebugLog.Printf("  ProjectName: '%s'", m.activeTimer.ProjectName)
+		menuDebugLog.Printf("  TaskName: '%s'", m.activeTimer.TaskName)
+		menuDebugLog.Printf("  Project: '%s'", m.activeTimer.Project)
+		menuDebugLog.Printf("  Task: '%s'", m.activeTimer.Task)
+
 		m.dashboard.IsActive = true
 		m.dashboard.ProjectName = m.activeTimer.ProjectName
 		m.dashboard.TaskName = m.activeTimer.TaskName
@@ -610,6 +630,7 @@ func (m *MainMenuModel) updateDashboard() {
 			m.dashboard.TodayWorked = m.todayHours + elapsed.Hours()
 		}
 	} else {
+		menuDebugLog.Printf("updateDashboard: no active timer")
 		m.dashboard.IsActive = false
 		m.dashboard.Hours = 0
 		m.dashboard.Minutes = 0
