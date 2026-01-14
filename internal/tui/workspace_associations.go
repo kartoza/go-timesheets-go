@@ -53,18 +53,18 @@ func (m *WorkspaceAssociationsModel) Update(msg tea.Msg) (*WorkspaceAssociations
 func (m *WorkspaceAssociationsModel) View() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Align(lipgloss.Center).
 		Width(60)
 
 	mottoStyle := lipgloss.NewStyle().
 		Italic(true).
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Align(lipgloss.Center).
 		Width(60)
 
 	dividerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Width(60)
 
 	contentStyle := lipgloss.NewStyle().
@@ -73,7 +73,7 @@ func (m *WorkspaceAssociationsModel) View() string {
 		Width(60)
 
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true).
 		Align(lipgloss.Center).
 		Width(60)

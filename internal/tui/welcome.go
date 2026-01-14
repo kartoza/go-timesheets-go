@@ -172,7 +172,7 @@ func (m LoginModel) View() string {
 	// Title
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Padding(1, 0).
 		Align(lipgloss.Center)
 
@@ -181,7 +181,7 @@ func (m LoginModel) View() string {
 
 	// Subtitle/Motto
 	mottoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true).
 		Align(lipgloss.Center)
 
@@ -191,7 +191,7 @@ func (m LoginModel) View() string {
 
 	// Divider
 	dividerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Align(lipgloss.Center)
 	divider := dividerStyle.Render("────────────────────────────────────────────────────────────")
 	content = append(content, divider)
@@ -200,7 +200,7 @@ func (m LoginModel) View() string {
 	// Login form box
 	formStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#DF9E2F")).
+		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(1, 2).
 		Margin(1, 0)
 
@@ -230,7 +230,7 @@ func (m LoginModel) View() string {
 	// Loading indicator
 	if m.loggingIn {
 		loadingStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#51CF66")).
+			Foreground(lipgloss.Color("#569FC6")).
 			Bold(true)
 		formContent = append(formContent, "")
 		formContent = append(formContent, loadingStyle.Render("Logging in..."))

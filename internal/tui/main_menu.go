@@ -11,6 +11,9 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/config"
 )
 
+// Polling interval for active timer updates
+const timerPollInterval = 1 * time.Minute
+
 // MainMenuItem represents a menu option
 type MainMenuItem int
 
@@ -25,23 +28,26 @@ const (
 
 // MainMenuModel represents the main menu screen
 type MainMenuModel struct {
-	apiClient       *api.Client
-	username        string
-	activeTimer     *api.TimelogEntry
-	monthlyHours    float64
-	selectedItem    int
-	menuItems       []menuItem
-	width           int
-	height          int
-	err             error
-	confirmLogout   bool
+	apiClient              *api.Client
+	username               string
+	activeTimer            *api.TimelogEntry
+	monthlyHours           float64
+	todayHours             float64
+	selectedItem           int
+	menuItems              []menuItem
+	width                  int
+	height                 int
+	err                    error
+	confirmLogout          bool
 	logoutConfirmSelection int // 0 = Yes, 1 = No
+	dashboard              *TimerDashboard
+	timerStartTime         time.Time
 }
 
 type menuItem struct {
-	label    string
-	enabled  bool
-	action   MainMenuItem
+	label   string
+	enabled bool
+	action  MainMenuItem
 }
 
 // NewMainMenu creates a new main menu
@@ -52,6 +58,7 @@ func NewMainMenu(apiClient *api.Client, username string) *MainMenuModel {
 		selectedItem: 0,
 		width:        80,
 		height:       24,
+		dashboard:    NewTimerDashboard(),
 	}
 }
 
@@ -60,6 +67,7 @@ func (m *MainMenuModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadActiveTimer(),
 		m.loadMonthlyHours(),
+		m.loadTodayHours(),
 	)
 }
 
@@ -134,9 +142,14 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case activeTimerLoadedMsg:
 		m.activeTimer = msg.timer
 		m.updateMenuItems()
+		m.updateDashboard()
 		// If timer was stopped and we were on "Stop Running Timer", move focus to "Create New Timer"
 		if msg.timer == nil && m.selectedItem == 1 {
 			m.selectedItem = 0
+		}
+		// Start polling if timer is active
+		if m.activeTimer != nil {
+			return m, m.startTimerPolling()
 		}
 		return m, nil
 
@@ -144,11 +157,29 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.monthlyHours = msg.hours
 		return m, nil
 
+	case todayHoursLoadedMsg:
+		m.todayHours = msg.hours
+		m.updateDashboard()
+		return m, nil
+
+	case timerPollTickMsg:
+		// Refresh active timer data
+		if m.activeTimer != nil {
+			m.updateDashboard()
+			return m, tea.Batch(
+				m.loadActiveTimer(),
+				m.loadTodayHours(),
+				m.startTimerPolling(),
+			)
+		}
+		return m, nil
+
 	case timerStoppedMsg:
 		// Timer was stopped, reload active timer and monthly hours
 		return m, tea.Batch(
 			m.loadActiveTimer(),
 			m.loadMonthlyHours(),
+			m.loadTodayHours(),
 		)
 
 	case errorMsg:
@@ -164,6 +195,9 @@ func (m *MainMenuModel) View() string {
 	// Render header
 	header := m.renderHeader()
 
+	// Render dashboard
+	dashboard := m.dashboard.Render()
+
 	// Render menu items or confirmation dialog
 	var mainContent string
 	if m.confirmLogout {
@@ -175,23 +209,34 @@ func (m *MainMenuModel) View() string {
 	// Render help text
 	help := m.renderHelp()
 
-	// Combine all sections
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
+	// Combine main content (without help)
+	mainSection := lipgloss.JoinVertical(
+		lipgloss.Center,
 		header,
 		"",
-		mainContent,
+		dashboard,
 		"",
-		help,
+		mainContent,
 	)
 
-	// Center content
-	return lipgloss.Place(
+	// Center main content at top
+	centeredMain := lipgloss.Place(
 		m.width,
-		m.height,
+		m.height-2, // Leave room for help at bottom
 		lipgloss.Center,
 		lipgloss.Top,
-		content,
+		mainSection,
+	)
+
+	// Place help text at the bottom
+	helpStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Align(lipgloss.Center)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		centeredMain,
+		helpStyle.Render(help),
 	)
 }
 
@@ -199,18 +244,18 @@ func (m *MainMenuModel) View() string {
 func (m *MainMenuModel) renderHeader() string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Align(lipgloss.Center).
 		Width(60)
 
 	mottoStyle := lipgloss.NewStyle().
 		Italic(true).
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Align(lipgloss.Center).
 		Width(60)
 
 	dividerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Width(60)
 
 	statusStyle := lipgloss.NewStyle().
@@ -218,15 +263,15 @@ func (m *MainMenuModel) renderHeader() string {
 		Width(60)
 
 	title := titleStyle.Render("Kartoza Timesheets")
-	motto := mottoStyle.Render("Time Flies")
+	motto := mottoStyle.Render("tempus fugit")
 	divider := dividerStyle.Render("────────────────────────────────────────────────────────────")
 
 	// Build status line
 	trackerState := "Inactive"
-	stateColor := lipgloss.Color("#888888")
+	stateColor := lipgloss.Color("#9A9EA0")
 	if m.activeTimer != nil {
 		trackerState = "● Active"
-		stateColor = lipgloss.Color("#E95420")
+		stateColor = lipgloss.Color("#DDA036")
 	}
 
 	trackerStateStyled := lipgloss.NewStyle().
@@ -257,16 +302,16 @@ func (m *MainMenuModel) renderMenu() string {
 	m.updateMenuItems()
 
 	normalStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
+		Foreground(lipgloss.Color("#569FC6")).
 		Padding(0, 2)
 
 	selectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Bold(true).
 		Padding(0, 2)
 
 	disabledStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Padding(0, 2)
 
 	var items []string
@@ -290,7 +335,7 @@ func (m *MainMenuModel) renderMenu() string {
 
 	menuTitle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Padding(0, 2).
 		Render("Main Menu")
 
@@ -305,7 +350,7 @@ func (m *MainMenuModel) renderMenu() string {
 // renderHelp renders the help text
 func (m *MainMenuModel) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true)
 
 	if m.confirmLogout {
@@ -468,13 +513,13 @@ func (m *MainMenuModel) performLogout() tea.Cmd {
 func (m *MainMenuModel) renderLogoutConfirmation() string {
 	dialogStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(1, 2).
 		Width(50)
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Align(lipgloss.Center).
 		Width(46)
 
@@ -485,26 +530,26 @@ func (m *MainMenuModel) renderLogoutConfirmation() string {
 
 	buttonYesStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#666666")).
+		Background(lipgloss.Color("#9A9EA0")).
 		Padding(0, 2).
 		Margin(0, 1)
 
 	buttonYesSelectedStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#E95420")).
+		Background(lipgloss.Color("#DDA036")).
 		Bold(true).
 		Padding(0, 2).
 		Margin(0, 1)
 
 	buttonNoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#666666")).
+		Background(lipgloss.Color("#9A9EA0")).
 		Padding(0, 2).
 		Margin(0, 1)
 
 	buttonNoSelectedStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#51CF66")).
+		Background(lipgloss.Color("#569FC6")).
 		Bold(true).
 		Padding(0, 2).
 		Margin(0, 1)
@@ -539,6 +584,79 @@ func (m *MainMenuModel) renderLogoutConfirmation() string {
 	return dialogStyle.Render(content)
 }
 
+// updateDashboard updates the dashboard with current timer state
+func (m *MainMenuModel) updateDashboard() {
+	if m.dashboard == nil {
+		m.dashboard = NewTimerDashboard()
+	}
+
+	m.dashboard.TodayWorked = m.todayHours
+	m.dashboard.ShiftTarget = 8.0
+
+	if m.activeTimer != nil {
+		m.dashboard.IsActive = true
+		m.dashboard.ProjectName = m.activeTimer.ProjectName
+		m.dashboard.TaskName = m.activeTimer.TaskName
+
+		// Calculate elapsed time from timer start
+		startTime := m.activeTimer.StartTime()
+		if !startTime.IsZero() {
+			elapsed := time.Since(startTime)
+			totalMinutes := int(elapsed.Minutes())
+			m.dashboard.Hours = totalMinutes / 60
+			m.dashboard.Minutes = totalMinutes % 60
+
+			// Add current timer's elapsed time to today's worked hours
+			m.dashboard.TodayWorked = m.todayHours + elapsed.Hours()
+		}
+	} else {
+		m.dashboard.IsActive = false
+		m.dashboard.Hours = 0
+		m.dashboard.Minutes = 0
+		m.dashboard.ProjectName = ""
+		m.dashboard.TaskName = ""
+	}
+}
+
+// loadTodayHours loads the total hours worked today
+func (m *MainMenuModel) loadTodayHours() tea.Cmd {
+	return func() tea.Msg {
+		now := time.Now()
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		todayEnd := todayStart.AddDate(0, 0, 1)
+
+		timelogs, err := m.apiClient.GetTimelogs()
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		var totalHours float64
+		for _, entry := range timelogs {
+			startTime, err := entry.GetFromTimeAsTime()
+			if err != nil {
+				continue
+			}
+
+			// Only count completed entries (with end time) for today
+			if (startTime.After(todayStart) || startTime.Equal(todayStart)) && startTime.Before(todayEnd) {
+				// Don't count running timer here - it's calculated separately
+				if entry.ToTime != "" {
+					totalHours += entry.GetHoursAsFloat()
+				}
+			}
+		}
+
+		return todayHoursLoadedMsg{hours: totalHours}
+	}
+}
+
+// startTimerPolling starts the polling timer for active timer updates
+func (m *MainMenuModel) startTimerPolling() tea.Cmd {
+	return tea.Tick(timerPollInterval, func(t time.Time) tea.Msg {
+		return timerPollTickMsg{}
+	})
+}
+
 // Message types
 type activeTimerLoadedMsg struct {
 	timer *api.TimelogEntry
@@ -547,5 +665,11 @@ type activeTimerLoadedMsg struct {
 type monthlyHoursLoadedMsg struct {
 	hours float64
 }
+
+type todayHoursLoadedMsg struct {
+	hours float64
+}
+
+type timerPollTickMsg struct{}
 
 type timerStoppedMsg struct{}

@@ -280,18 +280,18 @@ func (t *TimesheetCreator) View() string {
 	// Styles
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Align(lipgloss.Center)
 
 	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true).
 		Align(lipgloss.Center)
 
 	// Main container
 	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(1, 2).
 		Width(70)
 
@@ -327,7 +327,7 @@ func (t *TimesheetCreator) View() string {
 
 	if t.successMessage != "" {
 		successStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#51CF66")).
+			Foreground(lipgloss.Color("#569FC6")).
 			Bold(true).
 			Align(lipgloss.Center)
 		content = lipgloss.JoinVertical(lipgloss.Center, content, "", successStyle.Render(t.successMessage))
@@ -351,23 +351,23 @@ func (t *TimesheetCreator) renderForm() string {
 	labelStyle := lipgloss.NewStyle().
 		Width(labelWidth).
 		Align(lipgloss.Right).
-		Foreground(lipgloss.Color("#888888"))
+		Foreground(lipgloss.Color("#9A9EA0"))
 
 	focusedLabelStyle := lipgloss.NewStyle().
 		Width(labelWidth).
 		Align(lipgloss.Right).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Bold(true)
 
 	inputStyle := lipgloss.NewStyle().
 		Width(fieldWidth)
 
 	selectedValueStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#51CF66")).
+		Foreground(lipgloss.Color("#569FC6")).
 		Bold(true)
 
 	unselectedValueStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true)
 
 	// Build rows
@@ -443,7 +443,7 @@ func (t *TimesheetCreator) renderForm() string {
 
 	// Divider
 	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#444444")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Render(strings.Repeat("─", 62))
 	rows = append(rows, "", divider, "")
 
@@ -463,10 +463,10 @@ func (t *TimesheetCreator) renderForm() string {
 
 	timeStyle := lipgloss.NewStyle().Width(12)
 	timeLabelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Width(8)
 	focusedTimeLabelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Bold(true).
 		Width(8)
 
@@ -492,13 +492,13 @@ func (t *TimesheetCreator) renderForm() string {
 	// Row 6: Submit button
 	rows = append(rows, "")
 	buttonStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#E95420")).
+		Background(lipgloss.Color("#DDA036")).
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Padding(0, 3).
 		Bold(true)
 
 	if t.focusedField == FieldSubmit {
-		buttonStyle = buttonStyle.Background(lipgloss.Color("#51CF66"))
+		buttonStyle = buttonStyle.Background(lipgloss.Color("#569FC6"))
 	}
 
 	buttonText := "START TIMER"
@@ -512,7 +512,7 @@ func (t *TimesheetCreator) renderForm() string {
 	// Check if ready to submit
 	canSubmit := t.selectedProject != nil && t.selectedTask != nil && t.selectedActivity != nil
 	if !canSubmit {
-		buttonStyle = buttonStyle.Background(lipgloss.Color("#666666"))
+		buttonStyle = buttonStyle.Background(lipgloss.Color("#9A9EA0"))
 	}
 
 	button := buttonStyle.Render(buttonText)
@@ -529,13 +529,13 @@ func (t *TimesheetCreator) renderForm() string {
 func (t *TimesheetCreator) renderPopover(items interface{}, getLabel func(int) string) string {
 	popoverStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#DF9E2F")).
+		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(0, 1).
 		MarginLeft(14).
 		Width(50)
 
 	selectedStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#DF9E2F")).
+		Background(lipgloss.Color("#DDA036")).
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Bold(true).
 		Width(46)
@@ -589,7 +589,7 @@ func (t *TimesheetCreator) renderPopover(items interface{}, getLabel func(int) s
 	// Add scroll indicator
 	if itemCount > maxVisible {
 		scrollInfo := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666")).
+			Foreground(lipgloss.Color("#9A9EA0")).
 			Italic(true).
 			Render(fmt.Sprintf("  ↑↓ %d of %d", t.popoverCursor+1, itemCount))
 		rows = append(rows, scrollInfo)
@@ -601,7 +601,7 @@ func (t *TimesheetCreator) renderPopover(items interface{}, getLabel func(int) s
 // renderHelp renders the help text
 func (t *TimesheetCreator) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true).
 		Align(lipgloss.Center)
 

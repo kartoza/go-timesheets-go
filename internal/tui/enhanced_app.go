@@ -24,11 +24,11 @@ import (
 var (
 	titleStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Padding(1, 2)
 
 	subtitleStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Padding(0, 2)
 
 	errorStyle = lipgloss.NewStyle().
@@ -37,22 +37,22 @@ var (
 		Padding(0, 2)
 
 	successStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#51CF66")).
+		Foreground(lipgloss.Color("#569FC6")).
 		Bold(true).
 		Padding(0, 2)
 
 	boxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(1, 2).
 		Margin(1)
 
 	activeStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#E95420")).
+		Foreground(lipgloss.Color("#DDA036")).
 		Bold(true)
 
 	inactiveStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666"))
+		Foreground(lipgloss.Color("#9A9EA0"))
 )
 
 // ViewState represents different views in the application
@@ -441,7 +441,7 @@ func (m *EnhancedModel) menuView() string {
 	)
 
 	instructions := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Render("Press 1, 2, 3, or q")
 
 	return lipgloss.JoinVertical(
@@ -945,7 +945,7 @@ func (m *EnhancedModel) timesheetEntryView() string {
 	
 	descStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#E95420")).
+		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(0, 1).
 		Width(m.width - 20)
 	
@@ -957,7 +957,7 @@ func (m *EnhancedModel) timesheetEntryView() string {
 	
 	// Instructions
 	instructions := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(lipgloss.Color("#9A9EA0")).
 		Render("Tab: Next field | Shift+Tab: Previous field | Ctrl+S: Save | Esc: Back")
 	
 	content.WriteString(instructions)

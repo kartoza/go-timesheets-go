@@ -49,7 +49,7 @@ type AppWithAuth struct {
 func NewAppWithAuth() (*AppWithAuth, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#E95420"))
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#DDA036"))
 
 	// Initialize monitoring
 	homeDir, _ := os.UserHomeDir()
@@ -397,7 +397,7 @@ func (a *AppWithAuth) View() string {
 
 // renderLoadingScreen renders a centered loading screen with spinner
 func (a *AppWithAuth) renderLoadingScreen(message string) string {
-	spinnerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E95420"))
+	spinnerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#DDA036"))
 	textStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
 		MarginTop(1)
