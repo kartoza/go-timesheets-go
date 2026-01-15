@@ -343,6 +343,81 @@
               echo "🚀 Ready to build amazing TUIs!"
             '';
           };
+
+          # Build release artifacts for all platforms
+          release = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellScriptBin "release" ''
+              #!/usr/bin/env bash
+              set -e
+
+              VERSION="${version}"
+              RELEASE_DIR="release"
+              BINARY_NAME="kartoza-timesheet"
+
+              echo "🚀 Building release binaries for version $VERSION..."
+              mkdir -p "$RELEASE_DIR"
+
+              echo "  Building linux-amd64..."
+              CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version=$VERSION" -o "$RELEASE_DIR/$BINARY_NAME-linux-amd64" .
+
+              echo "  Building linux-arm64..."
+              CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.version=$VERSION" -o "$RELEASE_DIR/$BINARY_NAME-linux-arm64" .
+
+              echo "  Building darwin-amd64..."
+              CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version=$VERSION" -o "$RELEASE_DIR/$BINARY_NAME-darwin-amd64" .
+
+              echo "  Building darwin-arm64..."
+              CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version=$VERSION" -o "$RELEASE_DIR/$BINARY_NAME-darwin-arm64" .
+
+              echo "  Building windows-amd64..."
+              CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.version=$VERSION" -o "$RELEASE_DIR/$BINARY_NAME-windows-amd64.exe" .
+
+              echo "📦 Creating tarballs..."
+              cd "$RELEASE_DIR"
+              tar -czf "$BINARY_NAME-linux-amd64.tar.gz" "$BINARY_NAME-linux-amd64"
+              tar -czf "$BINARY_NAME-linux-arm64.tar.gz" "$BINARY_NAME-linux-arm64"
+              tar -czf "$BINARY_NAME-darwin-amd64.tar.gz" "$BINARY_NAME-darwin-amd64"
+              tar -czf "$BINARY_NAME-darwin-arm64.tar.gz" "$BINARY_NAME-darwin-arm64"
+              tar -czf "$BINARY_NAME-windows-amd64.tar.gz" "$BINARY_NAME-windows-amd64.exe"
+
+              echo ""
+              echo "✅ Release artifacts created in $RELEASE_DIR/:"
+              ls -lh *.tar.gz
+            '';
+          };
+
+          # Build and upload release to GitHub
+          release-upload = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellScriptBin "release-upload" ''
+              #!/usr/bin/env bash
+              set -e
+
+              TAG="''${1:-}"
+              if [ -z "$TAG" ]; then
+                echo "❌ Error: TAG is required"
+                echo "Usage: nix run .#release-upload -- v0.3"
+                exit 1
+              fi
+
+              VERSION="${version}"
+              RELEASE_DIR="release"
+
+              # Build release first
+              echo "🔨 Building release..."
+              nix run .#release
+
+              echo ""
+              echo "📤 Creating GitHub release $TAG..."
+              gh release create "$TAG" --generate-notes || true
+
+              echo "📤 Uploading release artifacts..."
+              gh release upload "$TAG" "$RELEASE_DIR"/*.tar.gz --clobber
+
+              echo ""
+              echo "✅ Release $TAG published!"
+              echo "🔗 https://github.com/kartoza/go-timesheets-go/releases/tag/$TAG"
+            '';
+          };
         };
       });
 }

@@ -118,23 +118,70 @@ logs-follow:
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  build        - Build dynamic binary"
-	@echo "  static       - Build static binary"
-	@echo "  build-all    - Build both dynamic and static binaries"
-	@echo "  clean        - Clean build artifacts"
-	@echo "  test         - Run tests"
-	@echo "  deps         - Install dependencies"
-	@echo "  fmt          - Format code"
-	@echo "  lint         - Lint code"
-	@echo "  check        - Run all quality checks (fmt, lint, test)"
-	@echo "  install      - Install static binary to /usr/local/bin"
-	@echo "  uninstall    - Remove binary from /usr/local/bin"
-	@echo "  sample-data  - Setup sample data for testing"
-	@echo "  dev          - Start development TUI"
-	@echo "  monitor      - Monitor app metrics with expvarmon TUI (requires app running)"
-	@echo "  logs         - View API request logs from last hour"
-	@echo "  logs-follow  - Follow API request logs in real-time"
-	@echo "  help         - Show this help message"
+	@echo "  build          - Build dynamic binary"
+	@echo "  static         - Build static binary"
+	@echo "  build-all      - Build both dynamic and static binaries"
+	@echo "  clean          - Clean build artifacts"
+	@echo "  test           - Run tests"
+	@echo "  deps           - Install dependencies"
+	@echo "  fmt            - Format code"
+	@echo "  lint           - Lint code"
+	@echo "  check          - Run all quality checks (fmt, lint, test)"
+	@echo "  install        - Install static binary to /usr/local/bin"
+	@echo "  uninstall      - Remove binary from /usr/local/bin"
+	@echo "  sample-data    - Setup sample data for testing"
+	@echo "  dev            - Start development TUI"
+	@echo "  monitor        - Monitor app metrics with expvarmon TUI (requires app running)"
+	@echo "  logs           - View API request logs from last hour"
+	@echo "  logs-follow    - Follow API request logs in real-time"
+	@echo "  release        - Build release binaries for all platforms"
+	@echo "  release-upload - Build and upload release to GitHub (requires TAG=vX.Y)"
+	@echo "  release-clean  - Clean release artifacts"
+	@echo "  help           - Show this help message"
+
+# Release directory
+RELEASE_DIR=release
+
+# Build release binaries for all platforms
+.PHONY: release
+release:
+	@echo "Building release binaries for version $(VERSION)..."
+	@mkdir -p $(RELEASE_DIR)
+	@echo "  Building linux-amd64..."
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(STATIC_LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-linux-amd64 .
+	@echo "  Building linux-arm64..."
+	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(STATIC_LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-linux-arm64 .
+	@echo "  Building darwin-amd64..."
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build $(STATIC_LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-darwin-amd64 .
+	@echo "  Building darwin-arm64..."
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(STATIC_LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-darwin-arm64 .
+	@echo "  Building windows-amd64..."
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build $(STATIC_LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-windows-amd64.exe .
+	@echo "Creating tarballs..."
+	@cd $(RELEASE_DIR) && tar -czf $(BINARY_NAME)-linux-amd64.tar.gz $(BINARY_NAME)-linux-amd64
+	@cd $(RELEASE_DIR) && tar -czf $(BINARY_NAME)-linux-arm64.tar.gz $(BINARY_NAME)-linux-arm64
+	@cd $(RELEASE_DIR) && tar -czf $(BINARY_NAME)-darwin-amd64.tar.gz $(BINARY_NAME)-darwin-amd64
+	@cd $(RELEASE_DIR) && tar -czf $(BINARY_NAME)-darwin-arm64.tar.gz $(BINARY_NAME)-darwin-arm64
+	@cd $(RELEASE_DIR) && tar -czf $(BINARY_NAME)-windows-amd64.tar.gz $(BINARY_NAME)-windows-amd64.exe
+	@echo ""
+	@echo "Release artifacts created in $(RELEASE_DIR)/:"
+	@ls -lh $(RELEASE_DIR)/*.tar.gz
+
+# Upload release to GitHub (requires gh CLI and a tag)
+.PHONY: release-upload
+release-upload: release
+	@if [ -z "$(TAG)" ]; then echo "Error: TAG is required. Usage: make release-upload TAG=v0.2"; exit 1; fi
+	@echo "Creating GitHub release $(TAG)..."
+	@gh release create $(TAG) --generate-notes || true
+	@echo "Uploading release artifacts..."
+	@gh release upload $(TAG) $(RELEASE_DIR)/*.tar.gz --clobber
+	@echo "Release $(TAG) published: https://github.com/kartoza/go-timesheets-go/releases/tag/$(TAG)"
+
+# Clean release artifacts
+.PHONY: release-clean
+release-clean:
+	@echo "Cleaning release artifacts..."
+	rm -rf $(RELEASE_DIR)
 
 # Build info
 .PHONY: info

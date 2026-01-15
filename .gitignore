@@ -118,3 +118,6 @@ internal/tui/*.backup
 .claude/settings.local.json
 kartoza-timesheets
 screenshot.png
+
+# Release artifacts
+release/
