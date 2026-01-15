@@ -537,7 +537,7 @@ func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 	}
 }
 
-// fetchGitHubCommitsForTimer fetches commit messages from a linked GitHub repo
+// fetchGitCommitsForTimer fetches commit messages from a linked repo (local or GitHub)
 // for the active timer's project and time range
 func (m *MainMenuModel) fetchGitHubCommitsForTimer() string {
 	if m.activeTimer == nil {
@@ -547,69 +547,115 @@ func (m *MainMenuModel) fetchGitHubCommitsForTimer() string {
 	// Load code repo associations from storage
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to load config: %v", err)
+		menuDebugLog.Printf("fetchGitCommitsForTimer: failed to load config: %v", err)
 		return ""
 	}
 
 	store, err := storage.New(cfg.GetStorageDir())
 	if err != nil {
-		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to create storage: %v", err)
+		menuDebugLog.Printf("fetchGitCommitsForTimer: failed to create storage: %v", err)
 		return ""
 	}
 
 	associations, err := store.LoadCodeRepoAssociations()
 	if err != nil {
-		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to load code repo associations: %v", err)
+		menuDebugLog.Printf("fetchGitCommitsForTimer: failed to load code repo associations: %v", err)
 		return ""
 	}
 
 	// Find association for this project
 	assoc := associations.GetAssociationByProject(m.activeTimer.ProjectID)
 	if assoc == nil || !assoc.HasAssociation() {
-		menuDebugLog.Printf("fetchGitHubCommitsForTimer: no repo linked to project %d", m.activeTimer.ProjectID)
+		menuDebugLog.Printf("fetchGitCommitsForTimer: no repo linked to project %d", m.activeTimer.ProjectID)
 		return ""
 	}
-
-	menuDebugLog.Printf("fetchGitHubCommitsForTimer: found linked repo %s/%s for project %d",
-		assoc.RepoOwner, assoc.RepoName, m.activeTimer.ProjectID)
 
 	// Parse start time
 	startTime, err := m.activeTimer.GetFromTimeAsTime()
 	if err != nil {
-		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to parse start time: %v", err)
+		menuDebugLog.Printf("fetchGitCommitsForTimer: failed to parse start time: %v", err)
 		return ""
 	}
 
 	// End time is now
 	endTime := time.Now()
 
-	// Load GitHub token from config if available
-	githubToken := cfg.GetGitHubToken()
+	// Check if this is a local path or a GitHub URL
+	repoURL := assoc.RepoURL
+	if api.IsLocalPath(repoURL) {
+		// Local git repository
+		return m.fetchLocalGitCommits(repoURL, startTime, endTime)
+	}
 
-	// Create GitHub client and fetch commits
-	githubClient := api.NewGitHubClient(githubToken)
+	// GitHub repository
+	return m.fetchGitHubCommits(assoc.RepoOwner, assoc.RepoName, startTime, endTime, cfg.GetGitHubToken())
+}
 
-	// Get the username for author filter (optional - could be configured)
-	// For now, we'll fetch all commits in the time range
-	commits, err := githubClient.GetCommitsInTimeRange(
-		assoc.RepoOwner,
-		assoc.RepoName,
+// fetchLocalGitCommits fetches commits from a local git repository
+func (m *MainMenuModel) fetchLocalGitCommits(repoPath string, startTime, endTime time.Time) string {
+	// Expand ~ to home directory
+	repoPath = api.ExpandPath(repoPath)
+
+	menuDebugLog.Printf("fetchLocalGitCommits: fetching from local repo %s", repoPath)
+
+	// Check if it's a valid git repository
+	if !api.IsGitRepository(repoPath) {
+		menuDebugLog.Printf("fetchLocalGitCommits: %s is not a git repository", repoPath)
+		return ""
+	}
+
+	// Create local git client and fetch commits
+	localGitClient := api.NewLocalGitClient()
+
+	commits, err := localGitClient.GetCommitsInTimeRange(
+		repoPath,
 		startTime,
 		endTime,
 		"", // No author filter - get all commits
 	)
 
 	if err != nil {
-		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to fetch commits: %v", err)
+		menuDebugLog.Printf("fetchLocalGitCommits: failed to fetch commits: %v", err)
 		return ""
 	}
 
 	if len(commits) == 0 {
-		menuDebugLog.Printf("fetchGitHubCommitsForTimer: no commits found in time range")
+		menuDebugLog.Printf("fetchLocalGitCommits: no commits found in time range")
 		return ""
 	}
 
-	menuDebugLog.Printf("fetchGitHubCommitsForTimer: found %d commits", len(commits))
+	menuDebugLog.Printf("fetchLocalGitCommits: found %d commits", len(commits))
+
+	// Format commits as description
+	return api.FormatLocalCommitsAsDescription(commits)
+}
+
+// fetchGitHubCommits fetches commits from a GitHub repository
+func (m *MainMenuModel) fetchGitHubCommits(owner, repo string, startTime, endTime time.Time, githubToken string) string {
+	menuDebugLog.Printf("fetchGitHubCommits: fetching from GitHub repo %s/%s", owner, repo)
+
+	// Create GitHub client and fetch commits
+	githubClient := api.NewGitHubClient(githubToken)
+
+	commits, err := githubClient.GetCommitsInTimeRange(
+		owner,
+		repo,
+		startTime,
+		endTime,
+		"", // No author filter - get all commits
+	)
+
+	if err != nil {
+		menuDebugLog.Printf("fetchGitHubCommits: failed to fetch commits: %v", err)
+		return ""
+	}
+
+	if len(commits) == 0 {
+		menuDebugLog.Printf("fetchGitHubCommits: no commits found in time range")
+		return ""
+	}
+
+	menuDebugLog.Printf("fetchGitHubCommits: found %d commits", len(commits))
 
 	// Format commits as description
 	return api.FormatCommitsAsDescription(commits)
