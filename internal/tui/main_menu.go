@@ -78,8 +78,7 @@ func NewMainMenu(apiClient *api.Client, username string) *MainMenuModel {
 func (m *MainMenuModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadActiveTimer(),
-		m.loadMonthlyHours(),
-		m.loadTodayHours(),
+		m.loadHoursData(), // Single call for both monthly and today hours
 	)
 }
 
@@ -225,13 +224,19 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateDashboard()
 		return m, nil
 
+	case hoursDataLoadedMsg:
+		// Combined handler for both monthly and today hours (single API call)
+		m.monthlyHours = msg.monthlyHours
+		m.todayHours = msg.todayHours
+		m.updateDashboard()
+		return m, nil
+
 	case timerStoppedMsg:
-		// Timer was stopped, reload active timer and monthly hours
+		// Timer was stopped, reload active timer and hours data
 		m.err = nil // Clear any previous errors
 		return m, tea.Batch(
 			m.loadActiveTimer(),
-			m.loadMonthlyHours(),
-			m.loadTodayHours(),
+			m.loadHoursData(), // Single call for both monthly and today hours
 		)
 
 	case stopTimerDescriptionReadyMsg:
@@ -540,31 +545,44 @@ func (m *MainMenuModel) loadActiveTimer() tea.Cmd {
 	}
 }
 
-// loadMonthlyHours loads the total hours for the current month
-func (m *MainMenuModel) loadMonthlyHours() tea.Cmd {
+// loadHoursData loads both monthly and today hours in a single API call
+func (m *MainMenuModel) loadHoursData() tea.Cmd {
 	return func() tea.Msg {
 		now := time.Now()
 		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 		monthEnd := monthStart.AddDate(0, 1, 0)
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		todayEnd := todayStart.AddDate(0, 0, 1)
 
 		timelogs, err := m.apiClient.GetTimelogs()
 		if err != nil {
 			return errorMsg(err)
 		}
 
-		var totalHours float64
+		var monthlyHours, todayHours float64
 		for _, entry := range timelogs {
 			startTime, err := entry.GetFromTimeAsTime()
 			if err != nil {
 				continue
 			}
 
+			// Calculate monthly hours
 			if (startTime.After(monthStart) || startTime.Equal(monthStart)) && startTime.Before(monthEnd) {
-				totalHours += entry.GetHoursAsFloat()
+				monthlyHours += entry.GetHoursAsFloat()
+			}
+
+			// Calculate today hours (only completed entries)
+			if (startTime.After(todayStart) || startTime.Equal(todayStart)) && startTime.Before(todayEnd) {
+				if entry.ToTime != "" {
+					todayHours += entry.GetHoursAsFloat()
+				}
 			}
 		}
 
-		return monthlyHoursLoadedMsg{hours: totalHours}
+		return hoursDataLoadedMsg{
+			monthlyHours: monthlyHours,
+			todayHours:   todayHours,
+		}
 	}
 }
 
@@ -961,38 +979,6 @@ func (m *MainMenuModel) updateDashboard() {
 	}
 }
 
-// loadTodayHours loads the total hours worked today
-func (m *MainMenuModel) loadTodayHours() tea.Cmd {
-	return func() tea.Msg {
-		now := time.Now()
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		todayEnd := todayStart.AddDate(0, 0, 1)
-
-		timelogs, err := m.apiClient.GetTimelogs()
-		if err != nil {
-			return errorMsg(err)
-		}
-
-		var totalHours float64
-		for _, entry := range timelogs {
-			startTime, err := entry.GetFromTimeAsTime()
-			if err != nil {
-				continue
-			}
-
-			// Only count completed entries (with end time) for today
-			if (startTime.After(todayStart) || startTime.Equal(todayStart)) && startTime.Before(todayEnd) {
-				// Don't count running timer here - it's calculated separately
-				if entry.ToTime != "" {
-					totalHours += entry.GetHoursAsFloat()
-				}
-			}
-		}
-
-		return todayHoursLoadedMsg{hours: totalHours}
-	}
-}
-
 // startBlinkTicker starts the blink ticker for timer indicators and elapsed time updates
 func (m *MainMenuModel) startBlinkTicker() tea.Cmd {
 	return tea.Tick(blinkInterval, func(t time.Time) tea.Msg {
@@ -1011,6 +997,12 @@ type monthlyHoursLoadedMsg struct {
 
 type todayHoursLoadedMsg struct {
 	hours float64
+}
+
+// hoursDataLoadedMsg contains both monthly and today hours from a single API call
+type hoursDataLoadedMsg struct {
+	monthlyHours float64
+	todayHours   float64
 }
 
 type timerStoppedMsg struct{}

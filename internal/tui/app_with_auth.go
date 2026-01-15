@@ -320,6 +320,18 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case backToMenuWithHoursMsg:
+		// Return to main menu with updated hours from history view (no API call needed)
+		a.state = StateMainMenu
+		a.historyView = nil
+		// Update main menu hours directly from the cached data
+		if a.mainMenu != nil {
+			a.mainMenu.monthlyHours = msg.monthlyHours
+			a.mainMenu.todayHours = msg.todayHours
+			a.mainMenu.updateDashboard()
+		}
+		return a, nil
+
 	case launchHistoryViewMsg:
 		// Transition to history view
 		historyView := NewHistoryView(a.apiClient, a.username)

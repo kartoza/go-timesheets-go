@@ -151,6 +151,39 @@ func (m *Metrics) RecordAPIRequest(method, path string, statusCode int, duration
 	}
 }
 
+// LogRequestBody logs the request body for debugging
+func (m *Metrics) LogRequestBody(method, path string, body string) {
+	if m == nil || m.requestLogger == nil {
+		return
+	}
+
+	m.logMutex.Lock()
+	defer m.logMutex.Unlock()
+
+	m.requestLogger.Printf("[%s] %s %s Request Body:\n%s",
+		time.Now().Format("15:04:05"),
+		method,
+		path,
+		body)
+}
+
+// LogResponseBody logs the response body for debugging
+func (m *Metrics) LogResponseBody(method, path string, statusCode int, body string) {
+	if m == nil || m.requestLogger == nil {
+		return
+	}
+
+	m.logMutex.Lock()
+	defer m.logMutex.Unlock()
+
+	m.requestLogger.Printf("[%s] %s %s Response (status %d):\n%s",
+		time.Now().Format("15:04:05"),
+		method,
+		path,
+		statusCode,
+		body)
+}
+
 // StartAPIRequest marks the start of an API request
 func (m *Metrics) StartAPIRequest() {
 	if m != nil {

@@ -29,7 +29,7 @@ type UIConfig struct {
 // DefaultConfig returns the default configuration
 func DefaultConfig() Config {
 	homeDir, _ := os.UserHomeDir()
-	
+
 	return Config{
 		API: api.Config{
 			BaseURL:  "http://localhost:8000",
@@ -43,7 +43,7 @@ func DefaultConfig() Config {
 			RefreshRate: 30,
 			DefaultView: "menu",
 		},
-		Storage:  filepath.Join(homeDir, ".kartoza-timesheet"),
+		Storage:  filepath.Join(homeDir, ".config", "kartoza-timesheets"),
 		LogLevel: "info",
 	}
 }

@@ -10,7 +10,9 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kartoza/go-timesheets-go/internal/models"
@@ -29,6 +31,19 @@ func init() {
 	}
 }
 
+// cachedResponse holds a cached API response with its data and any error
+type cachedResponse struct {
+	data      []byte
+	err       error
+	timestamp time.Time
+}
+
+// inflight tracks in-progress requests to prevent duplicate calls
+type inflight struct {
+	done chan struct{}
+	resp *cachedResponse
+}
+
 // Client represents an API client for the Django backend
 type Client struct {
 	baseURL    string
@@ -38,6 +53,14 @@ type Client struct {
 	password   string
 	authToken  string // API token for authentication
 	metrics    *monitoring.Metrics
+
+	// Request deduplication
+	cacheMu      sync.RWMutex
+	cache        map[string]*cachedResponse // Short-lived cache for responses
+	cacheTTL     time.Duration              // How long to cache successful responses
+	errorCacheTTL time.Duration             // How long to cache error responses (backoff)
+	inflightMu   sync.Mutex
+	inflight     map[string]*inflight       // In-progress requests
 }
 
 // Config holds configuration for the API client
@@ -78,6 +101,10 @@ func NewClient(config Config) (*Client, error) {
 			Jar:     jar,
 			Timeout: timeout,
 		},
+		cache:         make(map[string]*cachedResponse),
+		cacheTTL:      2 * time.Second,  // Short TTL to deduplicate concurrent requests
+		errorCacheTTL: 30 * time.Second, // Longer TTL for errors to prevent request spam
+		inflight:      make(map[string]*inflight),
 	}
 
 	return client, nil
@@ -151,6 +178,116 @@ func (c *Client) SetUsername(username string) {
 // SetMetrics sets the metrics tracker for the client
 func (c *Client) SetMetrics(metrics *monitoring.Metrics) {
 	c.metrics = metrics
+}
+
+// getCached checks if we have a valid cached response for the given key
+func (c *Client) getCached(key string) (*cachedResponse, bool) {
+	c.cacheMu.RLock()
+	defer c.cacheMu.RUnlock()
+
+	cached, ok := c.cache[key]
+	if !ok {
+		return nil, false
+	}
+
+	// Use different TTL for errors vs successful responses
+	ttl := c.cacheTTL
+	if cached.err != nil {
+		ttl = c.errorCacheTTL // Longer TTL for errors to prevent request spam
+	}
+
+	// Check if cache is still valid
+	if time.Since(cached.timestamp) > ttl {
+		return nil, false
+	}
+
+	return cached, true
+}
+
+// setCache stores a response in the cache
+func (c *Client) setCache(key string, data []byte, err error) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	c.cache[key] = &cachedResponse{
+		data:      data,
+		err:       err,
+		timestamp: time.Now(),
+	}
+}
+
+// invalidateCache removes a key from the cache (call after mutations)
+func (c *Client) invalidateCache(key string) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	delete(c.cache, key)
+}
+
+// InvalidateAllCache clears the entire cache (call after mutations that affect multiple endpoints)
+func (c *Client) InvalidateAllCache() {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	c.cache = make(map[string]*cachedResponse)
+}
+
+// makeDeduplicatedGET makes a GET request with deduplication
+// If the same request is already in flight, it waits for that request to complete
+// If we have a recent cached response, it returns that instead
+func (c *Client) makeDeduplicatedGET(endpoint string) ([]byte, error) {
+	cacheKey := "GET:" + endpoint
+
+	// Check cache first
+	if cached, ok := c.getCached(cacheKey); ok {
+		debugLog.Printf("makeDeduplicatedGET: cache hit for %s", endpoint)
+		return cached.data, cached.err
+	}
+
+	// Check if request is already in flight
+	c.inflightMu.Lock()
+	if inf, ok := c.inflight[cacheKey]; ok {
+		c.inflightMu.Unlock()
+		debugLog.Printf("makeDeduplicatedGET: waiting for in-flight request %s", endpoint)
+		<-inf.done // Wait for the in-flight request to complete
+		return inf.resp.data, inf.resp.err
+	}
+
+	// Create new in-flight entry
+	inf := &inflight{
+		done: make(chan struct{}),
+	}
+	c.inflight[cacheKey] = inf
+	c.inflightMu.Unlock()
+
+	// Make the actual request
+	debugLog.Printf("makeDeduplicatedGET: making request to %s", endpoint)
+	resp, err := c.makeRequest("GET", endpoint, nil)
+
+	var data []byte
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			data, err = io.ReadAll(resp.Body)
+		} else {
+			err = fmt.Errorf("API request failed with status: %d", resp.StatusCode)
+		}
+	}
+
+	// Store result in cache and in-flight response
+	cachedResp := &cachedResponse{
+		data:      data,
+		err:       err,
+		timestamp: time.Now(),
+	}
+	inf.resp = cachedResp
+	c.setCache(cacheKey, data, err)
+
+	// Signal completion to any waiters
+	c.inflightMu.Lock()
+	delete(c.inflight, cacheKey)
+	c.inflightMu.Unlock()
+	close(inf.done)
+
+	return data, err
 }
 
 // authenticate performs login and retrieves CSRF token
@@ -248,12 +385,22 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 	url := c.baseURL + endpoint
 
 	var reqBody io.Reader
+	var jsonBodyStr string
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
+		jsonBodyStr = string(jsonBody)
+		// Log request body in debug mode
+		debugLog.Printf("makeRequest: %s %s\nRequest body: %s", method, endpoint, jsonBodyStr)
+		// Also log to API request log file if metrics available
+		if c.metrics != nil {
+			c.metrics.LogRequestBody(method, endpoint, jsonBodyStr)
+		}
 		reqBody = bytes.NewBuffer(jsonBody)
+	} else {
+		debugLog.Printf("makeRequest: %s %s (no body)", method, endpoint)
 	}
 
 	req, err := http.NewRequest(method, url, reqBody)
@@ -291,7 +438,11 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 		c.metrics.RecordAPIRequest(method, endpoint, statusCode, duration, err)
 	}
 
+	// Log response status
+	debugLog.Printf("makeRequest: %s %s -> status %d (took %v)", method, endpoint, statusCode, duration)
+
 	if err != nil {
+		debugLog.Printf("makeRequest: %s %s -> error: %v", method, endpoint, err)
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 
@@ -574,20 +725,16 @@ func (c *Client) GetTasks(projectID string) ([]TaskListItem, error) {
 	return tasks, nil
 }
 
-// GetTimelogs fetches timesheet entries
+// GetTimelogs fetches timesheet entries with request deduplication
+// Concurrent calls to this endpoint will share a single HTTP request
 func (c *Client) GetTimelogs() ([]TimelogEntry, error) {
-	resp, err := c.makeRequest("GET", "/api/timelog/", nil)
+	data, err := c.makeDeduplicatedGET("/api/timelog/")
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
-	}
 
 	var timelogs []TimelogEntry
-	if err := json.NewDecoder(resp.Body).Decode(&timelogs); err != nil {
+	if err := json.Unmarshal(data, &timelogs); err != nil {
 		return nil, fmt.Errorf("failed to decode timelogs response: %w", err)
 	}
 
@@ -664,23 +811,44 @@ func (c *Client) CreateTimesheet(entry models.TimeEntry) error {
 	}
 
 	debugLog.Printf("CreateTimesheet successful")
+	// Invalidate timelog cache after creating a new entry
+	c.invalidateCache("GET:/api/timelog/")
 	return nil
 }
 
 // UpdateTimesheet updates an existing timesheet entry
 func (c *Client) UpdateTimesheet(entryID string, entry models.TimeEntry) error {
+	debugLog.Printf("UpdateTimesheet called for entry %s", entryID)
+	debugLog.Printf("  ProjectID: %s", entry.ProjectID)
+	debugLog.Printf("  ActivityID: %s", entry.ActivityID)
+	debugLog.Printf("  Description: %s", entry.Description)
+	debugLog.Printf("  StartTime: %s", entry.StartTime.Format(time.RFC3339))
+	if entry.TaskID != nil {
+		debugLog.Printf("  TaskID: %s", *entry.TaskID)
+	}
+	if entry.EndTime != nil {
+		debugLog.Printf("  EndTime: %s", entry.EndTime.Format(time.RFC3339))
+	}
+
+	// Convert string IDs to integers for the API
+	projectID, _ := strconv.Atoi(entry.ProjectID)
+	activityID, _ := strconv.Atoi(entry.ActivityID)
+
 	// Convert our internal model to API format
-	// The Django API expects nested objects for project, task, activity
+	// The API expects nested objects with integer IDs
+	// IMPORTANT: Must set "editing": true to allow updating entries that have an end_time
 	apiEntry := map[string]interface{}{
-		"project":     map[string]interface{}{"id": entry.ProjectID},
-		"activity":    map[string]interface{}{"id": entry.ActivityID},
+		"project":     map[string]interface{}{"id": projectID},
+		"activity":    map[string]interface{}{"id": activityID},
 		"description": entry.Description,
 		"start_time":  entry.StartTime.Format(time.RFC3339),
 		"timezone":    "UTC",
+		"editing":     true,
 	}
 
 	if entry.TaskID != nil {
-		apiEntry["task"] = map[string]interface{}{"id": *entry.TaskID}
+		taskID, _ := strconv.Atoi(*entry.TaskID)
+		apiEntry["task"] = map[string]interface{}{"id": taskID}
 	} else {
 		apiEntry["task"] = map[string]interface{}{"id": "-"}
 	}
@@ -692,15 +860,26 @@ func (c *Client) UpdateTimesheet(entryID string, entry models.TimeEntry) error {
 	endpoint := fmt.Sprintf("/api/timesheet/%s/", entryID)
 	resp, err := c.makeRequest("PUT", endpoint, apiEntry)
 	if err != nil {
+		debugLog.Printf("UpdateTimesheet makeRequest error: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	debugLog.Printf("UpdateTimesheet response status: %d", resp.StatusCode)
+	debugLog.Printf("UpdateTimesheet response body: %s", string(bodyBytes))
+
+	// Log response to API request log file
+	if c.metrics != nil {
+		c.metrics.LogResponseBody("PUT", endpoint, resp.StatusCode, string(bodyBytes))
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to update timesheet entry (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	// Invalidate timelog cache after updating an entry
+	c.invalidateCache("GET:/api/timelog/")
 	return nil
 }
 
@@ -718,6 +897,8 @@ func (c *Client) DeleteTimesheet(entryID string) error {
 		return fmt.Errorf("failed to delete timesheet entry (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	// Invalidate timelog cache after deleting an entry
+	c.invalidateCache("GET:/api/timelog/")
 	return nil
 }
 
@@ -1055,6 +1236,8 @@ func (c *Client) StopTimesheetWithDescription(entry *TimelogEntry, newDescriptio
 		return fmt.Errorf("failed to stop timesheet (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	// Invalidate timelog cache after stopping a timer
+	c.invalidateCache("GET:/api/timelog/")
 	return nil
 }
 
@@ -1072,6 +1255,8 @@ func (c *Client) DeleteTimeLog(id string) error {
 		return fmt.Errorf("failed to delete time log (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	// Invalidate timelog cache after deleting an entry
+	c.invalidateCache("GET:/api/timelog/")
 	return nil
 }
 

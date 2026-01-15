@@ -11,7 +11,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
+	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/models"
+	"github.com/kartoza/go-timesheets-go/internal/storage"
 )
 
 // HistoryViewMode represents the current mode of the history view
@@ -30,6 +32,7 @@ type HistoryView struct {
 	width       int
 	height      int
 	headerState *HeaderState // Shared header state
+	store       *storage.Storage // For persistent cache
 
 	// Data
 	allHistory []api.TimelogEntry
@@ -90,6 +93,12 @@ func NewHistoryView(apiClient *api.Client, username string) *HistoryView {
 	endInput.CharLimit = 5
 	endInput.Width = 8
 
+	// Initialize storage for persistent cache
+	var store *storage.Storage
+	if cfg, err := config.LoadConfig(); err == nil {
+		store, _ = storage.New(cfg.GetStorageDir())
+	}
+
 	h := &HistoryView{
 		apiClient: apiClient,
 		username:  username,
@@ -97,6 +106,7 @@ func NewHistoryView(apiClient *api.Client, username string) *HistoryView {
 		loading:   true,
 		descCache: make(map[int]string),
 		mode:      HistoryListMode,
+		store:     store,
 	}
 
 	h.editFields.description = descInput
@@ -160,15 +170,52 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 				h.pendingCount++
 			}
 		}
+		// Save to persistent cache for app restart
+		if h.store != nil {
+			_ = h.store.SaveTimelogCache(h.allHistory)
+		}
 
 	case historyUpdateSuccessMsg:
 		h.isSaving = false
 		h.editSuccess = "Entry updated successfully!"
 		h.editError = ""
-		// Invalidate cache for this entry
+
+		// Update the local cache instead of reloading from server
+		for i := range h.allHistory {
+			if h.allHistory[i].ID == msg.entryID {
+				// Update the fields that were edited
+				desc := msg.description
+				h.allHistory[i].Description = &desc
+				h.allHistory[i].FromTime = msg.fromTime
+				h.allHistory[i].ToTime = msg.toTime
+				h.allHistory[i].Hours = msg.hours
+				// Also update the "all" fields which track aggregated time
+				h.allHistory[i].AllFromTime = formatAllTimeField(msg.fromTime)
+				h.allHistory[i].AllToTime = formatAllTimeField(msg.toTime)
+				h.allHistory[i].AllHours = msg.hours
+
+				// Also update selectedEntry if it's the same entry
+				if h.selectedEntry != nil && h.selectedEntry.ID == msg.entryID {
+					h.selectedEntry.Description = &desc
+					h.selectedEntry.FromTime = msg.fromTime
+					h.selectedEntry.ToTime = msg.toTime
+					h.selectedEntry.Hours = msg.hours
+					h.selectedEntry.AllFromTime = formatAllTimeField(msg.fromTime)
+					h.selectedEntry.AllToTime = formatAllTimeField(msg.toTime)
+					h.selectedEntry.AllHours = msg.hours
+				}
+				break
+			}
+		}
+
+		// Persist the update to the cache file for app restart
+		if h.store != nil {
+			_ = h.store.UpdateTimelogCacheEntry(msg.entryID, msg.description, msg.fromTime, msg.toTime, msg.hours)
+		}
+
+		// Invalidate description cache for this entry
 		delete(h.descCache, h.cursor)
-		// Reload history to get fresh data
-		return h, h.loadHistory()
+		return h, nil
 
 	case historyUpdateErrorMsg:
 		h.isSaving = false
@@ -223,7 +270,8 @@ func (h *HistoryView) updateListMode(msg tea.KeyMsg) (*HistoryView, tea.Cmd) {
 
 	case "esc", "q":
 		h.submitSuccess = "" // Clear success message
-		return h, func() tea.Msg { return backToMenuMsg{} }
+		// Calculate hours from local cache and return with updated data
+		return h, h.returnToMenuWithHours()
 
 	case "s":
 		// Submit all pending - show confirmation
@@ -458,7 +506,14 @@ func (h *HistoryView) saveEntry() tea.Cmd {
 			return historyUpdateErrorMsg{err: err}
 		}
 
-		return historyUpdateSuccessMsg{}
+		// Return success with the updated values so we can update the local cache
+		return historyUpdateSuccessMsg{
+			entryID:     h.selectedEntry.ID,
+			description: h.editFields.description.Value(),
+			fromTime:    startTime.Format(time.RFC3339),
+			toTime:      func() string { if endTimePtr != nil { return endTimePtr.Format(time.RFC3339) }; return "" }(),
+			hours:       duration,
+		}
 	}
 }
 
@@ -1286,6 +1341,39 @@ func (h *HistoryView) renderScrollableTable() string {
 	return tableStyle.Render(tableContent)
 }
 
+// returnToMenuWithHours calculates current hours from local cache and returns to menu
+func (h *HistoryView) returnToMenuWithHours() tea.Cmd {
+	return func() tea.Msg {
+		now := time.Now()
+		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		monthEnd := monthStart.AddDate(0, 1, 0)
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		todayEnd := todayStart.AddDate(0, 0, 1)
+
+		var monthlyHours, todayHours float64
+		for _, entry := range h.allHistory {
+			startTime := entry.StartTime()
+
+			// Calculate monthly hours
+			if (startTime.After(monthStart) || startTime.Equal(monthStart)) && startTime.Before(monthEnd) {
+				monthlyHours += entry.Hours
+			}
+
+			// Calculate today hours (only completed entries)
+			if (startTime.After(todayStart) || startTime.Equal(todayStart)) && startTime.Before(todayEnd) {
+				if entry.ToTime != "" {
+					todayHours += entry.Hours
+				}
+			}
+		}
+
+		return backToMenuWithHoursMsg{
+			monthlyHours: monthlyHours,
+			todayHours:   todayHours,
+		}
+	}
+}
+
 // Helper functions
 func (h *HistoryView) loadHistory() tea.Cmd {
 	return func() tea.Msg {
@@ -1295,6 +1383,12 @@ func (h *HistoryView) loadHistory() tea.Cmd {
 
 		entries, err := h.apiClient.GetTimelogs()
 		if err != nil {
+			// On API error, try to load from persistent cache
+			if h.store != nil {
+				if cache, cacheErr := h.store.LoadTimelogCache(); cacheErr == nil && cache != nil {
+					return historyLoadedMsg{entries: cache.Entries}
+				}
+			}
 			return errorMsg(err)
 		}
 
@@ -1307,6 +1401,15 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// formatAllTimeField converts RFC3339 time to "YYYY-MM-DD HH:MM:SS" format for all_* fields
+func formatAllTimeField(rfc3339Time string) string {
+	t, err := time.Parse(time.RFC3339, rfc3339Time)
+	if err != nil {
+		return rfc3339Time // Return as-is if parsing fails
+	}
+	return t.Format("2006-01-02 15:04:05")
 }
 
 func renderHistoryDescription(html string, width int) string {
@@ -1377,7 +1480,13 @@ type historyLoadedMsg struct {
 	entries []api.TimelogEntry
 }
 
-type historyUpdateSuccessMsg struct{}
+type historyUpdateSuccessMsg struct {
+	entryID     int
+	description string
+	fromTime    string
+	toTime      string
+	hours       float64
+}
 
 type historyUpdateErrorMsg struct {
 	err error
@@ -1387,4 +1496,10 @@ type historySubmitSuccessMsg struct{}
 
 type historySubmitErrorMsg struct {
 	err error
+}
+
+// backToMenuWithHoursMsg is sent when returning to menu with updated hours data
+type backToMenuWithHoursMsg struct {
+	monthlyHours float64
+	todayHours   float64
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 )
 
@@ -398,4 +399,87 @@ func (s *Storage) LoadCodeRepoAssociations() (*models.CodeRepoAssociations, erro
 	}
 
 	return &associations, nil
+}
+
+// TimelogCache represents a cached copy of timelog entries from the API
+type TimelogCache struct {
+	Entries   []api.TimelogEntry `json:"entries"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// SaveTimelogCache saves timelog entries to the cache file
+func (s *Storage) SaveTimelogCache(entries []api.TimelogEntry) error {
+	filePath := filepath.Join(s.dataDir, "timelog_cache.json")
+
+	cache := TimelogCache{
+		Entries:   entries,
+		UpdatedAt: time.Now(),
+	}
+
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal timelog cache: %w", err)
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// LoadTimelogCache loads timelog entries from the cache file
+func (s *Storage) LoadTimelogCache() (*TimelogCache, error) {
+	filePath := filepath.Join(s.dataDir, "timelog_cache.json")
+
+	data, err := os.ReadFile(filePath)
+	if os.IsNotExist(err) {
+		return nil, nil // No cache exists
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read timelog cache file: %w", err)
+	}
+
+	var cache TimelogCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal timelog cache: %w", err)
+	}
+
+	return &cache, nil
+}
+
+// UpdateTimelogCacheEntry updates a single entry in the timelog cache
+func (s *Storage) UpdateTimelogCacheEntry(entryID int, description string, fromTime string, toTime string, hours float64) error {
+	cache, err := s.LoadTimelogCache()
+	if err != nil {
+		return err
+	}
+	if cache == nil {
+		return nil // No cache to update
+	}
+
+	// Find and update the entry
+	for i := range cache.Entries {
+		if cache.Entries[i].ID == entryID {
+			cache.Entries[i].Description = &description
+			cache.Entries[i].FromTime = fromTime
+			cache.Entries[i].ToTime = toTime
+			cache.Entries[i].Hours = hours
+			// Also update the "all" fields which track aggregated time
+			cache.Entries[i].AllFromTime = formatTimeForAllField(fromTime)
+			cache.Entries[i].AllToTime = formatTimeForAllField(toTime)
+			cache.Entries[i].AllHours = hours
+			break
+		}
+	}
+
+	cache.UpdatedAt = time.Now()
+
+	// Save the updated cache
+	return s.SaveTimelogCache(cache.Entries)
+}
+
+// formatTimeForAllField converts RFC3339 time to "YYYY-MM-DD HH:MM:SS" format for all_* fields
+func formatTimeForAllField(rfc3339Time string) string {
+	t, err := time.Parse(time.RFC3339, rfc3339Time)
+	if err != nil {
+		return rfc3339Time // Return as-is if parsing fails
+	}
+	return t.Format("2006-01-02 15:04:05")
 }
