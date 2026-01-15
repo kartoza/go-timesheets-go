@@ -11,10 +11,11 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	API      api.Config `json:"api"`
-	UI       UIConfig   `json:"ui"`
-	Storage  string     `json:"storage_path"`
-	LogLevel string     `json:"log_level"`
+	API         api.Config `json:"api"`
+	UI          UIConfig   `json:"ui"`
+	Storage     string     `json:"storage_path"`
+	LogLevel    string     `json:"log_level"`
+	GitHubToken string     `json:"github_token,omitempty"` // Optional GitHub personal access token for private repos
 }
 
 // UIConfig holds UI-related configuration
@@ -156,6 +157,17 @@ func (c *Config) GetStorageDir() string {
 func (c *Config) EnsureStorageDir() error {
 	storageDir := c.GetStorageDir()
 	return os.MkdirAll(storageDir, 0755)
+}
+
+// GetGitHubToken returns the GitHub personal access token if configured
+// This token is needed for accessing private repositories
+func (c *Config) GetGitHubToken() string {
+	// First check config file
+	if c.GitHubToken != "" {
+		return c.GitHubToken
+	}
+	// Fall back to environment variable
+	return os.Getenv("GITHUB_TOKEN")
 }
 
 // Validate checks if the configuration is valid

@@ -998,6 +998,12 @@ func (c *Client) BreakTimesheet(timelogID int) (*BreakTimesheetResponse, error) 
 // StopTimesheet stops a running timesheet by updating it with an end time
 // This uses the PUT API to update the existing timesheet entry
 func (c *Client) StopTimesheet(entry *TimelogEntry) error {
+	return c.StopTimesheetWithDescription(entry, "")
+}
+
+// StopTimesheetWithDescription stops a running timesheet by updating it with an end time
+// and optionally updates the description if newDescription is non-empty
+func (c *Client) StopTimesheetWithDescription(entry *TimelogEntry, newDescription string) error {
 	if entry == nil {
 		return fmt.Errorf("entry cannot be nil")
 	}
@@ -1020,8 +1026,10 @@ func (c *Client) StopTimesheet(entry *TimelogEntry) error {
 		"timezone":   "UTC",
 	}
 
-	// Handle nullable description
-	if entry.Description != nil {
+	// Handle description - use new description if provided, otherwise keep existing
+	if newDescription != "" {
+		apiEntry["description"] = newDescription
+	} else if entry.Description != nil {
 		apiEntry["description"] = *entry.Description
 	} else {
 		apiEntry["description"] = ""

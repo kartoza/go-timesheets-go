@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
+	"github.com/kartoza/go-timesheets-go/internal/storage"
 )
 
 // menuDebugLog is defined in debug_dev.go or debug_release.go
@@ -500,13 +501,33 @@ func (m *MainMenuModel) loadMonthlyHours() tea.Cmd {
 }
 
 // stopActiveTimer stops the currently active timer using PUT to update with end_time
+// If the timer has no description and the project has a linked GitHub repo,
+// it will fetch commit messages from that repo during the timer's timespan
+// and use them as the description
 func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 	if m.activeTimer == nil {
 		return nil
 	}
 
 	return func() tea.Msg {
-		err := m.apiClient.StopTimesheet(m.activeTimer)
+		// Check if description is empty
+		hasDescription := m.activeTimer.Description != nil && *m.activeTimer.Description != ""
+
+		var newDescription string
+
+		// If no description, try to get commits from linked GitHub repo
+		if !hasDescription {
+			newDescription = m.fetchGitHubCommitsForTimer()
+		}
+
+		// Stop the timer with the new description (or empty string to keep existing)
+		var err error
+		if newDescription != "" {
+			err = m.apiClient.StopTimesheetWithDescription(m.activeTimer, newDescription)
+		} else {
+			err = m.apiClient.StopTimesheet(m.activeTimer)
+		}
+
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -514,6 +535,84 @@ func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 		// Reload active timer and monthly hours
 		return timerStoppedMsg{}
 	}
+}
+
+// fetchGitHubCommitsForTimer fetches commit messages from a linked GitHub repo
+// for the active timer's project and time range
+func (m *MainMenuModel) fetchGitHubCommitsForTimer() string {
+	if m.activeTimer == nil {
+		return ""
+	}
+
+	// Load code repo associations from storage
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to load config: %v", err)
+		return ""
+	}
+
+	store, err := storage.New(cfg.GetStorageDir())
+	if err != nil {
+		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to create storage: %v", err)
+		return ""
+	}
+
+	associations, err := store.LoadCodeRepoAssociations()
+	if err != nil {
+		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to load code repo associations: %v", err)
+		return ""
+	}
+
+	// Find association for this project
+	assoc := associations.GetAssociationByProject(m.activeTimer.ProjectID)
+	if assoc == nil || !assoc.HasAssociation() {
+		menuDebugLog.Printf("fetchGitHubCommitsForTimer: no repo linked to project %d", m.activeTimer.ProjectID)
+		return ""
+	}
+
+	menuDebugLog.Printf("fetchGitHubCommitsForTimer: found linked repo %s/%s for project %d",
+		assoc.RepoOwner, assoc.RepoName, m.activeTimer.ProjectID)
+
+	// Parse start time
+	startTime, err := m.activeTimer.GetFromTimeAsTime()
+	if err != nil {
+		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to parse start time: %v", err)
+		return ""
+	}
+
+	// End time is now
+	endTime := time.Now()
+
+	// Load GitHub token from config if available
+	githubToken := cfg.GetGitHubToken()
+
+	// Create GitHub client and fetch commits
+	githubClient := api.NewGitHubClient(githubToken)
+
+	// Get the username for author filter (optional - could be configured)
+	// For now, we'll fetch all commits in the time range
+	commits, err := githubClient.GetCommitsInTimeRange(
+		assoc.RepoOwner,
+		assoc.RepoName,
+		startTime,
+		endTime,
+		"", // No author filter - get all commits
+	)
+
+	if err != nil {
+		menuDebugLog.Printf("fetchGitHubCommitsForTimer: failed to fetch commits: %v", err)
+		return ""
+	}
+
+	if len(commits) == 0 {
+		menuDebugLog.Printf("fetchGitHubCommitsForTimer: no commits found in time range")
+		return ""
+	}
+
+	menuDebugLog.Printf("fetchGitHubCommitsForTimer: found %d commits", len(commits))
+
+	// Format commits as description
+	return api.FormatCommitsAsDescription(commits)
 }
 
 // performLogout deletes the auth token and quits the application
