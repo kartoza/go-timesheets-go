@@ -419,3 +419,191 @@ func (rcb *RefreshableComboBox) Update(msg tea.Msg) (RefreshableComboBox, tea.Cm
 
 // Common message types used across TUI components
 type errorMsg error
+
+// ========================================
+// Shared Header Component
+// ========================================
+
+// Brand colors used throughout the application
+var (
+	ColorOrange   = lipgloss.Color("#DDA036")
+	ColorBlue     = lipgloss.Color("#569FC6")
+	ColorGray     = lipgloss.Color("#9A9EA0")
+	ColorWhite    = lipgloss.Color("#FFFFFF")
+	ColorDarkGray = lipgloss.Color("#3A3A3A")
+	ColorRed      = lipgloss.Color("#E95420")
+	ColorGreen    = lipgloss.Color("#4CAF50")
+)
+
+// HeaderWidth is the standard width for the header
+const HeaderWidth = 60
+
+// HeaderState contains the dynamic state for the header
+type HeaderState struct {
+	Username     string
+	IsActive     bool
+	MonthlyHours float64
+	BlinkOn      bool // For blinking status indicator
+}
+
+// RenderHeader renders the standard application header
+// screenTitle should be the name of the current screen (e.g., "Main Menu", "Create Timer")
+func RenderHeader(screenTitle string, state *HeaderState) string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorOrange).
+		Align(lipgloss.Center).
+		Width(HeaderWidth)
+
+	mottoStyle := lipgloss.NewStyle().
+		Italic(true).
+		Foreground(ColorGray).
+		Align(lipgloss.Center).
+		Width(HeaderWidth)
+
+	dividerStyle := lipgloss.NewStyle().
+		Foreground(ColorGray).
+		Width(HeaderWidth)
+
+	statusStyle := lipgloss.NewStyle().
+		Foreground(ColorWhite).
+		Align(lipgloss.Center).
+		Width(HeaderWidth)
+
+	title := titleStyle.Render("Kartoza Timesheets - " + screenTitle)
+	motto := mottoStyle.Render("tempus fugit")
+	divider := dividerStyle.Render("────────────────────────────────────────────────────────────")
+
+	// Build status line if state is provided
+	var status string
+	if state != nil {
+		trackerState := "Inactive"
+		stateColor := ColorGray
+		if state.IsActive {
+			// Blink the dot when timer is active
+			if state.BlinkOn {
+				trackerState = "● Active"
+			} else {
+				trackerState = "○ Active"
+			}
+			stateColor = ColorOrange
+		}
+
+		trackerStateStyled := lipgloss.NewStyle().
+			Foreground(stateColor).
+			Bold(true).
+			Render(trackerState)
+
+		statusLine := fmt.Sprintf("User: %s  |  Tracker: %s  |  Monthly Hours: %.1fh",
+			state.Username,
+			trackerStateStyled,
+			state.MonthlyHours,
+		)
+		status = statusStyle.Render(statusLine)
+	}
+
+	if state != nil {
+		return lipgloss.JoinVertical(
+			lipgloss.Center,
+			title,
+			motto,
+			divider,
+			status,
+			divider,
+		)
+	}
+
+	return lipgloss.JoinVertical(
+		lipgloss.Center,
+		title,
+		motto,
+		divider,
+	)
+}
+
+// RenderSimpleHeader renders a header without the full status bar
+// Useful for screens that don't have access to the full state
+func RenderSimpleHeader(screenTitle string, username string) string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorOrange).
+		Align(lipgloss.Center).
+		Width(HeaderWidth)
+
+	mottoStyle := lipgloss.NewStyle().
+		Italic(true).
+		Foreground(ColorGray).
+		Align(lipgloss.Center).
+		Width(HeaderWidth)
+
+	dividerStyle := lipgloss.NewStyle().
+		Foreground(ColorGray).
+		Width(HeaderWidth)
+
+	statusStyle := lipgloss.NewStyle().
+		Foreground(ColorWhite).
+		Align(lipgloss.Center).
+		Width(HeaderWidth)
+
+	title := titleStyle.Render("Kartoza Timesheets - " + screenTitle)
+	motto := mottoStyle.Render("tempus fugit")
+	divider := dividerStyle.Render("────────────────────────────────────────────────────────────")
+
+	if username != "" {
+		status := statusStyle.Render("User: " + username)
+		return lipgloss.JoinVertical(
+			lipgloss.Center,
+			title,
+			motto,
+			divider,
+			status,
+			divider,
+		)
+	}
+
+	return lipgloss.JoinVertical(
+		lipgloss.Center,
+		title,
+		motto,
+		divider,
+	)
+}
+
+// RenderHelpFooter renders the standard help footer at the bottom of the screen
+func RenderHelpFooter(helpText string, width int) string {
+	helpStyle := lipgloss.NewStyle().
+		Foreground(ColorGray).
+		Italic(true)
+
+	footerStyle := lipgloss.NewStyle().
+		Width(width).
+		Align(lipgloss.Center)
+
+	return footerStyle.Render(helpStyle.Render(helpText))
+}
+
+// LayoutWithHeaderFooter creates a standard layout with header at top and footer at bottom
+func LayoutWithHeaderFooter(header, content, footer string, width, height int) string {
+	// Main section with header and content
+	mainSection := lipgloss.JoinVertical(
+		lipgloss.Center,
+		header,
+		"",
+		content,
+	)
+
+	// Center main content at top (leave room for footer)
+	centeredMain := lipgloss.Place(
+		width,
+		height-2,
+		lipgloss.Center,
+		lipgloss.Top,
+		mainSection,
+	)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		centeredMain,
+		footer,
+	)
+}

@@ -51,21 +51,27 @@ func NewAppWithAuth() (*AppWithAuth, error) {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#DDA036"))
 
-	// Initialize monitoring
-	homeDir, _ := os.UserHomeDir()
-	logDir := filepath.Join(homeDir, ".config/.kartoza-timesheets/logs")
-	metrics, err := monitoring.Initialize(logDir)
-	if err != nil {
-		// Log error but don't fail app startup
-		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize monitoring: %v\n", err)
-	}
+	var metrics *monitoring.Metrics
+	var monitoringServer *monitoring.Server
 
-	// Start monitoring server
-	monitoringServer := monitoring.NewServer(6060)
-	if err := monitoringServer.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to start monitoring server: %v\n", err)
-	} else if metrics != nil {
-		fmt.Fprintf(os.Stderr, "Monitoring server started on http://localhost:6060\n")
+	// Only initialize monitoring in debug builds
+	if DebugEnabled {
+		homeDir, _ := os.UserHomeDir()
+		logDir := filepath.Join(homeDir, ".config/.kartoza-timesheets/logs")
+		var err error
+		metrics, err = monitoring.Initialize(logDir)
+		if err != nil {
+			// Log error but don't fail app startup
+			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize monitoring: %v\n", err)
+		}
+
+		// Start monitoring server
+		monitoringServer = monitoring.NewServer(6060)
+		if err := monitoringServer.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to start monitoring server: %v\n", err)
+		} else if metrics != nil {
+			fmt.Fprintf(os.Stderr, "Monitoring server started on http://localhost:6060\n")
+		}
 	}
 
 	app := &AppWithAuth{
@@ -277,6 +283,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		timesheetCreator := NewTimesheetCreator(a.apiClient, a.username)
 		timesheetCreator.width = a.width
 		timesheetCreator.height = a.height
+		timesheetCreator.SetHeaderState(a.getHeaderState())
 		a.timesheetCreator = timesheetCreator
 		a.state = StateTimesheetCreation
 		return a, a.timesheetCreator.Init()
@@ -298,6 +305,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		historyView := NewHistoryView(a.apiClient, a.username)
 		historyView.width = a.width
 		historyView.height = a.height
+		historyView.SetHeaderState(a.getHeaderState())
 		a.historyView = historyView
 		a.state = StateHistoryView
 		return a, a.historyView.Init()
@@ -305,6 +313,9 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case launchWorkspaceAssociationsMsg:
 		// Transition to workspace associations view
 		workspaceView := NewWorkspaceAssociationsModel(a.apiClient)
+		workspaceView.width = a.width
+		workspaceView.height = a.height
+		workspaceView.SetHeaderState(a.getHeaderState())
 		a.workspaceView = workspaceView
 		a.state = StateWorkspaceAssociations
 		return a, a.workspaceView.Init()
@@ -357,6 +368,18 @@ type launchTimerCreationMsg struct{}
 type launchHistoryViewMsg struct{}
 type launchWorkspaceAssociationsMsg struct{}
 type backToMenuMsg struct{}
+
+// getHeaderState returns the current header state from the main menu
+func (a *AppWithAuth) getHeaderState() *HeaderState {
+	if a.mainMenu != nil {
+		return &HeaderState{
+			Username:     a.username,
+			IsActive:     a.mainMenu.activeTimer != nil,
+			MonthlyHours: a.mainMenu.monthlyHours,
+		}
+	}
+	return &HeaderState{Username: a.username}
+}
 
 // View renders the app
 func (a *AppWithAuth) View() string {

@@ -325,3 +325,44 @@ func (s *Storage) DeleteTimeEntry(entryID string) error {
 
 	return os.WriteFile(filePath, data, 0644)
 }
+
+// SaveWorkspaceAssociations saves workspace associations to persistent storage
+func (s *Storage) SaveWorkspaceAssociations(associations *models.WorkspaceAssociations) error {
+	filePath := filepath.Join(s.dataDir, "workspace_associations.json")
+
+	data, err := json.MarshalIndent(associations, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal workspace associations: %w", err)
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// LoadWorkspaceAssociations loads workspace associations from storage
+func (s *Storage) LoadWorkspaceAssociations() (*models.WorkspaceAssociations, error) {
+	filePath := filepath.Join(s.dataDir, "workspace_associations.json")
+
+	data, err := os.ReadFile(filePath)
+	if os.IsNotExist(err) {
+		// Return default associations if file doesn't exist
+		return models.NewWorkspaceAssociations(), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read workspace associations file: %w", err)
+	}
+
+	var associations models.WorkspaceAssociations
+	if err := json.Unmarshal(data, &associations); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal workspace associations: %w", err)
+	}
+
+	// Ensure we have all 10 slots
+	if len(associations.Associations) < 10 {
+		defaults := models.NewWorkspaceAssociations()
+		for i := len(associations.Associations); i < 10; i++ {
+			associations.Associations = append(associations.Associations, defaults.Associations[i])
+		}
+	}
+
+	return &associations, nil
+}

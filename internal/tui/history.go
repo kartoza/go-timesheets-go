@@ -25,10 +25,11 @@ const (
 
 // HistoryView displays timesheet history with infinite scroll
 type HistoryView struct {
-	apiClient *api.Client
-	username  string
-	width     int
-	height    int
+	apiClient   *api.Client
+	username    string
+	width       int
+	height      int
+	headerState *HeaderState // Shared header state
 
 	// Data
 	allHistory []api.TimelogEntry
@@ -58,6 +59,12 @@ type HistoryView struct {
 	// State
 	err     error
 	loading bool
+
+	// Submit all pending
+	confirmSubmit    bool
+	isSubmitting     bool
+	submitSuccess    string
+	pendingCount     int
 }
 
 // NewHistoryView creates a new history view
@@ -142,9 +149,17 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		h.loading = false
 		h.allHistory = msg.entries
 		h.descCache = make(map[int]string)
+		h.isSubmitting = false
 		sort.Slice(h.allHistory, func(i, j int) bool {
 			return h.allHistory[i].StartTime().After(h.allHistory[j].StartTime())
 		})
+		// Count pending entries (stopped but not submitted)
+		h.pendingCount = 0
+		for _, entry := range h.allHistory {
+			if !entry.IsSubmitted() && !entry.EndTime().IsZero() {
+				h.pendingCount++
+			}
+		}
 
 	case historyUpdateSuccessMsg:
 		h.isSaving = false
@@ -160,6 +175,18 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		h.editError = msg.err.Error()
 		h.editSuccess = ""
 
+	case historySubmitSuccessMsg:
+		h.isSubmitting = false
+		h.confirmSubmit = false
+		h.submitSuccess = fmt.Sprintf("Successfully submitted %d timesheet(s)!", h.pendingCount)
+		// Reload history to get fresh data
+		return h, h.loadHistory()
+
+	case historySubmitErrorMsg:
+		h.isSubmitting = false
+		h.confirmSubmit = false
+		h.err = msg.err
+
 	case errorMsg:
 		h.loading = false
 		h.err = error(msg)
@@ -170,12 +197,34 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 
 // updateListMode handles input in list mode
 func (h *HistoryView) updateListMode(msg tea.KeyMsg) (*HistoryView, tea.Cmd) {
+	// Handle confirmation dialog
+	if h.confirmSubmit {
+		switch msg.String() {
+		case "y", "Y":
+			// Confirm submit
+			h.isSubmitting = true
+			return h, h.submitAllPending()
+		case "n", "N", "esc":
+			// Cancel
+			h.confirmSubmit = false
+		}
+		return h, nil
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		return h, tea.Quit
 
 	case "esc", "q":
+		h.submitSuccess = "" // Clear success message
 		return h, func() tea.Msg { return backToMenuMsg{} }
+
+	case "s":
+		// Submit all pending - show confirmation
+		if h.pendingCount > 0 && !h.isSubmitting {
+			h.confirmSubmit = true
+			h.submitSuccess = "" // Clear previous success message
+		}
 
 	case "up", "k":
 		if h.cursor > 0 {
@@ -423,26 +472,47 @@ func (h *HistoryView) View() string {
 	}
 }
 
+// renderHeader renders the consistent header using the shared component
+func (h *HistoryView) renderHeader() string {
+	if h.headerState != nil {
+		return RenderHeader("History", h.headerState)
+	}
+	// Fallback if header state not set
+	return RenderHeader("History", &HeaderState{Username: h.username})
+}
+
+// SetHeaderState sets the shared header state
+func (h *HistoryView) SetHeaderState(state *HeaderState) {
+	h.headerState = state
+}
+
 // renderListView renders the list mode view
 func (h *HistoryView) renderListView() string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Align(lipgloss.Center)
+	header := h.renderHeader()
 
 	if h.loading {
 		loadingStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9A9EA0")).
 			Align(lipgloss.Center)
 
-		content := lipgloss.JoinVertical(
+		mainContent := loadingStyle.Render("Loading history...")
+
+		mainSection := lipgloss.JoinVertical(
 			lipgloss.Center,
-			titleStyle.Render("Timesheet History"),
+			header,
 			"",
-			loadingStyle.Render("Loading history..."),
+			mainContent,
 		)
 
-		return lipgloss.Place(h.width, h.height, lipgloss.Center, lipgloss.Center, content)
+		centeredMain := lipgloss.Place(
+			h.width,
+			h.height-2,
+			lipgloss.Center,
+			lipgloss.Top,
+			mainSection,
+		)
+
+		return centeredMain
 	}
 
 	if h.err != nil {
@@ -450,16 +520,37 @@ func (h *HistoryView) renderListView() string {
 			Foreground(lipgloss.Color("#FF6B6B")).
 			Align(lipgloss.Center)
 
-		content := lipgloss.JoinVertical(
+		mainContent := lipgloss.JoinVertical(
 			lipgloss.Center,
-			titleStyle.Render("Timesheet History"),
-			"",
 			errorStyle.Render("Error: "+h.err.Error()),
-			"",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#9A9EA0")).Render("Press 'r' to retry, Esc to go back"),
 		)
 
-		return lipgloss.Place(h.width, h.height, lipgloss.Center, lipgloss.Center, content)
+		mainSection := lipgloss.JoinVertical(
+			lipgloss.Center,
+			header,
+			"",
+			mainContent,
+		)
+
+		helpStyle := lipgloss.NewStyle().
+			Width(h.width).
+			Align(lipgloss.Center).
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Italic(true)
+
+		centeredMain := lipgloss.Place(
+			h.width,
+			h.height-2,
+			lipgloss.Center,
+			lipgloss.Top,
+			mainSection,
+		)
+
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			centeredMain,
+			helpStyle.Render("Press 'r' to retry, Esc to go back"),
+		)
 	}
 
 	if len(h.allHistory) == 0 {
@@ -467,47 +558,155 @@ func (h *HistoryView) renderListView() string {
 			Foreground(lipgloss.Color("#9A9EA0")).
 			Align(lipgloss.Center)
 
-		content := lipgloss.JoinVertical(
+		mainContent := emptyStyle.Render("No timesheet entries found")
+
+		mainSection := lipgloss.JoinVertical(
 			lipgloss.Center,
-			titleStyle.Render("Timesheet History"),
+			header,
 			"",
-			emptyStyle.Render("No timesheet entries found"),
-			"",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#9A9EA0")).Render("Press Esc to go back"),
+			mainContent,
 		)
 
-		return lipgloss.Place(h.width, h.height, lipgloss.Center, lipgloss.Center, content)
+		helpStyle := lipgloss.NewStyle().
+			Width(h.width).
+			Align(lipgloss.Center).
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Italic(true)
+
+		centeredMain := lipgloss.Place(
+			h.width,
+			h.height-2,
+			lipgloss.Center,
+			lipgloss.Top,
+			mainSection,
+		)
+
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			centeredMain,
+			helpStyle.Render("Press Esc to go back"),
+		)
 	}
 
+	// Position and pending info
 	positionInfo := fmt.Sprintf("Entry %d of %d", h.cursor+1, len(h.allHistory))
-	title := titleStyle.Render("Timesheet History")
 	posStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
 		Align(lipgloss.Center)
+
+	// Pending count badge
+	var pendingBadge string
+	if h.pendingCount > 0 {
+		pendingBadge = lipgloss.NewStyle().
+			Background(lipgloss.Color("#DDA036")).
+			Foreground(lipgloss.Color("#000000")).
+			Padding(0, 1).
+			Bold(true).
+			Render(fmt.Sprintf("%d PENDING", h.pendingCount))
+	}
 
 	table := h.renderScrollableTable()
 	scrollBar := h.renderScrollBar()
 
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
-		Italic(true).
-		Align(lipgloss.Center)
-
-	help := helpStyle.Render("↑/↓: Scroll • Enter: View Details • r: Refresh • Esc/q: Back")
+		Italic(true)
 
 	tableWithScroll := lipgloss.JoinHorizontal(lipgloss.Top, table, " ", scrollBar)
 
-	content := lipgloss.JoinVertical(
+	// Build info line with position and pending count
+	infoLine := posStyle.Render(positionInfo)
+	if pendingBadge != "" {
+		infoLine = lipgloss.JoinHorizontal(lipgloss.Center, infoLine, "   ", pendingBadge)
+	}
+
+	// Success message
+	var successMsg string
+	if h.submitSuccess != "" {
+		successMsg = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#569FC6")).
+			Bold(true).
+			Align(lipgloss.Center).
+			Render(h.submitSuccess)
+	}
+
+	// Confirmation dialog
+	var confirmDialog string
+	if h.confirmSubmit {
+		dialogStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#DDA036")).
+			Padding(1, 2).
+			Width(50).
+			Align(lipgloss.Center)
+
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#DDA036"))
+
+		confirmDialog = dialogStyle.Render(lipgloss.JoinVertical(
+			lipgloss.Center,
+			titleStyle.Render("Submit All Pending Timesheets?"),
+			"",
+			fmt.Sprintf("This will submit %d timesheet(s) to the ERP.", h.pendingCount),
+			"",
+			"Press Y to confirm, N to cancel",
+		))
+	}
+
+	// Submitting indicator
+	var submittingMsg string
+	if h.isSubmitting {
+		submittingMsg = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#DDA036")).
+			Bold(true).
+			Align(lipgloss.Center).
+			Render("Submitting timesheets...")
+	}
+
+	// Build main section
+	var mainElements []string
+	mainElements = append(mainElements, header, "")
+	if successMsg != "" {
+		mainElements = append(mainElements, successMsg, "")
+	}
+	if confirmDialog != "" {
+		mainElements = append(mainElements, confirmDialog, "")
+	}
+	if submittingMsg != "" {
+		mainElements = append(mainElements, submittingMsg, "")
+	}
+	mainElements = append(mainElements, infoLine, "", tableWithScroll)
+
+	mainSection := lipgloss.JoinVertical(lipgloss.Center, mainElements...)
+
+	centeredMain := lipgloss.Place(
+		h.width,
+		h.height-2,
 		lipgloss.Center,
-		title,
-		posStyle.Render(positionInfo),
-		"",
-		tableWithScroll,
-		"",
-		help,
+		lipgloss.Top,
+		mainSection,
 	)
 
-	return lipgloss.Place(h.width, h.height, lipgloss.Center, lipgloss.Top, content)
+	helpFooter := lipgloss.NewStyle().
+		Width(h.width).
+		Align(lipgloss.Center)
+
+	// Build help text based on state
+	var helpText string
+	if h.confirmSubmit {
+		helpText = "Y: Confirm • N: Cancel"
+	} else if h.pendingCount > 0 {
+		helpText = "↑/↓: Scroll • Enter: View • s: Submit All Pending • r: Refresh • Esc: Back"
+	} else {
+		helpText = "↑/↓: Scroll • Enter: View Details • r: Refresh • Esc/q: Back"
+	}
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		centeredMain,
+		helpFooter.Render(helpStyle.Render(helpText)),
+	)
 }
 
 // renderDetailView renders the detail view for a selected entry
@@ -517,13 +716,9 @@ func (h *HistoryView) renderDetailView() string {
 	}
 
 	entry := h.selectedEntry
+	header := h.renderHeader()
 
 	// Styles
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Align(lipgloss.Center)
-
 	labelStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
 		Width(14).
@@ -574,13 +769,9 @@ func (h *HistoryView) renderDetailView() string {
 	// Build detail rows
 	var rows []string
 
-	// Header with status
-	headerRow := lipgloss.JoinHorizontal(lipgloss.Center,
-		titleStyle.Render("Timesheet Entry Details"),
-		"  ",
-		statusBadge,
-	)
-	rows = append(rows, headerRow)
+	// Status badge row
+	statusRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(62).Render(statusBadge)
+	rows = append(rows, statusRow)
 	rows = append(rows, "")
 
 	// Project
@@ -681,24 +872,39 @@ func (h *HistoryView) renderDetailView() string {
 	// Help text
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
-		Italic(true).
-		Align(lipgloss.Center)
+		Italic(true)
 
 	var helpText string
 	if entry.IsSubmitted() {
-		helpText = helpStyle.Render("Esc: Back to list")
+		helpText = "Esc: Back to list"
 	} else {
-		helpText = helpStyle.Render("e: Edit Entry • Esc: Back to list")
+		helpText = "e: Edit Entry • Esc: Back to list"
 	}
 
-	fullContent := lipgloss.JoinVertical(
+	mainSection := lipgloss.JoinVertical(
 		lipgloss.Center,
-		content,
+		header,
 		"",
-		helpText,
+		content,
 	)
 
-	return lipgloss.Place(h.width, h.height, lipgloss.Center, lipgloss.Center, fullContent)
+	centeredMain := lipgloss.Place(
+		h.width,
+		h.height-2,
+		lipgloss.Center,
+		lipgloss.Top,
+		mainSection,
+	)
+
+	helpFooter := lipgloss.NewStyle().
+		Width(h.width).
+		Align(lipgloss.Center)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		centeredMain,
+		helpFooter.Render(helpStyle.Render(helpText)),
+	)
 }
 
 // renderEditView renders the edit view for a selected entry
@@ -708,13 +914,9 @@ func (h *HistoryView) renderEditView() string {
 	}
 
 	entry := h.selectedEntry
+	header := h.renderHeader()
 
 	// Styles
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Align(lipgloss.Center)
-
 	labelStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
 		Width(14).
@@ -741,10 +943,6 @@ func (h *HistoryView) renderEditView() string {
 
 	// Build edit form
 	var rows []string
-
-	// Header
-	rows = append(rows, titleStyle.Render("Edit Timesheet Entry"))
-	rows = append(rows, "")
 
 	// Project (read-only)
 	rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
@@ -847,19 +1045,32 @@ func (h *HistoryView) renderEditView() string {
 	// Help text
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
-		Italic(true).
-		Align(lipgloss.Center)
+		Italic(true)
 
-	helpText := helpStyle.Render("Tab: Next field • Ctrl+S/Enter: Save • Esc: Cancel")
-
-	fullContent := lipgloss.JoinVertical(
+	mainSection := lipgloss.JoinVertical(
 		lipgloss.Center,
-		content,
+		header,
 		"",
-		helpText,
+		content,
 	)
 
-	return lipgloss.Place(h.width, h.height, lipgloss.Center, lipgloss.Center, fullContent)
+	centeredMain := lipgloss.Place(
+		h.width,
+		h.height-2,
+		lipgloss.Center,
+		lipgloss.Top,
+		mainSection,
+	)
+
+	helpFooter := lipgloss.NewStyle().
+		Width(h.width).
+		Align(lipgloss.Center)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		centeredMain,
+		helpFooter.Render(helpStyle.Render("Tab: Next field • Ctrl+S/Enter: Save • Esc: Cancel")),
+	)
 }
 
 // renderScrollBar renders a visual scroll indicator
@@ -934,40 +1145,41 @@ func (h *HistoryView) renderScrollableTable() string {
 
 	visibleEntries := h.allHistory[startIdx:endIdx]
 
+	// Column widths: 12+12+10+10+6+10 = 60 (matches header width)
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#DDA036")).
-		Width(16).
+		Width(12).
 		Align(lipgloss.Left)
 
 	cellStyle := lipgloss.NewStyle().
-		Width(16).
+		Width(12).
 		Align(lipgloss.Left)
 
 	selectedStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#000000")).
 		Background(lipgloss.Color("#DDA036")).
-		Width(16).
+		Width(12).
 		Align(lipgloss.Left)
 
 	descStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
-		Width(90).
+		Width(56).
 		Align(lipgloss.Left)
 
 	selectedDescStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#000000")).
 		Background(lipgloss.Color("#DDA036")).
-		Width(90).
+		Width(56).
 		Align(lipgloss.Left)
 
 	header := lipgloss.JoinHorizontal(lipgloss.Top,
 		headerStyle.Render("Project"),
 		headerStyle.Render("Task"),
-		headerStyle.Render("Activity"),
-		headerStyle.Render("Date"),
-		headerStyle.Width(10).Render("Hours"),
-		headerStyle.Width(12).Render("Status"),
+		headerStyle.Width(10).Render("Activity"),
+		headerStyle.Width(10).Render("Date"),
+		headerStyle.Width(6).Render("Hrs"),
+		headerStyle.Width(10).Render("Status"),
 	)
 
 	var rows []string
@@ -975,17 +1187,17 @@ func (h *HistoryView) renderScrollableTable() string {
 		absoluteIdx := startIdx + i
 		isSelected := absoluteIdx == h.cursor
 
-		project := truncate(entry.ProjectName, 14)
-		task := truncate(entry.TaskName, 14)
-		activity := truncate(entry.Activity(), 14)
-		dateStr := entry.StartTime().Format("2006-01-02")
-		hours := fmt.Sprintf("%.2fh", entry.Duration())
+		project := truncate(entry.ProjectName, 10)
+		task := truncate(entry.TaskName, 10)
+		activity := truncate(entry.Activity(), 8)
+		dateStr := entry.StartTime().Format("01-02") // Shorter date format
+		hours := fmt.Sprintf("%.1fh", entry.Duration())
 
-		status := "Pending"
+		status := "Pend"
 		if entry.IsSubmitted() {
-			status = "✓ Submitted"
+			status = "✓ Sub"
 		} else if entry.EndTime().IsZero() {
-			status = "● Running"
+			status = "● Run"
 		}
 
 		var row1 string
@@ -993,19 +1205,19 @@ func (h *HistoryView) renderScrollableTable() string {
 			row1 = lipgloss.JoinHorizontal(lipgloss.Top,
 				selectedStyle.Render(project),
 				selectedStyle.Render(task),
-				selectedStyle.Render(activity),
-				selectedStyle.Render(dateStr),
-				selectedStyle.Width(10).Render(hours),
-				selectedStyle.Width(12).Render(status),
+				selectedStyle.Width(10).Render(activity),
+				selectedStyle.Width(10).Render(dateStr),
+				selectedStyle.Width(6).Render(hours),
+				selectedStyle.Width(10).Render(status),
 			)
 		} else {
 			row1 = lipgloss.JoinHorizontal(lipgloss.Top,
 				cellStyle.Render(project),
 				cellStyle.Render(task),
-				cellStyle.Render(activity),
-				cellStyle.Render(dateStr),
-				cellStyle.Width(10).Render(hours),
-				cellStyle.Width(12).Render(status),
+				cellStyle.Width(10).Render(activity),
+				cellStyle.Width(10).Render(dateStr),
+				cellStyle.Width(6).Render(hours),
+				cellStyle.Width(10).Render(status),
 			)
 		}
 
@@ -1015,7 +1227,7 @@ func (h *HistoryView) renderScrollableTable() string {
 			if desc == "" {
 				renderedDesc = "(no description)"
 			} else {
-				renderedDesc = renderHistoryDescription(desc, 86)
+				renderedDesc = renderHistoryDescription(desc, 52)
 			}
 			h.descCache[absoluteIdx] = renderedDesc
 		}
@@ -1032,7 +1244,7 @@ func (h *HistoryView) renderScrollableTable() string {
 		if i < len(visibleEntries)-1 {
 			sep := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#9A9EA0")).
-				Render(strings.Repeat("─", 90))
+				Render(strings.Repeat("─", 56))
 			rows = append(rows, sep)
 		}
 	}
@@ -1042,7 +1254,7 @@ func (h *HistoryView) renderScrollableTable() string {
 		Foreground(lipgloss.Color("#DDA036")).
 		Bold(true).
 		Align(lipgloss.Center).
-		Width(90)
+		Width(56)
 
 	if startIdx > 0 {
 		topIndicator = indicatorStyle.Render(fmt.Sprintf("↑ %d more entries above", startIdx))
@@ -1138,6 +1350,22 @@ func renderHistoryDescription(html string, width int) string {
 	return text
 }
 
+// submitAllPending submits all pending timesheet entries
+func (h *HistoryView) submitAllPending() tea.Cmd {
+	return func() tea.Msg {
+		if h.apiClient == nil {
+			return historySubmitErrorMsg{err: fmt.Errorf("API client not available")}
+		}
+
+		err := h.apiClient.SubmitAllPending()
+		if err != nil {
+			return historySubmitErrorMsg{err: err}
+		}
+
+		return historySubmitSuccessMsg{}
+	}
+}
+
 // Message types
 type historyLoadedMsg struct {
 	entries []api.TimelogEntry
@@ -1146,5 +1374,11 @@ type historyLoadedMsg struct {
 type historyUpdateSuccessMsg struct{}
 
 type historyUpdateErrorMsg struct {
+	err error
+}
+
+type historySubmitSuccessMsg struct{}
+
+type historySubmitErrorMsg struct {
 	err error
 }

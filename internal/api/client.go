@@ -946,6 +946,23 @@ func (c *Client) SubmitTimesheet(submission models.TimesheetSubmission) error {
 	return nil
 }
 
+// SubmitAllPending submits all unsubmitted time logs to the ERP system
+// This endpoint automatically processes all pending entries for the authenticated user
+func (c *Client) SubmitAllPending() error {
+	resp, err := c.makeRequest("POST", "/api/submit-timesheet/", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to submit timesheets (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
 // HealthCheck tests if the API is reachable and authentication works
 func (c *Client) HealthCheck() error {
 	// Try to fetch activities as a simple health check
@@ -976,6 +993,61 @@ func (c *Client) BreakTimesheet(timelogID int) (*BreakTimesheetResponse, error) 
 	}
 
 	return &breakResp, nil
+}
+
+// StopTimesheet stops a running timesheet by updating it with an end time
+// This uses the PUT API to update the existing timesheet entry
+func (c *Client) StopTimesheet(entry *TimelogEntry) error {
+	if entry == nil {
+		return fmt.Errorf("entry cannot be nil")
+	}
+
+	// Parse the start time from the entry
+	startTime, err := entry.GetFromTimeAsTime()
+	if err != nil {
+		return fmt.Errorf("failed to parse start time: %w", err)
+	}
+
+	// Use current time as end time
+	endTime := time.Now().UTC()
+
+	// Build the API request payload matching the UpdateTimesheet format
+	apiEntry := map[string]interface{}{
+		"project":    map[string]interface{}{"id": entry.ProjectID},
+		"activity":   map[string]interface{}{"id": entry.ActivityID},
+		"start_time": startTime.Format(time.RFC3339),
+		"end_time":   endTime.Format(time.RFC3339),
+		"timezone":   "UTC",
+	}
+
+	// Handle nullable description
+	if entry.Description != nil {
+		apiEntry["description"] = *entry.Description
+	} else {
+		apiEntry["description"] = ""
+	}
+
+	// Handle task - can be nil or have a value
+	taskID := entry.TaskID.Value
+	if taskID > 0 {
+		apiEntry["task"] = map[string]interface{}{"id": taskID}
+	} else {
+		apiEntry["task"] = map[string]interface{}{"id": "-"}
+	}
+
+	endpoint := fmt.Sprintf("/api/timesheet/%d/", entry.ID)
+	resp, err := c.makeRequest("PUT", endpoint, apiEntry)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to stop timesheet (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // DeleteTimeLog deletes a time log entry

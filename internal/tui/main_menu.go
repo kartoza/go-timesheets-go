@@ -1,10 +1,6 @@
 package tui
 
 import (
-	"fmt"
-	"io"
-	"log"
-	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -14,19 +10,13 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/config"
 )
 
-var menuDebugLog *log.Logger
-
-func init() {
-	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		menuDebugLog = log.New(io.Discard, "", 0)
-	} else {
-		menuDebugLog = log.New(f, "MENU: ", log.LstdFlags|log.Lshortfile)
-	}
-}
+// menuDebugLog is defined in debug_dev.go or debug_release.go
 
 // Polling interval for active timer updates
 const timerPollInterval = 1 * time.Minute
+
+// Blink interval for timer indicators
+const blinkInterval = 1 * time.Second
 
 // MainMenuItem represents a menu option
 type MainMenuItem int
@@ -36,6 +26,8 @@ const (
 	MenuStopTimer
 	MenuWorkspaceAssociations
 	MenuViewHistory
+	MenuOpenMonitor  // Only visible in debug builds
+	MenuViewAPILog   // Only visible in debug builds
 	MenuLogOut
 	MenuQuit
 )
@@ -56,6 +48,7 @@ type MainMenuModel struct {
 	logoutConfirmSelection int // 0 = Yes, 1 = No
 	dashboard              *TimerDashboard
 	timerStartTime         time.Time
+	blinkOn                bool // Blink state for timer indicators
 }
 
 type menuItem struct {
@@ -125,10 +118,8 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Normal menu navigation
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c", "q"))):
-			if m.selectedItem == len(m.menuItems)-1 || msg.String() == "ctrl+c" {
-				return m, tea.Quit
-			}
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c", "q", "esc"))):
+			return m, tea.Quit
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
 			m.selectedItem--
@@ -161,9 +152,12 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.timer == nil && m.selectedItem == 1 {
 			m.selectedItem = 0
 		}
-		// Start polling if timer is active
+		// Start polling and blinking if timer is active
 		if m.activeTimer != nil {
-			return m, m.startTimerPolling()
+			return m, tea.Batch(
+				m.startTimerPolling(),
+				m.startBlinkTicker(),
+			)
 		}
 		return m, nil
 
@@ -190,6 +184,7 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case timerStoppedMsg:
 		// Timer was stopped, reload active timer and monthly hours
+		m.err = nil // Clear any previous errors
 		return m, tea.Batch(
 			m.loadActiveTimer(),
 			m.loadMonthlyHours(),
@@ -198,6 +193,15 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errorMsg:
 		m.err = error(msg)
+		return m, nil
+
+	case blinkTickMsg:
+		// Toggle blink state and update dashboard
+		if m.activeTimer != nil {
+			m.blinkOn = !m.blinkOn
+			m.dashboard.BlinkOn = m.blinkOn
+			return m, m.startBlinkTicker()
+		}
 		return m, nil
 	}
 
@@ -220,17 +224,27 @@ func (m *MainMenuModel) View() string {
 		mainContent = m.renderMenu()
 	}
 
+	// Render error message if any
+	var errorContent string
+	if m.err != nil {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6B6B")).
+			Bold(true).
+			Align(lipgloss.Center)
+		errorContent = errorStyle.Render("Error: " + m.err.Error())
+	}
+
 	// Render help text
 	help := m.renderHelp()
 
 	// Combine main content (without help)
+	parts := []string{header, "", dashboard, "", mainContent}
+	if errorContent != "" {
+		parts = append(parts, "", errorContent)
+	}
 	mainSection := lipgloss.JoinVertical(
 		lipgloss.Center,
-		header,
-		"",
-		dashboard,
-		"",
-		mainContent,
+		parts...,
 	)
 
 	// Center main content at top
@@ -256,59 +270,13 @@ func (m *MainMenuModel) View() string {
 
 // renderHeader renders the consistent header across all screens
 func (m *MainMenuModel) renderHeader() string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Align(lipgloss.Center).
-		Width(60)
-
-	mottoStyle := lipgloss.NewStyle().
-		Italic(true).
-		Foreground(lipgloss.Color("#9A9EA0")).
-		Align(lipgloss.Center).
-		Width(60)
-
-	dividerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9A9EA0")).
-		Width(60)
-
-	statusStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Width(60)
-
-	title := titleStyle.Render("Kartoza Timesheets")
-	motto := mottoStyle.Render("tempus fugit")
-	divider := dividerStyle.Render("────────────────────────────────────────────────────────────")
-
-	// Build status line
-	trackerState := "Inactive"
-	stateColor := lipgloss.Color("#9A9EA0")
-	if m.activeTimer != nil {
-		trackerState = "● Active"
-		stateColor = lipgloss.Color("#DDA036")
+	state := &HeaderState{
+		Username:     m.username,
+		IsActive:     m.activeTimer != nil,
+		MonthlyHours: m.monthlyHours,
+		BlinkOn:      m.blinkOn,
 	}
-
-	trackerStateStyled := lipgloss.NewStyle().
-		Foreground(stateColor).
-		Bold(true).
-		Render(trackerState)
-
-	statusLine := fmt.Sprintf("User: %s  |  Tracker: %s  |  Monthly Hours: %.1fh",
-		m.username,
-		trackerStateStyled,
-		m.monthlyHours,
-	)
-
-	status := statusStyle.Render(statusLine)
-
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		motto,
-		divider,
-		status,
-		divider,
-	)
+	return RenderHeader("Main Menu", state)
 }
 
 // renderMenu renders the menu items
@@ -347,16 +315,8 @@ func (m *MainMenuModel) renderMenu() string {
 		items = append(items, rendered)
 	}
 
-	menuTitle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Padding(0, 2).
-		Render("Main Menu")
-
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		menuTitle,
-		"",
 		lipgloss.JoinVertical(lipgloss.Left, items...),
 	)
 }
@@ -371,7 +331,7 @@ func (m *MainMenuModel) renderHelp() string {
 		return helpStyle.Render("←/→: Select • Enter/y: Confirm • n/Esc: Cancel")
 	}
 
-	return helpStyle.Render("↑/↓: Navigate • Enter: Select • q: Quit")
+	return helpStyle.Render("↑/↓: Navigate • Enter: Select • Esc/q: Quit")
 }
 
 // updateMenuItems updates the menu items based on current state
@@ -399,17 +359,36 @@ func (m *MainMenuModel) updateMenuItems() {
 			enabled: true,
 			action:  MenuViewHistory,
 		},
-		{
+	}
+
+	// Only show debug options in debug builds
+	if DebugEnabled {
+		m.menuItems = append(m.menuItems,
+			menuItem{
+				label:   "Open Monitor (Dev)",
+				enabled: true,
+				action:  MenuOpenMonitor,
+			},
+			menuItem{
+				label:   "View API Log (Dev)",
+				enabled: true,
+				action:  MenuViewAPILog,
+			},
+		)
+	}
+
+	m.menuItems = append(m.menuItems,
+		menuItem{
 			label:   "Log Out",
 			enabled: true,
 			action:  MenuLogOut,
 		},
-		{
+		menuItem{
 			label:   "Quit",
 			enabled: true,
 			action:  MenuQuit,
 		},
-	}
+	)
 }
 
 // handleMenuSelection handles the selected menu item
@@ -441,6 +420,20 @@ func (m *MainMenuModel) handleMenuSelection() tea.Cmd {
 		return func() tea.Msg {
 			return launchHistoryViewMsg{}
 		}
+
+	case MenuOpenMonitor:
+		// Launch expvarmon in a new terminal (only available in debug builds)
+		if err := LaunchMonitor(); err != nil {
+			m.err = err
+		}
+		return nil
+
+	case MenuViewAPILog:
+		// Launch API log viewer in a new terminal (only available in debug builds)
+		if err := LaunchAPILog(); err != nil {
+			m.err = err
+		}
+		return nil
 
 	case MenuLogOut:
 		// Show confirmation dialog
@@ -494,14 +487,14 @@ func (m *MainMenuModel) loadMonthlyHours() tea.Cmd {
 	}
 }
 
-// stopActiveTimer stops the currently active timer
+// stopActiveTimer stops the currently active timer using PUT to update with end_time
 func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 	if m.activeTimer == nil {
 		return nil
 	}
 
 	return func() tea.Msg {
-		_, err := m.apiClient.BreakTimesheet(m.activeTimer.ID)
+		err := m.apiClient.StopTimesheet(m.activeTimer)
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -678,6 +671,13 @@ func (m *MainMenuModel) startTimerPolling() tea.Cmd {
 	})
 }
 
+// startBlinkTicker starts the blink ticker for timer indicators
+func (m *MainMenuModel) startBlinkTicker() tea.Cmd {
+	return tea.Tick(blinkInterval, func(t time.Time) tea.Msg {
+		return blinkTickMsg{}
+	})
+}
+
 // Message types
 type activeTimerLoadedMsg struct {
 	timer *api.TimelogEntry
@@ -694,3 +694,5 @@ type todayHoursLoadedMsg struct {
 type timerPollTickMsg struct{}
 
 type timerStoppedMsg struct{}
+
+type blinkTickMsg struct{}

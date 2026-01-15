@@ -13,11 +13,14 @@ import (
 // Metrics holds all application metrics
 type Metrics struct {
 	// API request metrics
-	apiRequests       *expvar.Int
-	apiRequestsTotal  *expvar.Int
-	apiErrors         *expvar.Int
-	apiDuration       *expvar.Float
-	apiRequestsByPath *expvar.Map
+	apiRequests        *expvar.Int
+	apiRequestsTotal   *expvar.Int
+	apiErrors          *expvar.Int
+	apiDuration        *expvar.Float
+	apiRequestsByPath  *expvar.Map
+	apiDurationByPath  *expvar.Map // Average duration per endpoint
+	apiDurationSumByPath map[string]int64 // Sum of durations for averaging
+	apiCountByPath       map[string]int64 // Count for averaging
 
 	// Cache metrics
 	cacheHits   *expvar.Int
@@ -57,15 +60,18 @@ func Initialize(logDir string) (*Metrics, error) {
 
 		// Initialize metrics
 		globalMetrics = &Metrics{
-			apiRequests:       expvar.NewInt("api.requests.inflight"),
-			apiRequestsTotal:  expvar.NewInt("api.requests.total"),
-			apiErrors:         expvar.NewInt("api.requests.errors"),
-			apiDuration:       expvar.NewFloat("api.requests.duration_ms"),
-			apiRequestsByPath: expvar.NewMap("api.requests.by_path"),
-			cacheHits:         expvar.NewInt("cache.hits"),
-			cacheMisses:       expvar.NewInt("cache.misses"),
-			requestLogger:     requestLogger,
-			logFile:           logFile,
+			apiRequests:          expvar.NewInt("api.requests.inflight"),
+			apiRequestsTotal:     expvar.NewInt("api.requests.total"),
+			apiErrors:            expvar.NewInt("api.requests.errors"),
+			apiDuration:          expvar.NewFloat("api.requests.duration_ms"),
+			apiRequestsByPath:    expvar.NewMap("api.requests.by_path"),
+			apiDurationByPath:    expvar.NewMap("api.duration.by_path"),
+			apiDurationSumByPath: make(map[string]int64),
+			apiCountByPath:       make(map[string]int64),
+			cacheHits:            expvar.NewInt("cache.hits"),
+			cacheMisses:          expvar.NewInt("cache.misses"),
+			requestLogger:        requestLogger,
+			logFile:              logFile,
 		}
 
 		// Publish custom metrics
@@ -106,6 +112,21 @@ func (m *Metrics) RecordAPIRequest(method, path string, statusCode int, duration
 	pathKey := fmt.Sprintf("%s %s", method, path)
 	m.apiRequestsByPath.Add(pathKey, 1)
 
+	// Track average duration per endpoint
+	m.logMutex.Lock()
+	m.apiDurationSumByPath[pathKey] += duration.Milliseconds()
+	m.apiCountByPath[pathKey]++
+	avgDuration := m.apiDurationSumByPath[pathKey] / m.apiCountByPath[pathKey]
+	m.logMutex.Unlock()
+
+	// Update expvar map with average duration
+	m.apiDurationByPath.Set(pathKey, new(expvar.Int))
+	if v := m.apiDurationByPath.Get(pathKey); v != nil {
+		if intVar, ok := v.(*expvar.Int); ok {
+			intVar.Set(avgDuration)
+		}
+	}
+
 	if err != nil || statusCode >= 400 {
 		m.apiErrors.Add(1)
 	}
@@ -114,12 +135,12 @@ func (m *Metrics) RecordAPIRequest(method, path string, statusCode int, duration
 	m.logMutex.Lock()
 	defer m.logMutex.Unlock()
 
-	logEntry := fmt.Sprintf("[%s] %s %s | Status: %d | Duration: %s",
-		time.Now().Format("2006-01-02 15:04:05"),
+	logEntry := fmt.Sprintf("[%s] %s %s | Status: %d | Duration: %dms",
+		time.Now().Format("15:04:05"),
 		method,
 		path,
 		statusCode,
-		duration)
+		duration.Milliseconds())
 
 	if err != nil {
 		logEntry += fmt.Sprintf(" | Error: %v", err)

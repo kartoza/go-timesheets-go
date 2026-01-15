@@ -25,6 +25,9 @@
 
           vendorHash = "sha256-IxY0DhustargOiLY+Rd2IMwKnveJ/a7cPUgSiK9griY=";
 
+          # Use release build tag to disable debug logging and monitoring
+          tags = [ "release" ];
+
           ldflags = [
             "-s"
             "-w"

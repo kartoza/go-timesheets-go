@@ -110,17 +110,32 @@ var lcdDigits = map[rune][]string{
 	},
 }
 
+// Blinking colon pattern (empty/hidden)
+var lcdColonOff = []string{
+	"   ",
+	"   ",
+	"   ",
+	"   ",
+	"   ",
+}
+
 // RenderLCDTime renders time in large LCD-style digits
-func RenderLCDTime(hours, minutes int, color lipgloss.Color) string {
+func RenderLCDTime(hours, minutes int, color lipgloss.Color, blinkOn bool) string {
 	// Format as HH:MM
 	timeStr := fmt.Sprintf("%02d:%02d", hours, minutes)
 
 	// Build each row
 	rows := make([]string, 5)
 	for _, char := range timeStr {
-		pattern, ok := lcdDigits[char]
-		if !ok {
-			pattern = lcdDigits[' ']
+		var pattern []string
+		if char == ':' && !blinkOn {
+			pattern = lcdColonOff
+		} else {
+			var ok bool
+			pattern, ok = lcdDigits[char]
+			if !ok {
+				pattern = lcdDigits[' ']
+			}
 		}
 		for i := 0; i < 5; i++ {
 			rows[i] += pattern[i] + " "
@@ -387,6 +402,7 @@ type TimerDashboard struct {
 	IsActive    bool
 	ProjectName string
 	TaskName    string
+	BlinkOn     bool // For blinking colon and status dot
 }
 
 // NewTimerDashboard creates a new timer dashboard
@@ -428,13 +444,19 @@ func (td *TimerDashboard) Render() string {
 
 	var statusIndicator string
 	if td.IsActive {
-		statusIndicator = statusStyle.Render("● " + statusText)
+		// Blink the dot when timer is running
+		if td.BlinkOn {
+			statusIndicator = statusStyle.Render("● " + statusText)
+		} else {
+			statusIndicator = statusStyle.Render("○ " + statusText)
+		}
 	} else {
 		statusIndicator = statusStyle.Render("○ " + statusText)
 	}
 
-	// LCD Time display
-	lcdTime := RenderLCDTime(td.Hours, td.Minutes, timerColor)
+	// LCD Time display (blink colon only when active)
+	blinkColon := !td.IsActive || td.BlinkOn
+	lcdTime := RenderLCDTime(td.Hours, td.Minutes, timerColor, blinkColon)
 
 	// Center the LCD time
 	lcdStyle := lipgloss.NewStyle().

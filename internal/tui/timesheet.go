@@ -2,9 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"io"
-	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -16,16 +13,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/models"
 )
 
-var tuiDebugLog *log.Logger
-
-func init() {
-	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		tuiDebugLog = log.New(io.Discard, "", 0)
-	} else {
-		tuiDebugLog = log.New(f, "TUI: ", log.LstdFlags|log.Lshortfile)
-	}
-}
+// tuiDebugLog is defined in debug_dev.go or debug_release.go
 
 // TimesheetField represents which field is currently focused
 type TimesheetField int
@@ -43,10 +31,11 @@ const (
 
 // TimesheetCreator is a unified screen for creating timesheet entries
 type TimesheetCreator struct {
-	apiClient *api.Client
-	username  string
-	width     int
-	height    int
+	apiClient   *api.Client
+	username    string
+	width       int
+	height      int
+	headerState *HeaderState // Shared header state
 
 	// Current focused field
 	focusedField TimesheetField
@@ -296,16 +285,8 @@ func (t *TimesheetCreator) View() string {
 		return "Loading..."
 	}
 
-	// Styles
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Align(lipgloss.Center)
-
-	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9A9EA0")).
-		Italic(true).
-		Align(lipgloss.Center)
+	// Render header (same as main menu)
+	header := t.renderHeader()
 
 	// Main container
 	containerStyle := lipgloss.NewStyle().
@@ -314,26 +295,14 @@ func (t *TimesheetCreator) View() string {
 		Padding(1, 2).
 		Width(70)
 
-	// Render sections
-	title := titleStyle.Render("Create Timesheet Entry")
-	subtitle := subtitleStyle.Render("Fill in the details below to log your time")
-
 	// Build the form
 	formContent := t.renderForm()
 
 	// Build help text
 	helpText := t.renderHelp()
 
-	// Combine everything
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		title,
-		subtitle,
-		"",
-		containerStyle.Render(formContent),
-		"",
-		helpText,
-	)
+	// Build main content
+	mainContent := containerStyle.Render(formContent)
 
 	// Add error/success messages
 	if t.err != nil {
@@ -350,7 +319,7 @@ func (t *TimesheetCreator) View() string {
 		errorMsgStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF"))
 
-		helpStyle := lipgloss.NewStyle().
+		tipStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9A9EA0")).
 			Italic(true)
 
@@ -360,13 +329,13 @@ func (t *TimesheetCreator) View() string {
 			"",
 			errorMsgStyle.Render(t.err.Error()),
 			"",
-			helpStyle.Render("Troubleshooting tips:"),
-			helpStyle.Render("  • Check your network connection"),
-			helpStyle.Render("  • Verify all required fields are filled"),
-			helpStyle.Render("  • Ensure start time is before end time"),
-			helpStyle.Render("  • Check logs: /tmp/kartoza-timesheet-debug.log"),
+			tipStyle.Render("Troubleshooting tips:"),
+			tipStyle.Render("  • Check your network connection"),
+			tipStyle.Render("  • Verify all required fields are filled"),
+			tipStyle.Render("  • Ensure start time is before end time"),
+			tipStyle.Render("  • Check logs: /tmp/kartoza-timesheet-debug.log"),
 		)
-		content = lipgloss.JoinVertical(lipgloss.Center, content, "", errorBoxStyle.Render(errorContent))
+		mainContent = lipgloss.JoinVertical(lipgloss.Center, mainContent, "", errorBoxStyle.Render(errorContent))
 	}
 
 	if t.successMessage != "" {
@@ -389,17 +358,50 @@ func (t *TimesheetCreator) View() string {
 			"",
 			successMsgStyle.Render(t.successMessage),
 		)
-		content = lipgloss.JoinVertical(lipgloss.Center, content, "", successBoxStyle.Render(successContent))
+		mainContent = lipgloss.JoinVertical(lipgloss.Center, mainContent, "", successBoxStyle.Render(successContent))
 	}
 
-	// Center on screen
-	return lipgloss.Place(
-		t.width,
-		t.height,
+	// Combine header and main content
+	mainSection := lipgloss.JoinVertical(
 		lipgloss.Center,
-		lipgloss.Center,
-		content,
+		header,
+		"",
+		mainContent,
 	)
+
+	// Center main content at top (leave room for help at bottom)
+	centeredMain := lipgloss.Place(
+		t.width,
+		t.height-2,
+		lipgloss.Center,
+		lipgloss.Top,
+		mainSection,
+	)
+
+	// Place help text at the bottom
+	helpStyle := lipgloss.NewStyle().
+		Width(t.width).
+		Align(lipgloss.Center)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		centeredMain,
+		helpStyle.Render(helpText),
+	)
+}
+
+// renderHeader renders the consistent header (same as main menu)
+func (t *TimesheetCreator) renderHeader() string {
+	if t.headerState != nil {
+		return RenderHeader("Create Timer", t.headerState)
+	}
+	// Fallback if header state not set
+	return RenderHeader("Create Timer", &HeaderState{Username: t.username})
+}
+
+// SetHeaderState sets the shared header state
+func (t *TimesheetCreator) SetHeaderState(state *HeaderState) {
+	t.headerState = state
 }
 
 // renderForm renders the main form with all fields
