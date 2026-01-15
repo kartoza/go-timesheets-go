@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kartoza/go-timesheets-go/internal/api"
@@ -51,6 +52,11 @@ type MainMenuModel struct {
 	dashboard              *TimerDashboard
 	timerStartTime         time.Time
 	blinkOn                bool // Blink state for timer indicators
+
+	// Stop timer confirmation dialog state
+	confirmStopTimer          bool
+	stopTimerDescription      textarea.Model
+	stopTimerConfirmSelection int // 0 = Save, 1 = Cancel
 }
 
 type menuItem struct {
@@ -89,6 +95,59 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle stop timer confirmation dialog
+		if m.confirmStopTimer {
+			switch msg.String() {
+			case "tab":
+				// Toggle between textarea and buttons
+				if m.stopTimerDescription.Focused() {
+					m.stopTimerDescription.Blur()
+				} else {
+					m.stopTimerDescription.Focus()
+				}
+				return m, nil
+			case "left", "h":
+				if !m.stopTimerDescription.Focused() {
+					m.stopTimerConfirmSelection = 0 // Save
+				}
+				return m, nil
+			case "right", "l":
+				if !m.stopTimerDescription.Focused() {
+					m.stopTimerConfirmSelection = 1 // Cancel
+				}
+				return m, nil
+			case "enter":
+				if !m.stopTimerDescription.Focused() {
+					if m.stopTimerConfirmSelection == 0 {
+						// Save - stop timer with the description
+						description := m.stopTimerDescription.Value()
+						m.confirmStopTimer = false
+						return m, m.performStopTimerWithDescription(description)
+					} else {
+						// Cancel - don't stop timer
+						m.confirmStopTimer = false
+						return m, nil
+					}
+				}
+			case "esc":
+				// Cancel dialog
+				m.confirmStopTimer = false
+				return m, nil
+			case "ctrl+s":
+				// Quick save shortcut
+				description := m.stopTimerDescription.Value()
+				m.confirmStopTimer = false
+				return m, m.performStopTimerWithDescription(description)
+			}
+			// Pass key events to textarea if focused
+			if m.stopTimerDescription.Focused() {
+				var cmd tea.Cmd
+				m.stopTimerDescription, cmd = m.stopTimerDescription.Update(msg)
+				return m, cmd
+			}
+			return m, nil
+		}
+
 		// Handle logout confirmation dialog
 		if m.confirmLogout {
 			switch msg.String() {
@@ -193,6 +252,23 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadTodayHours(),
 		)
 
+	case stopTimerDescriptionReadyMsg:
+		// Auto-generated description is ready, show confirmation dialog
+		m.confirmStopTimer = true
+		m.stopTimerConfirmSelection = 0 // Default to "Save"
+
+		// Initialize the textarea with the auto-generated description
+		ta := textarea.New()
+		ta.SetValue(msg.description)
+		ta.SetWidth(56)
+		ta.SetHeight(8)
+		ta.Focus()
+		ta.ShowLineNumbers = false
+		ta.CharLimit = 2000
+		m.stopTimerDescription = ta
+
+		return m, m.stopTimerDescription.Focus()
+
 	case errorMsg:
 		m.err = error(msg)
 		return m, nil
@@ -220,7 +296,9 @@ func (m *MainMenuModel) View() string {
 
 	// Render menu items or confirmation dialog
 	var mainContent string
-	if m.confirmLogout {
+	if m.confirmStopTimer {
+		mainContent = m.renderStopTimerConfirmation()
+	} else if m.confirmLogout {
 		mainContent = m.renderLogoutConfirmation()
 	} else {
 		mainContent = m.renderMenu()
@@ -328,6 +406,13 @@ func (m *MainMenuModel) renderHelp() string {
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true)
+
+	if m.confirmStopTimer {
+		if m.stopTimerDescription.Focused() {
+			return helpStyle.Render("Tab: Focus buttons • Ctrl+S: Save • Esc: Cancel")
+		}
+		return helpStyle.Render("Tab: Edit description • ←/→: Select • Enter: Confirm • Esc: Cancel")
+	}
 
 	if m.confirmLogout {
 		return helpStyle.Render("←/→: Select • Enter/y: Confirm • n/Esc: Cancel")
@@ -503,7 +588,7 @@ func (m *MainMenuModel) loadMonthlyHours() tea.Cmd {
 // stopActiveTimer stops the currently active timer using PUT to update with end_time
 // If the timer has no description and the project has a linked GitHub repo,
 // it will fetch commit messages from that repo during the timer's timespan
-// and use them as the description
+// and show a confirmation dialog with the description for user to review/edit
 func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 	if m.activeTimer == nil {
 		return nil
@@ -515,15 +600,33 @@ func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 
 		var newDescription string
 
-		// If no description, try to get commits from linked GitHub repo
+		// If no description, try to get commits from linked repo
 		if !hasDescription {
 			newDescription = m.fetchGitHubCommitsForTimer()
 		}
 
-		// Stop the timer with the new description (or empty string to keep existing)
-		var err error
+		// If we have an auto-generated description, show confirmation dialog
+		// Otherwise, stop immediately
 		if newDescription != "" {
-			err = m.apiClient.StopTimesheetWithDescription(m.activeTimer, newDescription)
+			return stopTimerDescriptionReadyMsg{description: newDescription}
+		}
+
+		// No auto-generated description, stop immediately
+		err := m.apiClient.StopTimesheet(m.activeTimer)
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		return timerStoppedMsg{}
+	}
+}
+
+// performStopTimerWithDescription actually stops the timer with the given description
+func (m *MainMenuModel) performStopTimerWithDescription(description string) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+		if description != "" {
+			err = m.apiClient.StopTimesheetWithDescription(m.activeTimer, description)
 		} else {
 			err = m.apiClient.StopTimesheet(m.activeTimer)
 		}
@@ -532,7 +635,6 @@ func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 			return errorMsg(err)
 		}
 
-		// Reload active timer and monthly hours
 		return timerStoppedMsg{}
 	}
 }
@@ -748,6 +850,93 @@ func (m *MainMenuModel) renderLogoutConfirmation() string {
 	return dialogStyle.Render(content)
 }
 
+// renderStopTimerConfirmation renders the stop timer confirmation dialog with editable description
+func (m *MainMenuModel) renderStopTimerConfirmation() string {
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#DDA036")).
+		Padding(1, 2).
+		Width(64)
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#DDA036")).
+		Align(lipgloss.Center).
+		Width(60)
+
+	messageStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Align(lipgloss.Center).
+		Width(60)
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#569FC6")).
+		Bold(true)
+
+	buttonSaveStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#9A9EA0")).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonSaveSelectedStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#2ECC71")).
+		Bold(true).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonCancelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#9A9EA0")).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonCancelSelectedStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#E74C3C")).
+		Bold(true).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	title := titleStyle.Render("Stop Timer - Review Description")
+	message := messageStyle.Render("Commits found during this session. Review and edit the description below:")
+	label := labelStyle.Render("Description:")
+
+	// Render textarea
+	textareaContent := m.stopTimerDescription.View()
+
+	// Render buttons
+	var saveButton, cancelButton string
+	if m.stopTimerConfirmSelection == 0 {
+		saveButton = buttonSaveSelectedStyle.Render("Save & Stop")
+		cancelButton = buttonCancelStyle.Render("Cancel")
+	} else {
+		saveButton = buttonSaveStyle.Render("Save & Stop")
+		cancelButton = buttonCancelSelectedStyle.Render("Cancel")
+	}
+
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, saveButton, cancelButton)
+	buttonsAligned := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(60).
+		Render(buttons)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		message,
+		"",
+		label,
+		textareaContent,
+		"",
+		buttonsAligned,
+	)
+
+	return dialogStyle.Render(content)
+}
+
 // updateDashboard updates the dashboard with current timer state
 func (m *MainMenuModel) updateDashboard() {
 	if m.dashboard == nil {
@@ -853,3 +1042,13 @@ type timerPollTickMsg struct{}
 type timerStoppedMsg struct{}
 
 type blinkTickMsg struct{}
+
+// stopTimerDescriptionReadyMsg is sent when the auto-generated description is ready
+type stopTimerDescriptionReadyMsg struct {
+	description string
+}
+
+// confirmStopTimerMsg is sent when the user confirms stopping the timer
+type confirmStopTimerMsg struct {
+	description string
+}
