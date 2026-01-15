@@ -25,6 +25,7 @@ const (
 	MenuCreateTimer MainMenuItem = iota
 	MenuStopTimer
 	MenuWorkspaceAssociations
+	MenuCodeRepos
 	MenuViewHistory
 	MenuOpenMonitor  // Only visible in debug builds
 	MenuViewAPILog   // Only visible in debug builds
@@ -355,6 +356,11 @@ func (m *MainMenuModel) updateMenuItems() {
 			action:  MenuWorkspaceAssociations,
 		},
 		{
+			label:   "Code Repos",
+			enabled: true,
+			action:  MenuCodeRepos,
+		},
+		{
 			label:   "View Timesheet History",
 			enabled: true,
 			action:  MenuViewHistory,
@@ -413,6 +419,12 @@ func (m *MainMenuModel) handleMenuSelection() tea.Cmd {
 		// Launch workspace associations screen
 		return func() tea.Msg {
 			return launchWorkspaceAssociationsMsg{}
+		}
+
+	case MenuCodeRepos:
+		// Launch code repos screen
+		return func() tea.Msg {
+			return launchCodeReposMsg{}
 		}
 
 	case MenuViewHistory:

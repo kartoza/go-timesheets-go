@@ -25,6 +25,7 @@ const (
 	StateTimesheetCreation
 	StateHistoryView
 	StateWorkspaceAssociations
+	StateCodeRepos
 )
 
 // AppWithAuth is a wrapper app that handles authentication
@@ -35,6 +36,7 @@ type AppWithAuth struct {
 	timesheetCreator   *TimesheetCreator
 	historyView        *HistoryView
 	workspaceView      *WorkspaceAssociationsModel
+	codeReposView      *CodeReposModel
 	width              int
 	height             int
 	tokenLoaded        bool
@@ -146,6 +148,11 @@ func (a *AppWithAuth) Init() tea.Cmd {
 		if a.workspaceView != nil {
 			cmds = append(cmds, a.workspaceView.Init())
 		}
+
+	case StateCodeRepos:
+		if a.codeReposView != nil {
+			cmds = append(cmds, a.codeReposView.Init())
+		}
 	}
 
 	return tea.Batch(cmds...)
@@ -197,6 +204,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.workspaceView = model
 				cmds = append(cmds, c)
 			}
+		case StateCodeRepos:
+			if a.codeReposView != nil {
+				model, c := a.codeReposView.Update(msg)
+				a.codeReposView = model
+				cmds = append(cmds, c)
+			}
 		}
 
 	case tea.KeyMsg:
@@ -239,6 +252,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.workspaceView != nil {
 				model, c := a.workspaceView.Update(msg)
 				a.workspaceView = model
+				cmds = append(cmds, c)
+			}
+		case StateCodeRepos:
+			if a.codeReposView != nil {
+				model, c := a.codeReposView.Update(msg)
+				a.codeReposView = model
 				cmds = append(cmds, c)
 			}
 		}
@@ -294,6 +313,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.timesheetCreator = nil
 		a.historyView = nil
 		a.workspaceView = nil
+		a.codeReposView = nil
 		// Reload main menu to refresh state
 		if a.mainMenu != nil {
 			return a, a.mainMenu.Init()
@@ -319,6 +339,16 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.workspaceView = workspaceView
 		a.state = StateWorkspaceAssociations
 		return a, a.workspaceView.Init()
+
+	case launchCodeReposMsg:
+		// Transition to code repos view
+		codeReposView := NewCodeReposModel(a.apiClient)
+		codeReposView.width = a.width
+		codeReposView.height = a.height
+		codeReposView.SetHeaderState(a.getHeaderState())
+		a.codeReposView = codeReposView
+		a.state = StateCodeRepos
+		return a, a.codeReposView.Init()
 
 	default:
 		// Pass to active model
@@ -357,6 +387,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.workspaceView = model
 				cmds = append(cmds, c)
 			}
+		case StateCodeRepos:
+			if a.codeReposView != nil {
+				model, c := a.codeReposView.Update(msg)
+				a.codeReposView = model
+				cmds = append(cmds, c)
+			}
 		}
 	}
 
@@ -367,6 +403,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type launchTimerCreationMsg struct{}
 type launchHistoryViewMsg struct{}
 type launchWorkspaceAssociationsMsg struct{}
+type launchCodeReposMsg struct{}
 type backToMenuMsg struct{}
 
 // getHeaderState returns the current header state from the main menu
@@ -413,6 +450,12 @@ func (a *AppWithAuth) View() string {
 			return a.workspaceView.View()
 		}
 		return a.renderLoadingScreen("Loading workspace associations")
+
+	case StateCodeRepos:
+		if a.codeReposView != nil {
+			return a.codeReposView.View()
+		}
+		return a.renderLoadingScreen("Loading code repositories")
 	}
 
 	return "Unknown state"

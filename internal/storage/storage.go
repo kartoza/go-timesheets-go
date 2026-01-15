@@ -366,3 +366,36 @@ func (s *Storage) LoadWorkspaceAssociations() (*models.WorkspaceAssociations, er
 
 	return &associations, nil
 }
+
+// SaveCodeRepoAssociations saves code repo associations to persistent storage
+func (s *Storage) SaveCodeRepoAssociations(associations *models.CodeRepoAssociations) error {
+	filePath := filepath.Join(s.dataDir, "code_repo_associations.json")
+
+	data, err := json.MarshalIndent(associations, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal code repo associations: %w", err)
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// LoadCodeRepoAssociations loads code repo associations from storage
+func (s *Storage) LoadCodeRepoAssociations() (*models.CodeRepoAssociations, error) {
+	filePath := filepath.Join(s.dataDir, "code_repo_associations.json")
+
+	data, err := os.ReadFile(filePath)
+	if os.IsNotExist(err) {
+		// Return empty associations if file doesn't exist
+		return models.NewCodeRepoAssociations(), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read code repo associations file: %w", err)
+	}
+
+	var associations models.CodeRepoAssociations
+	if err := json.Unmarshal(data, &associations); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal code repo associations: %w", err)
+	}
+
+	return &associations, nil
+}
