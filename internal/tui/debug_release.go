@@ -13,7 +13,13 @@ var tuiDebugLog *log.Logger
 var menuDebugLog *log.Logger
 
 // DebugEnabled indicates if debug mode is active
-const DebugEnabled = false
+// In release builds, this is always false
+var DebugEnabled = false
+
+// SetDebugMode is a no-op in release builds (debug features not available)
+func SetDebugMode(enabled bool) {
+	// No-op in release builds - debug features are not compiled in
+}
 
 func init() {
 	// In release mode, all debug logging goes to discard

@@ -17,8 +17,14 @@ import (
 var tuiDebugLog *log.Logger
 var menuDebugLog *log.Logger
 
-// DebugEnabled indicates if debug mode is active
-const DebugEnabled = true
+// DebugEnabled indicates if debug mode is active (controlled by --debug/-d flag)
+// In dev builds, this defaults to false and can be enabled via command line
+var DebugEnabled = false
+
+// SetDebugMode sets the debug mode flag (only effective in dev builds)
+func SetDebugMode(enabled bool) {
+	DebugEnabled = enabled
+}
 
 func init() {
 	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)

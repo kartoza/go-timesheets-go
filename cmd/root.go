@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	dataDir string
-	userID  string
+	dataDir   string
+	userID    string
+	debugMode bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -33,6 +34,9 @@ Features:
 - Integration with waybar for desktop notifications
 - Workspace automation support`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Set debug mode in TUI package (only effective in dev builds)
+		tui.SetDebugMode(debugMode)
+
 		// Launch TUI application with authentication
 		app, err := tui.NewAppWithAuth()
 		if err != nil {
@@ -64,6 +68,7 @@ func init() {
 	
 	rootCmd.PersistentFlags().StringVar(&dataDir, "data-dir", defaultDataDir, "Data directory for storing timesheet data")
 	rootCmd.PersistentFlags().StringVar(&userID, "user", "default-user", "User ID for timesheet entries")
+	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "d", false, "Enable debug mode (shows developer menu options)")
 }
 
 func initConfig() {
