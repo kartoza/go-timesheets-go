@@ -382,5 +382,153 @@ API Analysis Complete:
 
 
 
-I would like to be able to run the app with command line args. if running this way, the app should not open the tui but rather just return a json document on 
+I would like to be able to run the app with command line args. if running this way, the app should not open the tui but rather just return a json document on
 stdout. for example if i pass --status it would return a json doc showing the current timer that is running b
+
+================================================================================
+
+Date: 2026-01-14
+Session: Test Suite Development
+
+Prompt:
+write some tests
+
+Action Taken:
+- Explored codebase structure to understand testing requirements
+- Identified key packages requiring test coverage:
+  * models - TimeEntry, Project, Task, Activity structs and methods
+  * storage - JSON-based persistence layer
+  * service - Business logic for timesheet operations
+  * config - Configuration management
+  * api - Django API client
+- Creating comprehensive test suite with:
+  * Unit tests for models package (TimeEntry lifecycle, duration calculations)
+  * Unit tests for storage package (persistence operations)
+  * Unit tests for service package (business logic)
+  * Unit tests for config package (configuration management)
+  * Mock-based tests for API client
+- Test coverage goals: Critical path testing for time tracking accuracy
+
+================================================================================
+
+Date: 2026-01-14
+Session: Workspace Associations UI Implementation
+
+Prompt:
+lets implement the workspace to task mapping user interface
+
+after choosing that option on the main menu it should present a user friendly form in our branded colours
+
+the form should have a vertical list of 10 rectangles which contain editable text. these represent the workspaces
+
+to the right of each rectangle it should show the current project /task/activity for the workpace.
+
+in the next column an edit button and the last column a clear button
+
+Action Taken:
+- Creating workspace association data model for storing workspace-to-task mappings
+- Implementing full-featured workspace associations TUI screen with:
+  * List of 10 workspace slots (1-10) with editable names
+  * Display of associated project/task/activity for each workspace
+  * Edit button to modify workspace associations via popup form
+  * Clear button to remove associations
+  * Branded color scheme matching application theme
+- Integrating with existing main menu navigation
+
+================================================================================
+
+Date: 2026-01-14
+Session: Workspace Associations UI Refinement
+
+Prompt:
+the editor for the workspace should basically look and work the same as the timesheet entry form (including the two letter input before hitting the api for project names, project name caching etc). it should pop over the other text as if it was a modal window in the center of the terminal, then hide away again when the form is no longer needed
+
+Action Taken:
+- Refactoring workspace associations edit form to match TimesheetCreator patterns:
+  * Type-ahead project search with 2-letter minimum before API calls
+  * Project caching using first 2 letters as cache key
+  * Centered modal popup overlay design
+  * Same styling and color scheme as timesheet form
+  * Task list that loads after project selection
+  * Activity list with scrollable popover
+- Implementing proper modal behavior that overlays the workspace list
+
+================================================================================
+
+Date: 2026-01-14
+Session: UI/UX Convention Standardization
+
+Prompt:
+from the main screen we should set the ux and ui conventions for all other screens.
+firstly. the screen title should appear at the top in the form "Application Title - Screen Title"
+(follow up) this screen breaks convention by:
+1. not having the application title - form title at the top
+2. not having the other top matter from the menu screen
+3. not having the footer pushed to the bottom of the screen
+(follow up) yes please noting that content areas also are centered horizontally
+
+Action Taken:
+- Established consistent UI/UX conventions across all screens:
+  * Header: "Kartoza Timesheets - [Screen Name]" with motto "tempus fugit"
+  * Status bar with dividers showing user info
+  * Main content centered horizontally
+  * Help text footer anchored at bottom of screen
+- Updated all screens to follow conventions:
+  * Main Menu: "Kartoza Timesheets - Main Menu"
+  * Timesheet Creator: "Kartoza Timesheets - Create Timer"
+  * Workspace Associations: "Kartoza Timesheets - Workspace Associations"
+  * History View (list, detail, edit modes): "Kartoza Timesheets - History"
+- Layout pattern applied to all screens:
+  * renderHeader() function for consistent header
+  * lipgloss.Place() for horizontal centering
+  * Height - 2 for main content to reserve space for footer
+  * Footer styled with full width and center alignment
+
+================================================================================
+
+Date: 2026-01-14
+Session: DRY Header Implementation and Cleanup
+
+Prompt:
+the top matter should include all of these elements. there should be a single implementation for this that gets imported throughout the code as needed to keep things DRY
+(follow up) on the main screen, the second string "Main Menu" is redundant and can be removed
+
+Action Taken:
+- Created shared header component in internal/tui/widgets.go:
+  * Defined shared brand colors: ColorOrange, ColorBlue, ColorGray, ColorWhite, ColorDarkGray, ColorRed, ColorGreen
+  * HeaderState struct to pass dynamic data (Username, IsActive, MonthlyHours)
+  * RenderHeader() function for full status bar header (title + motto + user/tracker/hours)
+  * RenderSimpleHeader() function for screens without full state
+  * RenderHelpFooter() helper for footer text
+  * LayoutWithHeaderFooter() helper for complete layout
+- Updated all screens to use shared header component:
+  * main_menu.go - uses RenderHeader() with full HeaderState
+  * timesheet.go - uses RenderSimpleHeader("Create Timer", username)
+  * workspace_associations.go - uses RenderSimpleHeader("Workspace Associations", "")
+  * history.go - uses RenderSimpleHeader("History", username)
+- Removed redundant "Main Menu" title from main menu renderMenu() function
+- Fixed unused "fmt" import in main_menu.go
+- Build verified successful
+
+================================================================================
+
+Date: 2026-01-14
+Session: Full Header State Across All Screens
+
+Prompt:
+again, this header section should be a reuseable component and appear completely on every screen including the tracker and monthly hours
+the history page has content which is not in the center of the screen
+
+Action Taken:
+- Updated all screens to use full RenderHeader with HeaderState (user, tracker status, monthly hours):
+  * Added headerState field to TimesheetCreator, HistoryView, WorkspaceAssociationsModel
+  * Added SetHeaderState() method to each screen
+  * Updated renderHeader() in each screen to use RenderHeader() with full state
+  * Updated AppWithAuth to pass header state when launching screens via getHeaderState() helper
+- Fixed history page centering by reducing table width to match header (60 chars):
+  * Reduced column widths: Project/Task 12, Activity/Date 10, Hours 6, Status 10
+  * Reduced description width from 90 to 56 chars
+  * Reduced separator and indicator widths to 56 chars
+  * Shortened status labels: "✓ Sub", "● Run", "Pend"
+  * Shortened date format to MM-DD
+- Build verified successful
