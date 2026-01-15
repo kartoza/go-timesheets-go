@@ -14,10 +14,7 @@ import (
 
 // menuDebugLog is defined in debug_dev.go or debug_release.go
 
-// Polling interval for active timer updates
-const timerPollInterval = 1 * time.Minute
-
-// Blink interval for timer indicators
+// Blink interval for timer indicators (also updates elapsed time display locally)
 const blinkInterval = 1 * time.Second
 
 // MainMenuItem represents a menu option
@@ -29,8 +26,8 @@ const (
 	MenuWorkspaceAssociations
 	MenuCodeRepos
 	MenuViewHistory
-	MenuOpenMonitor  // Only visible in debug builds
-	MenuViewAPILog   // Only visible in debug builds
+	MenuOpenMonitor // Only visible in debug builds
+	MenuViewAPILog  // Only visible in debug builds
 	MenuLogOut
 	MenuQuit
 )
@@ -213,12 +210,9 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.timer == nil && m.selectedItem == 1 {
 			m.selectedItem = 0
 		}
-		// Start polling and blinking if timer is active
+		// Start blink ticker if timer is active (for UI updates, no API calls)
 		if m.activeTimer != nil {
-			return m, tea.Batch(
-				m.startTimerPolling(),
-				m.startBlinkTicker(),
-			)
+			return m, m.startBlinkTicker()
 		}
 		return m, nil
 
@@ -229,18 +223,6 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case todayHoursLoadedMsg:
 		m.todayHours = msg.hours
 		m.updateDashboard()
-		return m, nil
-
-	case timerPollTickMsg:
-		// Refresh active timer data
-		if m.activeTimer != nil {
-			m.updateDashboard()
-			return m, tea.Batch(
-				m.loadActiveTimer(),
-				m.loadTodayHours(),
-				m.startTimerPolling(),
-			)
-		}
 		return m, nil
 
 	case timerStoppedMsg:
@@ -274,10 +256,11 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case blinkTickMsg:
-		// Toggle blink state and update dashboard
+		// Toggle blink state and update dashboard (local only, no API calls)
 		if m.activeTimer != nil {
 			m.blinkOn = !m.blinkOn
 			m.dashboard.BlinkOn = m.blinkOn
+			m.updateDashboard() // Updates elapsed time locally based on start time
 			return m, m.startBlinkTicker()
 		}
 		return m, nil
@@ -1010,14 +993,7 @@ func (m *MainMenuModel) loadTodayHours() tea.Cmd {
 	}
 }
 
-// startTimerPolling starts the polling timer for active timer updates
-func (m *MainMenuModel) startTimerPolling() tea.Cmd {
-	return tea.Tick(timerPollInterval, func(t time.Time) tea.Msg {
-		return timerPollTickMsg{}
-	})
-}
-
-// startBlinkTicker starts the blink ticker for timer indicators
+// startBlinkTicker starts the blink ticker for timer indicators and elapsed time updates
 func (m *MainMenuModel) startBlinkTicker() tea.Cmd {
 	return tea.Tick(blinkInterval, func(t time.Time) tea.Msg {
 		return blinkTickMsg{}
@@ -1036,8 +1012,6 @@ type monthlyHoursLoadedMsg struct {
 type todayHoursLoadedMsg struct {
 	hours float64
 }
-
-type timerPollTickMsg struct{}
 
 type timerStoppedMsg struct{}
 
