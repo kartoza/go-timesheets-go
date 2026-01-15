@@ -64,10 +64,11 @@ type HistoryView struct {
 	loading bool
 
 	// Submit all pending
-	confirmSubmit    bool
-	isSubmitting     bool
-	submitSuccess    string
-	pendingCount     int
+	confirmSubmit   bool
+	isSubmitting    bool
+	submitSuccess   string
+	pendingCount    int
+	hasRunningEntry bool
 }
 
 // NewHistoryView creates a new history view
@@ -163,11 +164,16 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		sort.Slice(h.allHistory, func(i, j int) bool {
 			return h.allHistory[i].StartTime().After(h.allHistory[j].StartTime())
 		})
-		// Count pending entries (stopped but not submitted)
+		// Count pending entries (stopped but not submitted) and check for running entries
 		h.pendingCount = 0
+		h.hasRunningEntry = false
 		for _, entry := range h.allHistory {
-			if !entry.IsSubmitted() && !entry.EndTime().IsZero() {
-				h.pendingCount++
+			if !entry.IsSubmitted() {
+				if entry.EndTime().IsZero() {
+					h.hasRunningEntry = true
+				} else {
+					h.pendingCount++
+				}
 			}
 		}
 		// Save to persistent cache for app restart
@@ -274,8 +280,8 @@ func (h *HistoryView) updateListMode(msg tea.KeyMsg) (*HistoryView, tea.Cmd) {
 		return h, h.returnToMenuWithHours()
 
 	case "s":
-		// Submit all pending - show confirmation
-		if h.pendingCount > 0 && !h.isSubmitting {
+		// Submit all pending - show confirmation (only if no running timer)
+		if h.pendingCount > 0 && !h.isSubmitting && !h.hasRunningEntry {
 			h.confirmSubmit = true
 			h.submitSuccess = "" // Clear previous success message
 		}
@@ -753,20 +759,35 @@ func (h *HistoryView) renderListView() string {
 		Width(h.width).
 		Align(lipgloss.Center)
 
+	warningStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FF6B6B")).
+		Bold(true)
+
 	// Build help text based on state
 	var helpText string
+	var warningText string
 	if h.confirmSubmit {
 		helpText = "Y: Confirm • N: Cancel"
 	} else if h.pendingCount > 0 {
-		helpText = "↑/↓: Scroll • Enter: View • s: Submit All Pending • r: Refresh • Esc: Back"
+		if h.hasRunningEntry {
+			helpText = "↑/↓: Scroll • Enter: View • r: Refresh • Esc: Back"
+			warningText = "⚠ Cannot submit while timer is running - stop timer first"
+		} else {
+			helpText = "↑/↓: Scroll • Enter: View • s: Submit All Pending • r: Refresh • Esc: Back"
+		}
 	} else {
 		helpText = "↑/↓: Scroll • Enter: View Details • r: Refresh • Esc/q: Back"
+	}
+
+	footerContent := helpStyle.Render(helpText)
+	if warningText != "" {
+		footerContent = warningStyle.Render(warningText) + "\n" + footerContent
 	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		centeredMain,
-		helpFooter.Render(helpStyle.Render(helpText)),
+		helpFooter.Render(footerContent),
 	)
 }
 

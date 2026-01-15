@@ -425,19 +425,19 @@ func (m *MainMenuModel) updateMenuItems() {
 			action:  MenuStopTimer,
 		},
 		{
+			label:   "View Timesheet History",
+			enabled: true,
+			action:  MenuViewHistory,
+		},
+		{
 			label:   "Manage Workspace Associations",
 			enabled: true,
 			action:  MenuWorkspaceAssociations,
 		},
 		{
-			label:   "Code Repos",
+			label:   "Manage Code Repos",
 			enabled: true,
 			action:  MenuCodeRepos,
-		},
-		{
-			label:   "View Timesheet History",
-			enabled: true,
-			action:  MenuViewHistory,
 		},
 	}
 

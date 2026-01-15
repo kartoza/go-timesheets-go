@@ -1130,17 +1130,31 @@ func (c *Client) SubmitTimesheet(submission models.TimesheetSubmission) error {
 // SubmitAllPending submits all unsubmitted time logs to the ERP system
 // This endpoint automatically processes all pending entries for the authenticated user
 func (c *Client) SubmitAllPending() error {
-	resp, err := c.makeRequest("POST", "/api/submit-timesheet/", nil)
+	debugLog.Printf("SubmitAllPending called")
+
+	// The API expects an empty POST request - it submits all pending for the authenticated user
+	resp, err := c.makeRequest("POST", "/api/submit-timesheet/", map[string]interface{}{})
 	if err != nil {
+		debugLog.Printf("SubmitAllPending error: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	debugLog.Printf("SubmitAllPending response status: %d", resp.StatusCode)
+	debugLog.Printf("SubmitAllPending response body: %s", string(bodyBytes))
+
+	// Log response to API request log file
+	if c.metrics != nil {
+		c.metrics.LogResponseBody("POST", "/api/submit-timesheet/", resp.StatusCode, string(bodyBytes))
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("failed to submit timesheets (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	// Invalidate timelog cache after submission
+	c.invalidateCache("GET:/api/timelog/")
 	return nil
 }
 
