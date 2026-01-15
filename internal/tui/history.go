@@ -179,7 +179,13 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		h.isSubmitting = false
 		h.confirmSubmit = false
 		h.submitSuccess = fmt.Sprintf("Successfully submitted %d timesheet(s)!", h.pendingCount)
-		// Reload history to get fresh data
+		// Launch fireworks celebration for 10 seconds, then reload history
+		return h, tea.Batch(
+			FireworksCelebrationCmd(10*time.Second),
+		)
+
+	case fireworksCompleteMsg:
+		// Fireworks finished, reload history to get fresh data
 		return h, h.loadHistory()
 
 	case historySubmitErrorMsg:
