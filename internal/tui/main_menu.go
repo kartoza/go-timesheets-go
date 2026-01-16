@@ -193,6 +193,16 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c", "q", "esc"))):
 			return m, tea.Quit
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("o"))):
+			// Launch office view
+			return m, func() tea.Msg {
+				return launchOfficeViewMsg{}
+			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
+			// Toggle POW mode
+			return m, m.togglePowMode()
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
 			m.selectedItem--
 			if m.selectedItem < 0 {
@@ -296,6 +306,18 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			current += msg.commits
 			m.stopTimerDescription.SetValue(current)
 			m.err = nil
+		}
+		return m, nil
+
+	case powToggledMsg:
+		if !msg.ok {
+			m.err = fmt.Errorf("POW mode unavailable - missing screenshot tool or ffmpeg")
+		} else if msg.enabled {
+			m.err = nil // Clear any previous errors
+			menuDebugLog.Printf("POW mode enabled via toggle")
+		} else {
+			m.err = nil
+			menuDebugLog.Printf("POW mode disabled via toggle")
 		}
 		return m, nil
 
@@ -449,7 +471,11 @@ func (m *MainMenuModel) renderHelp() string {
 		return helpStyle.Render("←/→: Select • Enter/y: Confirm • n/Esc: Cancel")
 	}
 
-	return helpStyle.Render("↑/↓: Navigate • Enter: Select • Esc/q: Quit")
+	powStatus := "off"
+	if m.powCapturer != nil && m.powCapturer.IsEnabled() {
+		powStatus = "on"
+	}
+	return helpStyle.Render(fmt.Sprintf("↑/↓: Navigate • Enter: Select • o: Office • p: POW (%s) • Esc/q: Quit", powStatus))
 }
 
 // updateMenuItems updates the menu items based on current state
@@ -691,6 +717,26 @@ func (m *MainMenuModel) appendCommitsToDescription() tea.Cmd {
 			return commitsAppendedMsg{noCommitsFound: true}
 		}
 		return commitsAppendedMsg{commits: commits}
+	}
+}
+
+// togglePowMode toggles the POW (Proof of Work) screenshot capture mode
+func (m *MainMenuModel) togglePowMode() tea.Cmd {
+	return func() tea.Msg {
+		if m.powCapturer == nil {
+			// Create a new capturer if none exists
+			cfg := pow.DefaultConfig()
+			cfg.Enabled = true
+			capturer, err := pow.New(cfg)
+			if err != nil {
+				return powToggledMsg{enabled: false, ok: false}
+			}
+			m.powCapturer = capturer
+			return powToggledMsg{enabled: capturer.IsEnabled(), ok: capturer.IsEnabled()}
+		}
+
+		enabled, ok := m.powCapturer.Toggle()
+		return powToggledMsg{enabled: enabled, ok: ok}
 	}
 }
 
@@ -1083,6 +1129,12 @@ type confirmStopTimerMsg struct {
 
 // commitsAppendedMsg is sent when commits have been fetched for appending
 type commitsAppendedMsg struct {
-	commits       string
+	commits        string
 	noCommitsFound bool
+}
+
+// powToggledMsg is sent when POW mode has been toggled
+type powToggledMsg struct {
+	enabled bool
+	ok      bool
 }

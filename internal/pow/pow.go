@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -101,6 +102,57 @@ func New(cfg Config) (*Capturer, error) {
 // IsEnabled returns whether POW capture is enabled
 func (c *Capturer) IsEnabled() bool {
 	return c.enabled
+}
+
+// SetEnabled enables or disables POW capture
+// Returns true if the state was changed, false if requirements are not met
+func (c *Capturer) SetEnabled(enabled bool) bool {
+	if enabled {
+		// Check requirements before enabling
+		tool := detectScreenshotTool()
+		if tool == "" {
+			powDebugLog.Printf("Cannot enable POW: no screenshot tool found")
+			return false
+		}
+		if _, err := exec.LookPath("ffmpeg"); err != nil {
+			powDebugLog.Printf("Cannot enable POW: ffmpeg not found")
+			return false
+		}
+
+		// Create output directory if needed
+		cfg := DefaultConfig()
+		if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
+			powDebugLog.Printf("Cannot enable POW: failed to create output dir: %v", err)
+			return false
+		}
+
+		c.mu.Lock()
+		c.enabled = true
+		c.screenshotTool = tool
+		c.outputDir = cfg.OutputDir
+		c.interval = cfg.Interval
+		c.mu.Unlock()
+
+		powDebugLog.Printf("POW enabled: tool=%s", tool)
+		return true
+	}
+
+	c.mu.Lock()
+	c.enabled = false
+	c.mu.Unlock()
+	powDebugLog.Printf("POW disabled")
+	return true
+}
+
+// Toggle toggles the POW enabled state
+// Returns the new enabled state and whether the operation succeeded
+func (c *Capturer) Toggle() (enabled bool, ok bool) {
+	if c.enabled {
+		c.SetEnabled(false)
+		return false, true
+	}
+	ok = c.SetEnabled(true)
+	return c.enabled, ok
 }
 
 // StartSession begins capturing screenshots for a new timesheet session
@@ -238,6 +290,23 @@ func (c *Capturer) captureFrame() {
 		cmd = exec.Command("gnome-screenshot", "-f", filename)
 	case "import":
 		cmd = exec.Command("import", "-window", "root", filename)
+	case "screencapture":
+		// macOS built-in screenshot tool
+		// -x: no sound, -C: capture cursor
+		cmd = exec.Command("screencapture", "-x", "-C", filename)
+	case "powershell":
+		// Windows PowerShell screenshot using .NET
+		psScript := fmt.Sprintf(`
+Add-Type -AssemblyName System.Windows.Forms
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bitmap = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$graphics.CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+$bitmap.Save('%s', [System.Drawing.Imaging.ImageFormat]::Png)
+$graphics.Dispose()
+$bitmap.Dispose()
+`, filename)
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", psScript)
 	default:
 		powDebugLog.Printf("Unknown screenshot tool: %s", tool)
 		return
@@ -252,26 +321,42 @@ func (c *Capturer) captureFrame() {
 
 // detectScreenshotTool finds an available screenshot tool
 func detectScreenshotTool() string {
-	// Check for Wayland first (grim)
-	if os.Getenv("WAYLAND_DISPLAY") != "" {
-		if _, err := exec.LookPath("grim"); err == nil {
-			return "grim"
+	switch runtime.GOOS {
+	case "darwin":
+		// macOS - use screencapture (built-in)
+		if _, err := exec.LookPath("screencapture"); err == nil {
+			return "screencapture"
 		}
-	}
 
-	// Check for X11 tools
-	if _, err := exec.LookPath("scrot"); err == nil {
-		return "scrot"
-	}
+	case "windows":
+		// Windows - use PowerShell with .NET (always available)
+		if _, err := exec.LookPath("powershell"); err == nil {
+			return "powershell"
+		}
 
-	// Fallback: check for gnome-screenshot
-	if _, err := exec.LookPath("gnome-screenshot"); err == nil {
-		return "gnome-screenshot"
-	}
+	default:
+		// Linux - check for various tools
+		// Check for Wayland first (grim)
+		if os.Getenv("WAYLAND_DISPLAY") != "" {
+			if _, err := exec.LookPath("grim"); err == nil {
+				return "grim"
+			}
+		}
 
-	// Check for ImageMagick import
-	if _, err := exec.LookPath("import"); err == nil {
-		return "import"
+		// Check for X11 tools
+		if _, err := exec.LookPath("scrot"); err == nil {
+			return "scrot"
+		}
+
+		// Fallback: check for gnome-screenshot
+		if _, err := exec.LookPath("gnome-screenshot"); err == nil {
+			return "gnome-screenshot"
+		}
+
+		// Check for ImageMagick import
+		if _, err := exec.LookPath("import"); err == nil {
+			return "import"
+		}
 	}
 
 	return ""

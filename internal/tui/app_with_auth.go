@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -366,6 +367,14 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = StateCodeRepos
 		return a, a.codeReposView.Init()
 
+	case launchOfficeViewMsg:
+		// Launch office view as a subprocess that takes over the terminal
+		return a, a.launchOffice()
+
+	case officeFinishedMsg:
+		// Office view finished, return to main menu
+		return a, nil
+
 	default:
 		// Pass to active model
 		switch a.state {
@@ -420,6 +429,8 @@ type launchTimerCreationMsg struct{}
 type launchHistoryViewMsg struct{}
 type launchWorkspaceAssociationsMsg struct{}
 type launchCodeReposMsg struct{}
+type launchOfficeViewMsg struct{}
+type officeFinishedMsg struct{}
 type backToMenuMsg struct{}
 
 // getHeaderState returns the current header state from the main menu
@@ -537,4 +548,20 @@ func createAPIClient(token, username, baseURL string, metrics *monitoring.Metric
 	}
 
 	return client, nil
+}
+
+// launchOffice launches the office view as a subprocess
+func (a *AppWithAuth) launchOffice() tea.Cmd {
+	// Get the path to the current executable
+	execPath, err := os.Executable()
+	if err != nil {
+		return func() tea.Msg {
+			return officeFinishedMsg{}
+		}
+	}
+
+	c := exec.Command(execPath, "office")
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return officeFinishedMsg{}
+	})
 }
