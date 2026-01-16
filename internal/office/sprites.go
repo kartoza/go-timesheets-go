@@ -219,6 +219,25 @@ func DrawSprite(screen tcell.Screen, x, y int, sprite []string, color tcell.Colo
 	}
 }
 
+// characterColors defines the palette of colors for team members
+var spriteColors = []int{
+	0xFF5722, // Deep Orange
+	0x2196F3, // Blue
+	0x4CAF50, // Green
+	0x9C27B0, // Purple
+	0xE91E63, // Pink
+	0x00BCD4, // Cyan
+	0xFFEB3B, // Yellow
+	0x795548, // Brown
+	0x607D8B, // Blue Grey
+	0xF44336, // Red
+	0x3F51B5, // Indigo
+	0x009688, // Teal
+	0xFF9800, // Orange
+	0x673AB7, // Deep Purple
+	0x8BC34A, // Light Green
+}
+
 // DrawCharacter draws a character sprite with their assigned color
 func DrawCharacter(screen tcell.Screen, member *TeamMember, frame int) {
 	spriteLines, _ := GetCharacterSprite(member.State, member.Facing, frame)
@@ -226,11 +245,13 @@ func DrawCharacter(screen tcell.Screen, member *TeamMember, frame int) {
 	// Head color (skin tone)
 	skinColor := tcell.NewRGBColor(255, 218, 185) // Peach
 
-	// Body color from member's assigned color
+	// Body color from member's assigned color index
+	colorIndex := member.Color % len(spriteColors)
+	colorValue := spriteColors[colorIndex]
 	bodyColor := tcell.NewRGBColor(
-		int32((member.Color>>16)&0xFF),
-		int32((member.Color>>8)&0xFF),
-		int32(member.Color&0xFF),
+		int32((colorValue>>16)&0xFF),
+		int32((colorValue>>8)&0xFF),
+		int32(colorValue&0xFF),
 	)
 
 	x := int(member.X)

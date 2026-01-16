@@ -72,11 +72,14 @@ func parseTeamPage(html string) ([]TeamMember, error) {
 	var members []TeamMember
 
 	// Pattern to find team member blocks
-	// Looking for person-name and person-role classes
-	namePattern := regexp.MustCompile(`<h4[^>]*class="[^"]*person-name[^"]*"[^>]*>([^<]+)</h4>`)
-	rolePattern := regexp.MustCompile(`<p[^>]*class="[^"]*person-role[^"]*"[^>]*>([^<]+)</p>`)
-	avatarPattern := regexp.MustCompile(`<img[^>]*class="[^"]*profile-image[^"]*"[^>]*src="([^"]+)"`)
-	bioPattern := regexp.MustCompile(`<div[^>]*class="[^"]*line-clamp[^"]*"[^>]*>([^<]+)`)
+	// Names are in: <div class="person-name"><h4 ...>Name</h4></div>
+	namePattern := regexp.MustCompile(`<div[^>]*class="person-name"[^>]*>\s*<h4[^>]*>([^<]+)</h4>`)
+	// Roles are in: <div class="person-role" ...><h5 ...>Role</h5></div>
+	rolePattern := regexp.MustCompile(`<div[^>]*class="person-role"[^>]*>\s*<h5[^>]*>([^<]+)</h5>`)
+	// Avatar pattern: img tag with class="profile-image" and src="..."
+	avatarPattern := regexp.MustCompile(`<img[^>]+class="profile-image"[^>]+src="([^"]+)"`)
+	// Bio is in: <p class="line-clamp" ...>Bio text</p>
+	bioPattern := regexp.MustCompile(`<p[^>]*class="line-clamp"[^>]*>([^<]+)`)
 
 	names := namePattern.FindAllStringSubmatch(html, -1)
 	roles := rolePattern.FindAllStringSubmatch(html, -1)
@@ -84,6 +87,8 @@ func parseTeamPage(html string) ([]TeamMember, error) {
 	bios := bioPattern.FindAllStringSubmatch(html, -1)
 
 	// Build members from matched data
+	// Note: There are 2 avatar images per person (original and alternative hover image)
+	// We take the second one (alternative) as it's usually a better photo
 	for i, name := range names {
 		member := TeamMember{
 			Name:  strings.TrimSpace(name[1]),
@@ -94,8 +99,10 @@ func parseTeamPage(html string) ([]TeamMember, error) {
 			member.Role = strings.TrimSpace(roles[i][1])
 		}
 
-		if i < len(avatars) {
-			url := avatars[i][1]
+		// Each team member has 2 avatar images, take the first one (original)
+		avatarIdx := i * 2 // Use the original image (index 0, 2, 4, ...)
+		if avatarIdx < len(avatars) {
+			url := avatars[avatarIdx][1]
 			if !strings.HasPrefix(url, "http") {
 				url = "https://kartoza.com" + url
 			}

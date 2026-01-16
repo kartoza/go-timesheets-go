@@ -11,14 +11,15 @@ import (
 
 // Office represents the office scene
 type Office struct {
-	Width      int
-	Height     int
-	Members    []TeamMember
-	Furniture  []Furniture
-	Screen     tcell.Screen
-	Running    bool
-	ShowBubbles bool
-	lastUpdate time.Time
+	Width         int
+	Height        int
+	Members       []TeamMember
+	Furniture     []Furniture
+	Screen        tcell.Screen
+	Running       bool
+	ShowBubbles   bool
+	lastUpdate    time.Time
+	avatarManager *AvatarManager
 }
 
 // Furniture represents an office furniture item
@@ -48,18 +49,25 @@ const (
 func NewOffice(screen tcell.Screen, members []TeamMember) *Office {
 	width, height := screen.Size()
 
+	// Create avatar manager for Kitty graphics support
+	avatarMgr := NewAvatarManager()
+
 	office := &Office{
-		Width:       width,
-		Height:      height,
-		Members:     members,
-		Screen:      screen,
-		Running:     true,
-		ShowBubbles: true,
-		lastUpdate:  time.Now(),
+		Width:         width,
+		Height:        height,
+		Members:       members,
+		Screen:        screen,
+		Running:       true,
+		ShowBubbles:   true,
+		lastUpdate:    time.Now(),
+		avatarManager: avatarMgr,
 	}
 
 	office.setupFurniture()
 	office.placeMembers()
+
+	// Start loading avatars in background
+	go avatarMgr.LoadAvatars(members)
 
 	return office
 }
@@ -606,15 +614,43 @@ func (o *Office) drawMembers() {
 		}
 	}
 
+	// Note: Kitty graphics disabled - it conflicts with tcell's screen buffer
+	// causing artifacts and display issues. Using Unicode character sprites instead.
+
 	for i := range sorted {
+		x := int(sorted[i].X)
+		y := int(sorted[i].Y)
+
+		// Use character sprites
 		DrawCharacter(o.Screen, &sorted[i], sorted[i].Frame)
-		DrawNameTag(o.Screen, int(sorted[i].X), int(sorted[i].Y), sorted[i].Name)
+
+		DrawNameTag(o.Screen, x, y, sorted[i].Name)
 
 		// Draw speech bubble if enabled and member is working or talking
 		if o.ShowBubbles && (sorted[i].State == StateWorking || sorted[i].State == StateTalking) {
-			DrawSpeechBubble(o.Screen, int(sorted[i].X), int(sorted[i].Y), sorted[i].Activity, 25)
+			DrawSpeechBubble(o.Screen, x, y, sorted[i].Activity, 25)
 		}
 	}
+}
+
+// renderAvatarAtPosition renders an avatar image at the specified position using Kitty graphics
+// Returns true if successfully rendered, false if fallback to character sprite is needed
+func (o *Office) renderAvatarAtPosition(m *TeamMember, x, y, memberIndex int) bool {
+	if o.avatarManager == nil {
+		return false
+	}
+
+	// Get the rendered avatar escape sequence
+	// Use memberIndex+1 as unique image ID (Kitty image IDs should be > 0)
+	rendered := o.avatarManager.RenderAvatar(m.Name, x, y-2, memberIndex+1) // Offset up to not overlap name tag
+	if rendered == "" {
+		return false
+	}
+
+	// Write the escape sequence directly to stdout for Kitty graphics
+	// Note: tcell doesn't directly support Kitty graphics, so we write to stdout
+	fmt.Print(rendered)
+	return true
 }
 
 func (o *Office) drawTitle() {
