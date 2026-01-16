@@ -46,6 +46,7 @@ type MainMenuModel struct {
 	width                  int
 	height                 int
 	err                    error
+	statusMsg              string // Informational status message (not an error)
 	confirmLogout          bool
 	logoutConfirmSelection int // 0 = Yes, 1 = No
 	dashboard              *TimerDashboard
@@ -310,19 +311,22 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case powToggledMsg:
+		m.err = nil
+		m.statusMsg = ""
 		if !msg.ok {
 			m.err = fmt.Errorf("POW mode unavailable - missing screenshot tool or ffmpeg")
 		} else if msg.enabled {
-			m.err = nil // Clear any previous errors
+			m.statusMsg = "Proof of Work mode now enabled. Any timesheets you capture now will capture screenshots too."
 			menuDebugLog.Printf("POW mode enabled via toggle")
 		} else {
-			m.err = nil
+			m.statusMsg = "Proof of Work mode disabled."
 			menuDebugLog.Printf("POW mode disabled via toggle")
 		}
 		return m, nil
 
 	case errorMsg:
 		m.err = error(msg)
+		m.statusMsg = "" // Clear status message when error occurs
 		return m, nil
 
 	case blinkTickMsg:
@@ -357,14 +361,20 @@ func (m *MainMenuModel) View() string {
 		mainContent = m.renderMenu()
 	}
 
-	// Render error message if any
-	var errorContent string
-	if m.err != nil {
+	// Render status or error message if any
+	var messageContent string
+	if m.statusMsg != "" {
+		statusStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#2ECC71")).
+			Bold(true).
+			Align(lipgloss.Center)
+		messageContent = statusStyle.Render(m.statusMsg)
+	} else if m.err != nil {
 		errorStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF6B6B")).
 			Bold(true).
 			Align(lipgloss.Center)
-		errorContent = errorStyle.Render("Error: " + m.err.Error())
+		messageContent = errorStyle.Render("Error: " + m.err.Error())
 	}
 
 	// Render help text
@@ -372,8 +382,8 @@ func (m *MainMenuModel) View() string {
 
 	// Combine main content (without help)
 	parts := []string{header, "", dashboard, "", mainContent}
-	if errorContent != "" {
-		parts = append(parts, "", errorContent)
+	if messageContent != "" {
+		parts = append(parts, "", messageContent)
 	}
 	mainSection := lipgloss.JoinVertical(
 		lipgloss.Center,
