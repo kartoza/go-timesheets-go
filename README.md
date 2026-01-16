@@ -150,7 +150,7 @@ kartoza-timesheet celebration -t 30
 kartoza-timesheet celebration -t 0
 ```
 
-The fireworks display uses Kartoza brand colors (Ubuntu Orange, reds, oranges, and golds) and syncs to audio if available.
+The fireworks display uses Kartoza brand colors (reds, oranges, and golds) and syncs to audio if available.
 
 ## 🖥️ Desktop Integration
 

@@ -619,7 +619,7 @@ func (o *Office) drawMembers() {
 
 func (o *Office) drawTitle() {
 	title := "🏢 Kartoza Office - Press 'q' to quit, 'b' to toggle bubbles"
-	style := tcell.StyleDefault.Foreground(tcell.NewRGBColor(233, 84, 32)).Background(tcell.ColorBlack) // Ubuntu Orange
+	style := tcell.StyleDefault.Foreground(tcell.NewRGBColor(233, 84, 32)).Background(tcell.ColorBlack) // Kartoza Orange
 
 	startX := (o.Width - len(title)) / 2
 	if startX < 0 {

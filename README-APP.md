@@ -216,7 +216,7 @@ The application stores data in `~/.kartoza-timesheet/`:
 
 ## Contributing
 
-This project follows the Ubuntu philosophy of collaboration. Contributions are welcome!
+This project follows a philosophy of collaboration. Contributions are welcome!
 
 ### Development Guidelines
 

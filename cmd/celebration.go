@@ -56,7 +56,7 @@ type CelebrationShow struct {
 // Kartoza brand colors - warm reds, oranges and golds (as RGB values)
 // Using tcell.ColorIsRGB | tcell.ColorValid | RGB to ensure proper color handling
 var celebrationColors = []tcell.Color{
-	tcell.NewRGBColor(233, 84, 32),   // Ubuntu Orange #E95420
+	tcell.NewRGBColor(233, 84, 32),   // Kartoza Orange #E95420
 	tcell.NewRGBColor(255, 0, 0),     // Red
 	tcell.NewRGBColor(255, 69, 0),    // OrangeRed
 	tcell.NewRGBColor(255, 140, 0),   // DarkOrange
