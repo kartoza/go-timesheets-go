@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,8 +11,53 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
+	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/models"
+	"github.com/kartoza/go-timesheets-go/internal/storage"
 )
+
+// formatTaskLabel formats a task label for display by splitting the budget info onto a new line
+// Input: "Testing Scripts, Admin and meetings        (1890.01/2400.0)"
+// Output: "Testing Scripts, Admin and meetings\n  1890.01 of 2400.0 hrs used"
+func formatTaskLabel(label string) string {
+	// Match pattern: "Task Name (hours/budget)" or "Task Name        (hours/budget)"
+	re := regexp.MustCompile(`^(.+?)\s*\(([0-9.]+)/([0-9.]+)\)$`)
+	matches := re.FindStringSubmatch(label)
+	if matches != nil && len(matches) == 4 {
+		taskName := strings.TrimSpace(matches[1])
+		hoursUsed := matches[2]
+		totalHours := matches[3]
+		return fmt.Sprintf("%s\n  %s of %s hrs used", taskName, hoursUsed, totalHours)
+	}
+	return label
+}
+
+// formatTaskLabelShort formats a task label for compact display (single line)
+// Input: "Testing Scripts, Admin and meetings        (1890.01/2400.0)"
+// Output: "Testing Scripts, Admin... (1890/2400h)"
+func formatTaskLabelShort(label string, maxLen int) string {
+	re := regexp.MustCompile(`^(.+?)\s*\(([0-9.]+)/([0-9.]+)\)$`)
+	matches := re.FindStringSubmatch(label)
+	if matches != nil && len(matches) == 4 {
+		taskName := strings.TrimSpace(matches[1])
+		hoursUsed := matches[2]
+		totalHours := matches[3]
+
+		// Truncate hours to integers for compact display
+		hoursUsedShort := strings.Split(hoursUsed, ".")[0]
+		totalHoursShort := strings.Split(totalHours, ".")[0]
+
+		suffix := fmt.Sprintf(" (%s/%sh)", hoursUsedShort, totalHoursShort)
+		availableLen := maxLen - len(suffix)
+
+		if len(taskName) > availableLen && availableLen > 3 {
+			taskName = taskName[:availableLen-3] + "..."
+		}
+
+		return taskName + suffix
+	}
+	return label
+}
 
 // tuiDebugLog is defined in debug_dev.go or debug_release.go
 
@@ -93,7 +139,7 @@ func NewTimesheetCreator(apiClient *api.Client, username string) *TimesheetCreat
 	// Description input
 	description := textinput.New()
 	description.Placeholder = "What are you working on?"
-	description.CharLimit = 200
+	description.CharLimit = 2000  // Allow longer descriptions for commit messages
 	description.Width = 50
 
 	// Date input
@@ -160,6 +206,13 @@ func (t *TimesheetCreator) Update(msg tea.Msg) (*TimesheetCreator, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return t, tea.Quit
+
+		case "ctrl+g":
+			// Add commits to description (only when project is selected and times are set)
+			if t.selectedProject != nil && t.startTimeInput.Value() != "" {
+				return t, t.fetchCommitsForDescription()
+			}
+			return t, nil
 
 		case "esc":
 			// Close popover or go back
@@ -271,6 +324,24 @@ func (t *TimesheetCreator) Update(msg tea.Msg) (*TimesheetCreator, tea.Cmd) {
 	case timesheetSubmitErrorMsg:
 		t.isSubmitting = false
 		t.err = msg.err
+
+	case timesheetCommitsLoadedMsg:
+		if msg.noCommitsFound {
+			t.err = fmt.Errorf("no commits found in the specified time range")
+		} else {
+			// Append commits to description
+			current := t.descriptionInput.Value()
+			if current != "" {
+				current += " | "
+			}
+			// Truncate if necessary (textinput has char limit of 2000)
+			newDesc := current + msg.commits
+			if len(newDesc) > 2000 {
+				newDesc = newDesc[:1997] + "..."
+			}
+			t.descriptionInput.SetValue(newDesc)
+			t.err = nil
+		}
 
 	case errorMsg:
 		t.err = error(msg)
@@ -463,7 +534,8 @@ func (t *TimesheetCreator) renderForm() string {
 	}
 	var taskValue string
 	if t.selectedTask != nil {
-		taskValue = selectedValueStyle.Render("✓ " + t.selectedTask.Label)
+		// Format task label to show budget info nicely
+		taskValue = selectedValueStyle.Render("✓ " + formatTaskLabel(t.selectedTask.Label))
 	} else if t.selectedProject == nil {
 		taskValue = unselectedValueStyle.Render("Select project first")
 	} else if t.showTaskPopover {
@@ -476,7 +548,7 @@ func (t *TimesheetCreator) renderForm() string {
 
 	// Task popover
 	if t.showTaskPopover && len(t.tasks) > 0 {
-		popover := t.renderPopover(t.tasks, func(i int) string { return t.tasks[i].Label })
+		popover := t.renderPopover(t.tasks, func(i int) string { return formatTaskLabel(t.tasks[i].Label) })
 		rows = append(rows, popover)
 	}
 
@@ -670,7 +742,7 @@ func (t *TimesheetCreator) renderHelp() string {
 		return helpStyle.Render("↑/↓: Navigate • Enter: Select • Esc: Close • Tab: Next field")
 	}
 
-	return helpStyle.Render("Tab: Next field • Shift+Tab: Previous • Enter: Select/Submit • Esc: Back to menu")
+	return helpStyle.Render("Tab: Next • Shift+Tab: Prev • Enter: Select/Submit • Ctrl+G: Add Commits • Esc: Back")
 }
 
 // Field navigation
@@ -1104,4 +1176,99 @@ type timesheetSubmitSuccessMsg struct {
 
 type timesheetSubmitErrorMsg struct {
 	err error
+}
+
+type timesheetCommitsLoadedMsg struct {
+	commits        string
+	noCommitsFound bool
+}
+
+// fetchCommitsForDescription fetches git commits for the selected project and time range
+func (t *TimesheetCreator) fetchCommitsForDescription() tea.Cmd {
+	return func() tea.Msg {
+		if t.selectedProject == nil {
+			return timesheetCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		// Parse times
+		dateStr := t.dateInput.Value()
+		startTimeStr := t.startTimeInput.Value()
+		endTimeStr := t.endTimeInput.Value()
+
+		var startTime, endTime time.Time
+		var err error
+
+		if startTimeStr != "" {
+			startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
+			startTime, err = time.Parse("2006-01-02 15:04", startStr)
+			if err != nil {
+				return timesheetCommitsLoadedMsg{noCommitsFound: true}
+			}
+		} else {
+			return timesheetCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		if endTimeStr != "" {
+			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
+			endTime, err = time.Parse("2006-01-02 15:04", endStr)
+			if err != nil {
+				endTime = time.Now()
+			}
+		} else {
+			endTime = time.Now()
+		}
+
+		// Load code repo associations
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			tuiDebugLog.Printf("fetchCommitsForDescription: failed to load config: %v", err)
+			return timesheetCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		store, err := storage.New(cfg.GetStorageDir())
+		if err != nil {
+			tuiDebugLog.Printf("fetchCommitsForDescription: failed to create storage: %v", err)
+			return timesheetCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		associations, err := store.LoadCodeRepoAssociations()
+		if err != nil {
+			tuiDebugLog.Printf("fetchCommitsForDescription: failed to load code repo associations: %v", err)
+			return timesheetCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		// Find association for this project
+		assoc := associations.GetAssociationByProject(t.selectedProject.ID)
+		if assoc == nil || !assoc.HasAssociation() {
+			tuiDebugLog.Printf("fetchCommitsForDescription: no repo linked to project %d", t.selectedProject.ID)
+			return timesheetCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		// Check if this is a local path or a GitHub URL
+		repoURL := assoc.RepoURL
+		if api.IsLocalPath(repoURL) {
+			// Local git repository
+			repoPath := api.ExpandPath(repoURL)
+			if !api.IsGitRepository(repoPath) {
+				return timesheetCommitsLoadedMsg{noCommitsFound: true}
+			}
+
+			localGitClient := api.NewLocalGitClient()
+			commits, err := localGitClient.GetCommitsInTimeRange(repoPath, startTime, endTime, "")
+			if err != nil || len(commits) == 0 {
+				return timesheetCommitsLoadedMsg{noCommitsFound: true}
+			}
+
+			return timesheetCommitsLoadedMsg{commits: api.FormatLocalCommitsAsDescription(commits)}
+		}
+
+		// GitHub repository
+		githubClient := api.NewGitHubClient(cfg.GetGitHubToken())
+		commits, err := githubClient.GetCommitsInTimeRange(assoc.RepoOwner, assoc.RepoName, startTime, endTime, "")
+		if err != nil || len(commits) == 0 {
+			return timesheetCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		return timesheetCommitsLoadedMsg{commits: api.FormatCommitsAsDescription(commits)}
+	}
 }

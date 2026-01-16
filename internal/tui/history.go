@@ -76,7 +76,7 @@ func NewHistoryView(apiClient *api.Client, username string) *HistoryView {
 	// Initialize edit fields
 	descInput := textinput.New()
 	descInput.Placeholder = "Description..."
-	descInput.CharLimit = 500
+	descInput.CharLimit = 2000  // Allow longer descriptions for commit messages
 	descInput.Width = 50
 
 	dateInput := textinput.New()
@@ -246,6 +246,24 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		h.confirmSubmit = false
 		h.err = msg.err
 
+	case historyCommitsLoadedMsg:
+		if msg.noCommitsFound {
+			h.editError = "No commits found in the entry's time range"
+		} else {
+			// Append commits to description
+			current := h.editFields.description.Value()
+			if current != "" {
+				current += " | "
+			}
+			// Truncate if necessary (textinput has char limit of 2000)
+			newDesc := current + msg.commits
+			if len(newDesc) > 2000 {
+				newDesc = newDesc[:1997] + "..."
+			}
+			h.editFields.description.SetValue(newDesc)
+			h.editError = ""
+		}
+
 	case errorMsg:
 		h.loading = false
 		h.err = error(msg)
@@ -376,6 +394,12 @@ func (h *HistoryView) updateEditMode(msg tea.KeyMsg) (*HistoryView, tea.Cmd) {
 		h.mode = HistoryDetailMode
 		h.editError = ""
 		h.editSuccess = ""
+
+	case "ctrl+g":
+		// Add commits to description
+		if h.selectedEntry != nil {
+			return h, h.fetchCommitsForEntry()
+		}
 
 	case "tab", "down":
 		// Move to next field
@@ -863,8 +887,8 @@ func (h *HistoryView) renderDetailView() string {
 		highlightStyle.Render(entry.ProjectName),
 	))
 
-	// Task
-	taskName := entry.TaskName
+	// Task - parse to separate name from budget info
+	taskName, hoursUsed, totalHours, hasBudget := ParseTaskLabelParts(entry.TaskName)
 	if taskName == "" {
 		taskName = "(no task)"
 	}
@@ -873,6 +897,18 @@ func (h *HistoryView) renderDetailView() string {
 		"  ",
 		valueStyle.Render(taskName),
 	))
+
+	// Task Budget (if available)
+	if hasBudget {
+		budgetStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Italic(true)
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
+			labelStyle.Render("Task Budget:"),
+			"  ",
+			budgetStyle.Render(fmt.Sprintf("%s of %s hrs used", hoursUsed, totalHours)),
+		))
+	}
 
 	// Activity
 	rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
@@ -1033,16 +1069,28 @@ func (h *HistoryView) renderEditView() string {
 		infoStyle.Render(entry.ProjectName),
 	))
 
-	// Task (read-only)
-	taskName := entry.TaskName
-	if taskName == "" {
-		taskName = "(no task)"
+	// Task (read-only) - parse to separate name from budget info
+	editTaskName, editHoursUsed, editTotalHours, editHasBudget := ParseTaskLabelParts(entry.TaskName)
+	if editTaskName == "" {
+		editTaskName = "(no task)"
 	}
 	rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
 		labelStyle.Render("Task:"),
 		"  ",
-		infoStyle.Render(taskName),
+		infoStyle.Render(editTaskName),
 	))
+
+	// Task Budget (if available, read-only)
+	if editHasBudget {
+		budgetStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Italic(true)
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
+			labelStyle.Render("Task Budget:"),
+			"  ",
+			budgetStyle.Render(fmt.Sprintf("%s of %s hrs used", editHoursUsed, editTotalHours)),
+		))
+	}
 
 	// Activity (read-only)
 	rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top,
@@ -1151,7 +1199,7 @@ func (h *HistoryView) renderEditView() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		centeredMain,
-		helpFooter.Render(helpStyle.Render("Tab: Next field • Ctrl+S/Enter: Save • Esc: Cancel")),
+		helpFooter.Render(helpStyle.Render("Tab: Next • Ctrl+S: Save • Ctrl+G: Add Commits • Esc: Cancel")),
 	)
 }
 
@@ -1523,4 +1571,98 @@ type historySubmitErrorMsg struct {
 type backToMenuWithHoursMsg struct {
 	monthlyHours float64
 	todayHours   float64
+}
+
+// historyCommitsLoadedMsg is sent when commits have been fetched for the history edit
+type historyCommitsLoadedMsg struct {
+	commits        string
+	noCommitsFound bool
+}
+
+// fetchCommitsForEntry fetches git commits for the selected entry's project and time range
+func (h *HistoryView) fetchCommitsForEntry() tea.Cmd {
+	return func() tea.Msg {
+		if h.selectedEntry == nil {
+			return historyCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		// Get times from the entry (or from edit fields if in edit mode)
+		startTime := h.selectedEntry.StartTime()
+		endTime := h.selectedEntry.EndTime()
+		if endTime.IsZero() {
+			endTime = time.Now()
+		}
+
+		// If we're in edit mode, use the times from the edit fields
+		if h.mode == HistoryEditMode {
+			dateStr := h.editFields.date.Value()
+			startTimeStr := h.editFields.startTime.Value()
+			endTimeStr := h.editFields.endTime.Value()
+
+			if startTimeStr != "" {
+				startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
+				if parsed, err := time.Parse("2006-01-02 15:04", startStr); err == nil {
+					startTime = parsed
+				}
+			}
+
+			if endTimeStr != "" {
+				endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
+				if parsed, err := time.Parse("2006-01-02 15:04", endStr); err == nil {
+					endTime = parsed
+				}
+			} else {
+				endTime = time.Now()
+			}
+		}
+
+		// Load code repo associations
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return historyCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		store, err := storage.New(cfg.GetStorageDir())
+		if err != nil {
+			return historyCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		associations, err := store.LoadCodeRepoAssociations()
+		if err != nil {
+			return historyCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		// Find association for this project
+		assoc := associations.GetAssociationByProject(h.selectedEntry.ProjectID)
+		if assoc == nil || !assoc.HasAssociation() {
+			return historyCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		// Check if this is a local path or a GitHub URL
+		repoURL := assoc.RepoURL
+		if api.IsLocalPath(repoURL) {
+			// Local git repository
+			repoPath := api.ExpandPath(repoURL)
+			if !api.IsGitRepository(repoPath) {
+				return historyCommitsLoadedMsg{noCommitsFound: true}
+			}
+
+			localGitClient := api.NewLocalGitClient()
+			commits, err := localGitClient.GetCommitsInTimeRange(repoPath, startTime, endTime, "")
+			if err != nil || len(commits) == 0 {
+				return historyCommitsLoadedMsg{noCommitsFound: true}
+			}
+
+			return historyCommitsLoadedMsg{commits: api.FormatLocalCommitsAsDescription(commits)}
+		}
+
+		// GitHub repository
+		githubClient := api.NewGitHubClient(cfg.GetGitHubToken())
+		commits, err := githubClient.GetCommitsInTimeRange(assoc.RepoOwner, assoc.RepoName, startTime, endTime, "")
+		if err != nil || len(commits) == 0 {
+			return historyCommitsLoadedMsg{noCommitsFound: true}
+		}
+
+		return historyCommitsLoadedMsg{commits: api.FormatCommitsAsDescription(commits)}
+	}
 }

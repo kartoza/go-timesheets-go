@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
+	"github.com/kartoza/go-timesheets-go/internal/pow"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 )
 
@@ -53,7 +55,10 @@ type MainMenuModel struct {
 	// Stop timer confirmation dialog state
 	confirmStopTimer          bool
 	stopTimerDescription      textarea.Model
-	stopTimerConfirmSelection int // 0 = Save, 1 = Cancel
+	stopTimerConfirmSelection int // 0 = Save, 1 = Add Commits, 2 = Cancel
+
+	// POW (Proof of Work) capturer for screenshot capture during timer sessions
+	powCapturer *pow.Capturer
 }
 
 type menuItem struct {
@@ -63,7 +68,8 @@ type menuItem struct {
 }
 
 // NewMainMenu creates a new main menu
-func NewMainMenu(apiClient *api.Client, username string) *MainMenuModel {
+// powCapturer can be nil if POW mode is not enabled
+func NewMainMenu(apiClient *api.Client, username string, powCapturer *pow.Capturer) *MainMenuModel {
 	return &MainMenuModel{
 		apiClient:    apiClient,
 		username:     username,
@@ -71,6 +77,7 @@ func NewMainMenu(apiClient *api.Client, username string) *MainMenuModel {
 		width:        80,
 		height:       24,
 		dashboard:    NewTimerDashboard(),
+		powCapturer:  powCapturer,
 	}
 }
 
@@ -104,23 +111,28 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "left", "h":
 				if !m.stopTimerDescription.Focused() {
-					m.stopTimerConfirmSelection = 0 // Save
+					if m.stopTimerConfirmSelection > 0 {
+						m.stopTimerConfirmSelection--
+					}
 				}
 				return m, nil
 			case "right", "l":
 				if !m.stopTimerDescription.Focused() {
-					m.stopTimerConfirmSelection = 1 // Cancel
+					if m.stopTimerConfirmSelection < 2 {
+						m.stopTimerConfirmSelection++
+					}
 				}
 				return m, nil
 			case "enter":
 				if !m.stopTimerDescription.Focused() {
-					if m.stopTimerConfirmSelection == 0 {
-						// Save - stop timer with the description
+					switch m.stopTimerConfirmSelection {
+					case 0: // Save
 						description := m.stopTimerDescription.Value()
 						m.confirmStopTimer = false
 						return m, m.performStopTimerWithDescription(description)
-					} else {
-						// Cancel - don't stop timer
+					case 1: // Add Commits
+						return m, m.appendCommitsToDescription()
+					case 2: // Cancel
 						m.confirmStopTimer = false
 						return m, nil
 					}
@@ -134,6 +146,9 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				description := m.stopTimerDescription.Value()
 				m.confirmStopTimer = false
 				return m, m.performStopTimerWithDescription(description)
+			case "ctrl+g":
+				// Quick add commits shortcut
+				return m, m.appendCommitsToDescription()
 			}
 			// Pass key events to textarea if focused
 			if m.stopTimerDescription.Focused() {
@@ -202,6 +217,7 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case activeTimerLoadedMsg:
+		previousTimer := m.activeTimer
 		m.activeTimer = msg.timer
 		m.updateMenuItems()
 		m.updateDashboard()
@@ -211,6 +227,18 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Start blink ticker if timer is active (for UI updates, no API calls)
 		if m.activeTimer != nil {
+			// Start POW session if timer just became active (wasn't active before)
+			if previousTimer == nil && m.powCapturer != nil && m.powCapturer.IsEnabled() {
+				if err := m.powCapturer.StartSession(
+					m.activeTimer.ID,
+					m.activeTimer.ProjectName,
+					m.activeTimer.TaskName,
+				); err != nil {
+					menuDebugLog.Printf("Failed to start POW session: %v", err)
+				} else {
+					menuDebugLog.Printf("POW session started for timer %d", m.activeTimer.ID)
+				}
+			}
 			return m, m.startBlinkTicker()
 		}
 		return m, nil
@@ -255,6 +283,21 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stopTimerDescription = ta
 
 		return m, m.stopTimerDescription.Focus()
+
+	case commitsAppendedMsg:
+		if msg.noCommitsFound {
+			m.err = fmt.Errorf("no commits found in the timer's time range")
+		} else {
+			// Append commits to the current description
+			current := m.stopTimerDescription.Value()
+			if current != "" {
+				current += "\n\n"
+			}
+			current += msg.commits
+			m.stopTimerDescription.SetValue(current)
+			m.err = nil
+		}
+		return m, nil
 
 	case errorMsg:
 		m.err = error(msg)
@@ -397,9 +440,9 @@ func (m *MainMenuModel) renderHelp() string {
 
 	if m.confirmStopTimer {
 		if m.stopTimerDescription.Focused() {
-			return helpStyle.Render("Tab: Focus buttons • Ctrl+S: Save • Esc: Cancel")
+			return helpStyle.Render("Tab: Focus buttons • Ctrl+S: Save • Ctrl+G: Add Commits • Esc: Cancel")
 		}
-		return helpStyle.Render("Tab: Edit description • ←/→: Select • Enter: Confirm • Esc: Cancel")
+		return helpStyle.Render("Tab: Edit • ←/→: Select • Enter: Confirm • Ctrl+G: Add Commits • Esc: Cancel")
 	}
 
 	if m.confirmLogout {
@@ -587,38 +630,27 @@ func (m *MainMenuModel) loadHoursData() tea.Cmd {
 }
 
 // stopActiveTimer stops the currently active timer using PUT to update with end_time
-// If the timer has no description and the project has a linked GitHub repo,
-// it will fetch commit messages from that repo during the timer's timespan
-// and show a confirmation dialog with the description for user to review/edit
+// Always shows a confirmation dialog where the user can review/edit the description
+// and optionally fetch commit messages from a linked repository
 func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 	if m.activeTimer == nil {
 		return nil
 	}
 
 	return func() tea.Msg {
-		// Check if description is empty
-		hasDescription := m.activeTimer.Description != nil && *m.activeTimer.Description != ""
-
-		var newDescription string
-
-		// If no description, try to get commits from linked repo
-		if !hasDescription {
-			newDescription = m.fetchGitHubCommitsForTimer()
+		// Get existing description or empty string
+		existingDescription := ""
+		if m.activeTimer.Description != nil {
+			existingDescription = *m.activeTimer.Description
 		}
 
-		// If we have an auto-generated description, show confirmation dialog
-		// Otherwise, stop immediately
-		if newDescription != "" {
-			return stopTimerDescriptionReadyMsg{description: newDescription}
+		// If no description, try to auto-generate from commits
+		if existingDescription == "" {
+			existingDescription = m.fetchGitHubCommitsForTimer()
 		}
 
-		// No auto-generated description, stop immediately
-		err := m.apiClient.StopTimesheet(m.activeTimer)
-		if err != nil {
-			return errorMsg(err)
-		}
-
-		return timerStoppedMsg{}
+		// Always show confirmation dialog for user to review/edit
+		return stopTimerDescriptionReadyMsg{description: existingDescription}
 	}
 }
 
@@ -636,7 +668,29 @@ func (m *MainMenuModel) performStopTimerWithDescription(description string) tea.
 			return errorMsg(err)
 		}
 
+		// Stop POW session and generate video
+		if m.powCapturer != nil && m.powCapturer.IsEnabled() {
+			videoPath, err := m.powCapturer.StopSession()
+			if err != nil {
+				menuDebugLog.Printf("Failed to stop POW session: %v", err)
+			} else if videoPath != "" {
+				menuDebugLog.Printf("POW video created: %s", videoPath)
+			}
+		}
+
 		return timerStoppedMsg{}
+	}
+}
+
+// appendCommitsToDescription fetches commits and appends them to the current description
+func (m *MainMenuModel) appendCommitsToDescription() tea.Cmd {
+	return func() tea.Msg {
+		commits := m.fetchGitHubCommitsForTimer()
+		if commits == "" {
+			// No commits found, return message to show info
+			return commitsAppendedMsg{noCommitsFound: true}
+		}
+		return commitsAppendedMsg{commits: commits}
 	}
 }
 
@@ -874,7 +928,7 @@ func (m *MainMenuModel) renderStopTimerConfirmation() string {
 		Foreground(lipgloss.Color("#569FC6")).
 		Bold(true)
 
-	buttonSaveStyle := lipgloss.NewStyle().
+	buttonStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Background(lipgloss.Color("#9A9EA0")).
 		Padding(0, 2).
@@ -887,9 +941,10 @@ func (m *MainMenuModel) renderStopTimerConfirmation() string {
 		Padding(0, 2).
 		Margin(0, 1)
 
-	buttonCancelStyle := lipgloss.NewStyle().
+	buttonAddCommitsSelectedStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#9A9EA0")).
+		Background(lipgloss.Color("#3498DB")).
+		Bold(true).
 		Padding(0, 2).
 		Margin(0, 1)
 
@@ -901,23 +956,30 @@ func (m *MainMenuModel) renderStopTimerConfirmation() string {
 		Margin(0, 1)
 
 	title := titleStyle.Render("Stop Timer - Review Description")
-	message := messageStyle.Render("Commits found during this session. Review and edit the description below:")
+	message := messageStyle.Render("Review and edit the description. Use 'Add Commits' to fetch git commits:")
 	label := labelStyle.Render("Description:")
 
 	// Render textarea
 	textareaContent := m.stopTimerDescription.View()
 
-	// Render buttons
-	var saveButton, cancelButton string
-	if m.stopTimerConfirmSelection == 0 {
+	// Render buttons - 0 = Save, 1 = Add Commits, 2 = Cancel
+	var saveButton, addCommitsButton, cancelButton string
+	switch m.stopTimerConfirmSelection {
+	case 0:
 		saveButton = buttonSaveSelectedStyle.Render("Save & Stop")
-		cancelButton = buttonCancelStyle.Render("Cancel")
-	} else {
-		saveButton = buttonSaveStyle.Render("Save & Stop")
+		addCommitsButton = buttonStyle.Render("Add Commits")
+		cancelButton = buttonStyle.Render("Cancel")
+	case 1:
+		saveButton = buttonStyle.Render("Save & Stop")
+		addCommitsButton = buttonAddCommitsSelectedStyle.Render("Add Commits")
+		cancelButton = buttonStyle.Render("Cancel")
+	case 2:
+		saveButton = buttonStyle.Render("Save & Stop")
+		addCommitsButton = buttonStyle.Render("Add Commits")
 		cancelButton = buttonCancelSelectedStyle.Render("Cancel")
 	}
 
-	buttons := lipgloss.JoinHorizontal(lipgloss.Center, saveButton, cancelButton)
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, saveButton, addCommitsButton, cancelButton)
 	buttonsAligned := lipgloss.NewStyle().
 		Align(lipgloss.Center).
 		Width(60).
@@ -1017,4 +1079,10 @@ type stopTimerDescriptionReadyMsg struct {
 // confirmStopTimerMsg is sent when the user confirms stopping the timer
 type confirmStopTimerMsg struct {
 	description string
+}
+
+// commitsAppendedMsg is sent when commits have been fetched for appending
+type commitsAppendedMsg struct {
+	commits       string
+	noCommitsFound bool
 }

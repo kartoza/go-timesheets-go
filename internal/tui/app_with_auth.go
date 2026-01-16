@@ -14,6 +14,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/monitoring"
+	"github.com/kartoza/go-timesheets-go/internal/pow"
 )
 
 // AppState represents the application state
@@ -45,10 +46,12 @@ type AppWithAuth struct {
 	spinner            spinner.Model
 	monitoringServer   *monitoring.Server
 	metrics            *monitoring.Metrics
+	powCapturer        *pow.Capturer
 }
 
 // NewAppWithAuth creates a new app with authentication
-func NewAppWithAuth() (*AppWithAuth, error) {
+// powCapturer can be nil if POW mode is not enabled
+func NewAppWithAuth(powCapturer *pow.Capturer) (*AppWithAuth, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#DDA036"))
@@ -81,6 +84,7 @@ func NewAppWithAuth() (*AppWithAuth, error) {
 		spinner:          s,
 		monitoringServer: monitoringServer,
 		metrics:          metrics,
+		powCapturer:      powCapturer,
 	}
 
 	// Check if token exists
@@ -104,7 +108,7 @@ func NewAppWithAuth() (*AppWithAuth, error) {
 		app.username = token.Username
 
 		// Create main menu
-		mainMenu := NewMainMenu(apiClient, token.Username)
+		mainMenu := NewMainMenu(apiClient, token.Username, powCapturer)
 		app.mainMenu = mainMenu
 		app.state = StateMainMenu
 		return app, nil
@@ -282,7 +286,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.username = msg.Username
 
 		// Create main menu
-		mainMenu := NewMainMenu(apiClient, msg.Username)
+		mainMenu := NewMainMenu(apiClient, msg.Username, a.powCapturer)
 		a.mainMenu = mainMenu
 		a.state = StateMainMenu
 		return a, a.mainMenu.Init()

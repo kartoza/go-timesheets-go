@@ -607,3 +607,32 @@ func LayoutWithHeaderFooter(header, content, footer string, width, height int) s
 		footer,
 	)
 }
+
+// ParseTaskLabelParts extracts task name and budget info from a task label
+// Input: "Testing Scripts, Admin and meetings        (1890.01/2400.0)"
+// Returns: taskName, hoursUsed, totalHours, hasBudget
+func ParseTaskLabelParts(label string) (taskName string, hoursUsed string, totalHours string, hasBudget bool) {
+	// Match pattern: "Task Name (hours/budget)" or "Task Name        (hours/budget)"
+	idx := strings.LastIndex(label, "(")
+	if idx == -1 {
+		return label, "", "", false
+	}
+
+	// Check if it ends with closing paren and contains a slash
+	suffix := label[idx:]
+	if !strings.HasSuffix(suffix, ")") || !strings.Contains(suffix, "/") {
+		return label, "", "", false
+	}
+
+	// Extract task name (trim trailing spaces)
+	taskName = strings.TrimSpace(label[:idx])
+
+	// Extract hours info - remove parens
+	hoursInfo := suffix[1 : len(suffix)-1] // Remove ( and )
+	parts := strings.Split(hoursInfo, "/")
+	if len(parts) != 2 {
+		return label, "", "", false
+	}
+
+	return taskName, parts[0], parts[1], true
+}

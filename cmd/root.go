@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
+	"github.com/kartoza/go-timesheets-go/internal/pow"
 	"github.com/kartoza/go-timesheets-go/internal/service"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 	"github.com/kartoza/go-timesheets-go/internal/tui"
@@ -17,6 +18,7 @@ var (
 	dataDir   string
 	userID    string
 	debugMode bool
+	powMode   bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -32,13 +34,30 @@ Features:
 - Weekly and daily time reports with charts
 - Timesheet submission workflow
 - Integration with waybar for desktop notifications
-- Workspace automation support`,
+- Workspace automation support
+- Proof of Work screenshot capture (--pow flag)`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Set debug mode in TUI package (only effective in dev builds)
 		tui.SetDebugMode(debugMode)
 
+		// Configure POW mode if enabled
+		var powCapturer *pow.Capturer
+		if powMode {
+			cfg := pow.DefaultConfig()
+			cfg.Enabled = true
+			var err error
+			powCapturer, err = pow.New(cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to initialize POW capture: %v\n", err)
+			} else if powCapturer.IsEnabled() {
+				fmt.Fprintln(os.Stderr, "POW mode enabled - screenshots will be captured during timer sessions")
+			} else {
+				fmt.Fprintln(os.Stderr, "POW mode requested but disabled - missing screenshot tool or ffmpeg")
+			}
+		}
+
 		// Launch TUI application with authentication
-		app, err := tui.NewAppWithAuth()
+		app, err := tui.NewAppWithAuth(powCapturer)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
 			os.Exit(1)
@@ -69,6 +88,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dataDir, "data-dir", defaultDataDir, "Data directory for storing timesheet data")
 	rootCmd.PersistentFlags().StringVar(&userID, "user", "default-user", "User ID for timesheet entries")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "d", false, "Enable debug mode (shows developer menu options)")
+	rootCmd.PersistentFlags().BoolVarP(&powMode, "pow", "p", false, "Enable Proof of Work mode (capture screenshots during timer sessions)")
 }
 
 func initConfig() {

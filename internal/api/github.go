@@ -4,11 +4,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
+
+// githubDebugLog is used to log GitHub API calls
+var githubDebugLog *log.Logger
+
+func init() {
+	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		githubDebugLog = log.New(io.Discard, "", 0)
+	} else {
+		githubDebugLog = log.New(f, "GITHUB: ", log.LstdFlags|log.Lshortfile)
+	}
+}
 
 // GitHubCommit represents a commit from the GitHub API
 type GitHubCommit struct {
@@ -62,8 +76,20 @@ func (g *GitHubClient) GetCommitsInTimeRange(owner, repo string, since, until ti
 
 	fullURL := apiURL + "?" + params.Encode()
 
+	// Log the API call being made
+	githubDebugLog.Printf("Fetching commits from GitHub API")
+	githubDebugLog.Printf("  Repository: %s/%s", owner, repo)
+	githubDebugLog.Printf("  Time range: %s to %s", since.Format("2006-01-02 15:04:05"), until.Format("2006-01-02 15:04:05"))
+	githubDebugLog.Printf("  URL: %s", fullURL)
+	if g.token != "" {
+		githubDebugLog.Printf("  Auth: using token (redacted)")
+	} else {
+		githubDebugLog.Printf("  Auth: no token (public repos only)")
+	}
+
 	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
+		githubDebugLog.Printf("  Error: failed to create request: %v", err)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -77,22 +103,42 @@ func (g *GitHubClient) GetCommitsInTimeRange(owner, repo string, since, until ti
 
 	resp, err := g.httpClient.Do(req)
 	if err != nil {
+		githubDebugLog.Printf("  Error: failed to fetch commits: %v", err)
 		return nil, fmt.Errorf("failed to fetch commits: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
+		githubDebugLog.Printf("  Error: repository not found (status 404)")
 		return nil, fmt.Errorf("repository not found: %s/%s (may be private - configure GitHub token)", owner, repo)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		githubDebugLog.Printf("  Error: GitHub API error (status %d): %s", resp.StatusCode, string(bodyBytes))
 		return nil, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var commits []GitHubCommit
 	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+		githubDebugLog.Printf("  Error: failed to decode commits: %v", err)
 		return nil, fmt.Errorf("failed to decode commits: %w", err)
+	}
+
+	githubDebugLog.Printf("  Result: found %d commits", len(commits))
+	for i, commit := range commits {
+		shortSHA := commit.SHA
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
+		message := commit.Commit.Message
+		if idx := strings.Index(message, "\n"); idx != -1 {
+			message = message[:idx]
+		}
+		if len(message) > 60 {
+			message = message[:57] + "..."
+		}
+		githubDebugLog.Printf("    [%d] %s: %s (%s)", i+1, shortSHA, message, commit.Commit.Author.Name)
 	}
 
 	return commits, nil

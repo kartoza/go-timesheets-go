@@ -3,10 +3,25 @@ package api
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 )
+
+// gitDebugLog is used to log git commands being executed
+var gitDebugLog *log.Logger
+
+func init() {
+	f, err := os.OpenFile("/tmp/kartoza-timesheet-debug.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		gitDebugLog = log.New(io.Discard, "", 0)
+	} else {
+		gitDebugLog = log.New(f, "GIT: ", log.LstdFlags|log.Lshortfile)
+	}
+}
 
 // LocalGitCommit represents a commit from a local git repository
 type LocalGitCommit struct {
@@ -44,6 +59,11 @@ func (g *LocalGitClient) GetCommitsInTimeRange(repoPath string, since, until tim
 		args = append(args, "--author="+author)
 	}
 
+	// Log the command being executed
+	gitDebugLog.Printf("Executing: git %s", strings.Join(args, " "))
+	gitDebugLog.Printf("  Repository: %s", repoPath)
+	gitDebugLog.Printf("  Time range: %s to %s", since.Format("2006-01-02 15:04:05"), until.Format("2006-01-02 15:04:05"))
+
 	cmd := exec.Command("git", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -52,14 +72,17 @@ func (g *LocalGitClient) GetCommitsInTimeRange(repoPath string, since, until tim
 	if err := cmd.Run(); err != nil {
 		// Check if it's a git repository
 		if strings.Contains(stderr.String(), "not a git repository") {
+			gitDebugLog.Printf("  Error: not a git repository: %s", repoPath)
 			return nil, fmt.Errorf("not a git repository: %s", repoPath)
 		}
+		gitDebugLog.Printf("  Error: git log failed: %s (stderr: %s)", err, stderr.String())
 		return nil, fmt.Errorf("git log failed: %s (stderr: %s)", err, stderr.String())
 	}
 
 	// Parse output
 	output := strings.TrimSpace(stdout.String())
 	if output == "" {
+		gitDebugLog.Printf("  Result: no commits found in time range")
 		return nil, nil // No commits in range
 	}
 
@@ -84,6 +107,15 @@ func (g *LocalGitClient) GetCommitsInTimeRange(repoPath string, since, until tim
 			Date:    date,
 			Message: parts[3],
 		})
+	}
+
+	gitDebugLog.Printf("  Result: found %d commits", len(commits))
+	for i, commit := range commits {
+		shortSHA := commit.SHA
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
+		gitDebugLog.Printf("    [%d] %s: %s (%s)", i+1, shortSHA, commit.Message, commit.Author)
 	}
 
 	return commits, nil
