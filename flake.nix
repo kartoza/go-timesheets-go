@@ -9,7 +9,7 @@
   outputs = { self, nixpkgs, flake-utils }:
     let
       # Version - update this with each release
-      version = "0.3.0";
+      version = "0.3.1";
 
       # Helper function to build for a specific platform
       mkPackage = { pkgs, system, GOOS, GOARCH }:
