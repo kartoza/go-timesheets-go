@@ -797,3 +797,112 @@ Action Taken:
 - Now consistent with Kitty behavior
 
 Build verified successful.
+
+================================================================================
+
+Date: 2026-01-17
+Session: Waybar Widget and Test Suite
+
+Prompt:
+lets go over the subcommand list again. I want to keep all the ad hoc ones we have created thus far but I also have a few specific workflows that the subcommands need to support.
+
+My use case is to support having a waybar widget which has a status indicator showing me if I currently have a timesheet running, or not. If I hover over the widget I should see the key info of the current timers project, task, activity, associated repo and associated desktop (the last two being optional), when the timer was started, how many hours logged against that task and how many hours logged today.
+
+I want to avoid hitting the api and overloading our servers, so all of this information should ideally be gleaned from our local state caching and not calling out to the api.
+
+To accompany this, I would like you to patch the repo in /home/timlinux/dev/nix/nix-hyprland-desktop to add the widget to the left area of the waybar, to the right of the kartoza launcher button.
+
+I would also like to have a robust set of tests that happen on precommit to ensure that this application remains stable, and have those same tests run in ci on github to ensure that third party contributions do not break the code base or our code quality standards.
+
+After these piece of work is done, there will be another feature requirement to automate stopping and starting of timesheets contextually based on which desktop you are on, but I will explain more what needs to be done then
+
+Action Taken:
+
+**1. Status Command Rewritten for Local Cache Only:**
+- Completely rewrote cmd/status.go to use only local cached data
+- No API calls - reads from timelog_cache.json, workspace_associations.json, code_repo_associations.json
+- StatusInfo struct tracks: IsRecording, ProjectID/Name, TaskID/Name, ActivityName, StartTime, CurrentDuration, TaskHours, DailyHours, RepoName, WorkspaceName/Number
+
+**2. Enhanced Waybar Tooltip Information:**
+When recording, tooltip now shows:
+- Project, Task, Activity
+- Associated Repository (if configured via Code Repos menu)
+- Associated Desktop/Workspace (if configured via Workspace Associations menu)
+- Timer start time
+- Current session duration
+- Total task hours
+- Today's total hours
+
+**3. Waybar Widget Added to nix-hyprland-desktop:**
+Created: /home/timlinux/dev/nix/nix-hyprland-desktop/dotfiles/waybar/config.d/90-custom-timesheet.json
+- exec: kartoza-timesheet status
+- return-type: json
+- interval: 5 seconds
+- on-click: kitty kartoza-timesheet
+
+Updated: 00-base-hyprland.json
+- Added custom/timesheet to modules-left, right after custom/launcher
+
+Updated: style.css
+- Added #custom-timesheet to base widget styling
+- Added hover effect
+- Added state-specific colors: .recording (red), .idle (gray), .error (orange)
+
+**4. Bug Fixes:**
+- Fixed enhanced_app.go format string error (%s -> %.2fh for float64)
+- Fixed start.go non-constant format strings (fmt.Errorf)
+
+**5. Comprehensive Test Suite Created:**
+
+internal/storage/storage_test.go (18 tests):
+- Storage creation
+- TimeEntry CRUD operations
+- Date range filtering
+- Project and Task CRUD
+- Activities with defaults
+- Active time entry management
+- Workspace associations
+- Code repo associations
+- Timelog cache operations
+
+internal/models/workspace_test.go (6 tests):
+- NewWorkspaceAssociations
+- GetAssociation boundary checks
+- SetAssociation
+- ClearAssociation (preserves name)
+- HasAssociation
+- GetDisplayString formats
+
+internal/models/code_repo_test.go (7 tests):
+- NewCodeRepoAssociations
+- GetAssociationByProject
+- GetAssociationByRepo
+- SetAssociation (add/update)
+- RemoveAssociation
+- HasAssociation
+- GetDisplayString
+
+cmd/status_test.go (4 tests):
+- formatDuration for various durations
+- isActiveEntry detection logic
+- findMatchingWorkspace with priorities
+- createWaybarStatusFromInfo for idle/recording states
+
+**6. Pre-commit Hook Updated:**
+- Added go-unit-tests to .pre-commit-config.yaml
+
+**7. CI Workflow Created:**
+Created: .github/workflows/ci.yml
+Jobs:
+- test: Runs go test with race detection and coverage
+- lint: Runs golangci-lint
+- build: Builds binary (depends on test+lint passing)
+- build-multi-platform: Cross-compiles for linux/darwin/windows on main branch
+
+All tests passing. Build verified successful.
+
+**Additional Change - Tests in Makefile:**
+- Updated Makefile so tests run as part of normal make process
+- `make all` (default) now runs: test, then build
+- `make build-all` now runs: test, then build, then static
+- `make install` now runs: test, then static, then install

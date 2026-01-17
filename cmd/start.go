@@ -113,7 +113,7 @@ It will refuse to start if there is already an active timer running.`,
 			}
 			if projectID == "" {
 				if jsonOutput {
-					outputError(cmd, "Project not found", fmt.Errorf(projectInput))
+					outputError(cmd, "Project not found", fmt.Errorf("%s", projectInput))
 				} else {
 					fmt.Fprintf(os.Stderr, "Project not found: %s\n", projectInput)
 					fmt.Fprintf(os.Stderr, "Available projects:\n")
@@ -139,7 +139,7 @@ It will refuse to start if there is already an active timer running.`,
 			}
 			if activityID == "" {
 				if jsonOutput {
-					outputError(cmd, "Activity not found", fmt.Errorf(activityInput))
+					outputError(cmd, "Activity not found", fmt.Errorf("%s", activityInput))
 				} else {
 					fmt.Fprintf(os.Stderr, "Activity not found: %s\n", activityInput)
 					fmt.Fprintf(os.Stderr, "Available activities:\n")
@@ -166,7 +166,7 @@ It will refuse to start if there is already an active timer running.`,
 				}
 				if taskID == nil {
 					if jsonOutput {
-						outputError(cmd, "Task not found", fmt.Errorf(taskInput))
+						outputError(cmd, "Task not found", fmt.Errorf("%s", taskInput))
 					} else {
 						fmt.Fprintf(os.Stderr, "Task not found: %s\n", taskInput)
 						fmt.Fprintf(os.Stderr, "Available tasks for project:\n")

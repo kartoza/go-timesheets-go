@@ -10,7 +10,7 @@ STATIC_LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
 # Default target
 .PHONY: all
-all: build
+all: test build
 
 # Build dynamic binary
 .PHONY: build
@@ -26,7 +26,7 @@ static:
 
 # Build both binaries
 .PHONY: build-all
-build-all: build static
+build-all: test build static
 
 # Clean build artifacts
 .PHONY: clean
@@ -67,7 +67,7 @@ check: fmt lint test
 
 # Install binary to system
 .PHONY: install
-install: static
+install: test static
 	@echo "Installing $(BINARY_STATIC) to /usr/local/bin/$(BINARY_NAME)..."
 	sudo cp $(BINARY_STATIC) /usr/local/bin/$(BINARY_NAME)
 

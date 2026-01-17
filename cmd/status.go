@@ -3,10 +3,15 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/kartoza/go-timesheets-go/internal/api"
+	"github.com/kartoza/go-timesheets-go/internal/models"
+	"github.com/kartoza/go-timesheets-go/internal/storage"
+	"github.com/spf13/cobra"
 )
 
 // statusCmd represents the status command for waybar integration
@@ -14,154 +19,271 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Get current timesheet status for waybar integration",
 	Long: `Returns JSON formatted status information suitable for waybar custom modules.
-	
+
+This command uses LOCAL CACHE ONLY and does not make API calls, making it safe
+to call frequently from waybar without overloading the server.
+
 The status includes:
 - Current tracking state (idle/recording)
-- Active project and task information
-- Elapsed time for current session
+- Active project, task, and activity information
+- Associated repository (if configured)
+- Associated workspace/desktop (if configured)
+- Timer start time
+- Hours logged against current task
 - Today's total hours
-	
+
 Example waybar configuration:
 {
     "custom/timesheet": {
         "exec": "kartoza-timesheet status",
         "return-type": "json",
         "interval": 5,
-        "on-click": "kartoza-timesheet"
+        "on-click": "kitty kartoza-timesheet"
     }
 }`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Use API client to fetch real-time status from server
-		client, err := getAPIClient()
-		if err != nil {
-			printErrorStatus(fmt.Sprintf("API client error: %v", err))
-			return
-		}
-
-		// Get active timesheet from API
-		activeEntry, err := client.GetActiveTimesheet()
-		if err != nil {
-			printErrorStatus(fmt.Sprintf("Failed to get active timesheet: %v", err))
-			return
-		}
-
-		// Get all timelogs to calculate today's total
-		timelogs, err := client.GetTimelogs()
-		if err != nil {
-			printErrorStatus(fmt.Sprintf("Failed to get timelogs: %v", err))
-			return
-		}
-
-		// Calculate today's total hours
-		now := time.Now()
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		var totalHours float64
-
-		for _, entry := range timelogs {
-			entryStart, err := entry.GetFromTimeAsTime()
-			if err != nil {
-				continue
-			}
-
-			// Only count entries from today
-			if entryStart.After(todayStart) || entryStart.Equal(todayStart) {
-				totalHours += entry.Duration()
-			}
-		}
-
-		// Calculate current session duration if active
-		var currentDuration time.Duration
-		if activeEntry != nil {
-			startTime, err := activeEntry.GetFromTimeAsTime()
-			if err == nil {
-				currentDuration = time.Since(startTime)
-			}
-		}
-
-		status := createWaybarStatus(activeEntry, currentDuration, totalHours)
-
-		jsonData, err := json.Marshal(status)
-		if err != nil {
-			printErrorStatus(fmt.Sprintf("JSON error: %v", err))
-			return
-		}
-
-		fmt.Println(string(jsonData))
+		runStatusCommand()
 	},
 }
 
 // WaybarStatus represents the status information for waybar
 type WaybarStatus struct {
-	Text     string `json:"text"`
-	Alt      string `json:"alt"`
-	Tooltip  string `json:"tooltip"`
-	Class    string `json:"class"`
-	Icon     string `json:"icon,omitempty"`
+	Text    string `json:"text"`
+	Alt     string `json:"alt"`
+	Tooltip string `json:"tooltip"`
+	Class   string `json:"class"`
 }
 
-func createWaybarStatus(activeEntry *api.TimelogEntry, currentDuration time.Duration, totalHours float64) WaybarStatus {
-	if activeEntry != nil {
-		// Recording state
-		elapsed := formatDuration(currentDuration)
+// StatusInfo holds all the information we gather from local cache
+type StatusInfo struct {
+	IsRecording     bool
+	ProjectID       int
+	ProjectName     string
+	TaskID          int
+	TaskName        string
+	ActivityName    string
+	StartTime       time.Time
+	CurrentDuration time.Duration
+	TaskHours       float64 // Total hours logged against this task
+	DailyHours      float64 // Total hours logged today
+	RepoName        string  // Associated repository (if any)
+	WorkspaceName   string  // Associated workspace/desktop name (if any)
+	WorkspaceNumber int     // Associated workspace number
+}
 
-		// Build detailed tooltip with project/task/activity information
-		tooltipLines := []string{"Recording time"}
+func runStatusCommand() {
+	// Initialize storage
+	homeDir, _ := os.UserHomeDir()
+	dataDir := filepath.Join(homeDir, ".config/.kartoza-timesheets")
+	store, err := storage.New(dataDir)
+	if err != nil {
+		printErrorStatus(fmt.Sprintf("Storage error: %v", err))
+		return
+	}
 
-		// Add project information
-		if activeEntry.ProjectName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("Project: %s", activeEntry.ProjectName))
-		}
+	info := StatusInfo{}
 
-		// Add task information
-		if activeEntry.TaskName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("Task: %s", activeEntry.TaskName))
-		}
+	// Load timelog cache for today's entries and task totals
+	cache, err := store.LoadTimelogCache()
+	if err != nil {
+		printErrorStatus(fmt.Sprintf("Cache error: %v", err))
+		return
+	}
 
-		// Add activity information
-		if activeEntry.ActivityType != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("Activity: %s", activeEntry.ActivityType))
-		}
+	// Find active entry and calculate totals from cache
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-		// Add timing information
-		tooltipLines = append(tooltipLines, fmt.Sprintf("Current session: %s", elapsed))
-		tooltipLines = append(tooltipLines, fmt.Sprintf("Today's total: %.2fh", totalHours))
+	if cache != nil {
+		for _, entry := range cache.Entries {
+			// Check if this is an active entry (to_time is empty or matches from_time)
+			if isActiveEntry(&entry) {
+				info.IsRecording = true
+				info.ProjectID = entry.ProjectID
+				info.ProjectName = entry.ProjectName
+				info.TaskID = entry.TaskID.Value
+				info.TaskName = entry.TaskName
+				info.ActivityName = entry.ActivityType
 
-		tooltip := ""
-		for i, line := range tooltipLines {
-			if i > 0 {
-				tooltip += "\n"
+				startTime, err := entry.GetFromTimeAsTime()
+				if err == nil {
+					info.StartTime = startTime
+					info.CurrentDuration = time.Since(startTime)
+				}
 			}
-			tooltip += line
+
+			// Calculate task hours (entries with same task ID)
+			if info.TaskID > 0 && entry.TaskID.Value == info.TaskID {
+				info.TaskHours += entry.Duration()
+			}
+
+			// Calculate today's total hours
+			entryStart, err := entry.GetFromTimeAsTime()
+			if err == nil {
+				if entryStart.After(todayStart) || entryStart.Equal(todayStart) {
+					info.DailyHours += entry.Duration()
+				}
+			}
 		}
+	}
+
+	// If we found an active entry, add the current session duration to totals
+	if info.IsRecording && info.CurrentDuration > 0 {
+		currentHours := info.CurrentDuration.Hours()
+		info.TaskHours += currentHours
+		// Only add to daily if the entry started today
+		if info.StartTime.After(todayStart) || info.StartTime.Equal(todayStart) {
+			info.DailyHours += currentHours
+		}
+	}
+
+	// Load code repo associations to find associated repository
+	if info.ProjectID > 0 {
+		repoAssocs, err := store.LoadCodeRepoAssociations()
+		if err == nil && repoAssocs != nil {
+			if assoc := repoAssocs.GetAssociationByProject(info.ProjectID); assoc != nil {
+				info.RepoName = assoc.GetDisplayString()
+			}
+		}
+	}
+
+	// Load workspace associations to find associated desktop
+	wsAssocs, err := store.LoadWorkspaceAssociations()
+	if err == nil && wsAssocs != nil {
+		info.WorkspaceName, info.WorkspaceNumber = findMatchingWorkspace(wsAssocs, info.ProjectID, info.TaskID)
+	}
+
+	status := createWaybarStatusFromInfo(info)
+
+	jsonData, err := json.Marshal(status)
+	if err != nil {
+		printErrorStatus(fmt.Sprintf("JSON error: %v", err))
+		return
+	}
+
+	fmt.Println(string(jsonData))
+}
+
+// isActiveEntry checks if a timelog entry is currently active
+func isActiveEntry(entry *api.TimelogEntry) bool {
+	// An entry is active if to_time is empty or equals from_time
+	if entry.ToTime == "" {
+		return true
+	}
+	// Also check if from and to times are the same (sometimes indicates running)
+	return entry.ToTime == entry.FromTime
+}
+
+// findMatchingWorkspace finds a workspace that matches the current project/task
+func findMatchingWorkspace(assocs *models.WorkspaceAssociations, projectID, taskID int) (string, int) {
+	if assocs == nil {
+		return "", 0
+	}
+
+	for _, assoc := range assocs.Associations {
+		if assoc.ProjectID == projectID {
+			// If we have a task, try to match that too
+			if taskID > 0 && assoc.TaskID > 0 {
+				if assoc.TaskID == taskID {
+					return assoc.WorkspaceName, assoc.WorkspaceNumber
+				}
+			} else if assoc.TaskID == 0 {
+				// Project-only match
+				return assoc.WorkspaceName, assoc.WorkspaceNumber
+			}
+		}
+	}
+
+	return "", 0
+}
+
+func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {
+	if info.IsRecording {
+		// Recording state
+		elapsed := formatDuration(info.CurrentDuration)
+
+		// Build detailed tooltip with all information
+		var tooltipLines []string
+		tooltipLines = append(tooltipLines, "⏱️ Recording time")
+		tooltipLines = append(tooltipLines, "")
+
+		// Project information
+		if info.ProjectName != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("📁 Project: %s", info.ProjectName))
+		}
+
+		// Task information
+		if info.TaskName != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("📋 Task: %s", info.TaskName))
+		}
+
+		// Activity information
+		if info.ActivityName != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("🔧 Activity: %s", info.ActivityName))
+		}
+
+		// Repository information (optional)
+		if info.RepoName != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("🔗 Repo: %s", info.RepoName))
+		}
+
+		// Workspace/desktop information (optional)
+		if info.WorkspaceName != "" {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("🖥️ Desktop: %s (#%d)", info.WorkspaceName, info.WorkspaceNumber))
+		} else if info.WorkspaceNumber > 0 {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("🖥️ Desktop: #%d", info.WorkspaceNumber))
+		}
+
+		tooltipLines = append(tooltipLines, "")
+
+		// Timer start time
+		tooltipLines = append(tooltipLines, fmt.Sprintf("🕐 Started: %s", info.StartTime.Format("15:04")))
+
+		// Current session duration
+		tooltipLines = append(tooltipLines, fmt.Sprintf("⏱️ Session: %s", elapsed))
+
+		// Task hours
+		if info.TaskHours > 0 {
+			tooltipLines = append(tooltipLines, fmt.Sprintf("📊 Task total: %.2fh", info.TaskHours))
+		}
+
+		// Today's total
+		tooltipLines = append(tooltipLines, fmt.Sprintf("📅 Today: %.2fh", info.DailyHours))
+
+		tooltip := strings.Join(tooltipLines, "\n")
 
 		return WaybarStatus{
-			Text:    fmt.Sprintf("🔴 %s", elapsed),
+			Text:    fmt.Sprintf("⏱️ %s", elapsed),
 			Alt:     "recording",
 			Tooltip: tooltip,
 			Class:   "recording",
-			Icon:    "🔴",
 		}
 	}
 
 	// Idle state
+	var tooltipLines []string
+	tooltipLines = append(tooltipLines, "⏸️ Timesheet idle")
+	tooltipLines = append(tooltipLines, "")
+	tooltipLines = append(tooltipLines, fmt.Sprintf("📅 Today's total: %.2fh", info.DailyHours))
+	tooltipLines = append(tooltipLines, "")
+	tooltipLines = append(tooltipLines, "Click to start tracking")
+
 	return WaybarStatus{
-		Text:    fmt.Sprintf("⏸️ %.1fh", totalHours),
+		Text:    fmt.Sprintf("⏸️ %.1fh", info.DailyHours),
 		Alt:     "idle",
-		Tooltip: fmt.Sprintf("Timesheet idle\nToday's total: %.2fh", totalHours),
+		Tooltip: strings.Join(tooltipLines, "\n"),
 		Class:   "idle",
-		Icon:    "⏸️",
 	}
 }
 
 func printErrorStatus(message string) {
 	status := WaybarStatus{
-		Text:    "❌ Error",
+		Text:    "❌",
 		Alt:     "error",
-		Tooltip: message,
+		Tooltip: fmt.Sprintf("Error: %s\n\nClick to open timesheet app", message),
 		Class:   "error",
-		Icon:    "❌",
 	}
-	
+
 	jsonData, _ := json.Marshal(status)
 	fmt.Println(string(jsonData))
 }
@@ -170,7 +292,7 @@ func formatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
 	seconds := int(d.Seconds()) % 60
-	
+
 	if hours > 0 {
 		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
 	}

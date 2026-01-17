@@ -536,7 +536,7 @@ func (m *EnhancedModel) timesheetListView() string {
 		content.WriteString(activeStyle.Render(fmt.Sprintf("📅 %s\n", date)))
 
 		for _, entry := range entries {
-			content.WriteString(fmt.Sprintf("  ⏱️  %s - %s (%s)\n",
+			content.WriteString(fmt.Sprintf("  ⏱️  %s - %s (%.2fh)\n",
 				entry.ProjectName, entry.ActivityType, entry.Hours))
 			if entry.TaskName != "" {
 				content.WriteString(fmt.Sprintf("     Task: %s\n", entry.TaskName))

@@ -86,6 +86,7 @@ repos:
       - id: golangci-lint
       - id: go-vet-mod
       - id: go-mod-tidy
+      - id: go-unit-tests
 
   # Security scanning
   - repo: https://github.com/Yelp/detect-secrets
