@@ -3,12 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
+	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 	"github.com/spf13/cobra"
@@ -72,10 +71,15 @@ type StatusInfo struct {
 }
 
 func runStatusCommand() {
-	// Initialize storage
-	homeDir, _ := os.UserHomeDir()
-	dataDir := filepath.Join(homeDir, ".config/.kartoza-timesheets")
-	store, err := storage.New(dataDir)
+	// Load config to get correct storage directory
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		printErrorStatus(fmt.Sprintf("Config error: %v", err))
+		return
+	}
+
+	// Initialize storage using config's storage directory
+	store, err := storage.New(cfg.GetStorageDir())
 	if err != nil {
 		printErrorStatus(fmt.Sprintf("Storage error: %v", err))
 		return

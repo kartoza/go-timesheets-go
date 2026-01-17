@@ -1151,6 +1151,19 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 		}
 
 		tuiDebugLog.Printf("  CreateTimesheet successful!")
+
+		// Immediately update cache for waybar status command
+		timelogs, err := t.apiClient.GetTimelogs()
+		if err == nil {
+			cfg, cfgErr := config.LoadConfig()
+			if cfgErr == nil {
+				store, storeErr := storage.New(cfg.GetStorageDir())
+				if storeErr == nil {
+					_ = store.SaveTimelogCache(timelogs)
+				}
+			}
+		}
+
 		msg := "Timer started successfully!"
 		if endTimePtr != nil {
 			msg = "Timesheet entry created successfully!"

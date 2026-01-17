@@ -534,6 +534,13 @@ func (a *AppWithAuth) Run() error {
 		a.metrics.Close()
 	}
 
+	// Show exit splash screen (reverse animation - small to big)
+	// This runs after the main app exits
+	if exitErr := ShowExitSplashScreen(2 * time.Second); exitErr != nil {
+		// If exit splash fails, continue anyway - it's not critical
+		_ = exitErr
+	}
+
 	return err
 }
 

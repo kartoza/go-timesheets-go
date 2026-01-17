@@ -625,6 +625,7 @@ func (m *MainMenuModel) loadActiveTimer() tea.Cmd {
 }
 
 // loadHoursData loads both monthly and today hours in a single API call
+// It also saves the timelogs to cache for use by the status command
 func (m *MainMenuModel) loadHoursData() tea.Cmd {
 	return func() tea.Msg {
 		now := time.Now()
@@ -636,6 +637,15 @@ func (m *MainMenuModel) loadHoursData() tea.Cmd {
 		timelogs, err := m.apiClient.GetTimelogs()
 		if err != nil {
 			return errorMsg(err)
+		}
+
+		// Save timelogs to cache for waybar status command
+		cfg, cfgErr := config.LoadConfig()
+		if cfgErr == nil {
+			store, storeErr := storage.New(cfg.GetStorageDir())
+			if storeErr == nil {
+				_ = store.SaveTimelogCache(timelogs)
+			}
 		}
 
 		var monthlyHours, todayHours float64
@@ -711,6 +721,18 @@ func (m *MainMenuModel) performStopTimerWithDescription(description string) tea.
 				menuDebugLog.Printf("Failed to stop POW session: %v", err)
 			} else if videoPath != "" {
 				menuDebugLog.Printf("POW video created: %s", videoPath)
+			}
+		}
+
+		// Update cache for waybar status command
+		timelogs, err := m.apiClient.GetTimelogs()
+		if err == nil {
+			cfg, cfgErr := config.LoadConfig()
+			if cfgErr == nil {
+				store, storeErr := storage.New(cfg.GetStorageDir())
+				if storeErr == nil {
+					_ = store.SaveTimelogCache(timelogs)
+				}
 			}
 		}
 

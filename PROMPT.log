@@ -906,3 +906,55 @@ All tests passing. Build verified successful.
 - `make all` (default) now runs: test, then build
 - `make build-all` now runs: test, then build, then static
 - `make install` now runs: test, then static, then install
+
+================================================================================
+Date: 2026-01-17
+Session: Fix Status Command Cache and Add Exit Splash Screen
+================================================================================
+
+**Context:** Continued from previous session that ran out of context
+
+**User Request 1:**
+User reported that `kartoza-timesheet status` shows idle even when a timer is running.
+
+**Root Cause Analysis:**
+1. The status command was looking in the wrong directory (`~/.config/.kartoza-timesheets` with a dot prefix instead of `~/.config/kartoza-timesheets`)
+2. The timelog cache wasn't being updated when the TUI fetches timelogs from the API
+
+**Fixes Applied:**
+
+1. **cmd/status.go**: Updated to use `config.LoadConfig()` to get the correct storage directory instead of hardcoding the path
+
+2. **internal/tui/main_menu.go**: Added cache saving in `loadHoursData()` - now saves timelogs to cache after fetching from API. Also added cache saving in `performStopTimerWithDescription()` after stopping a timer.
+
+3. **internal/tui/timesheet.go**: Added cache saving in `submitTimesheet()` after successfully creating a new timesheet entry.
+
+**User Request 2:**
+"Also when the user quits the timesheet TUI it should show the splash screen in reverse, clearing the screen then starting with the very small logo and expanding it out to full size"
+
+**User Clarification:**
+"Thinking about it, it would probably make more sense if the opening splash starts small and ends big, while the closing splash starts big and ends small"
+
+**Implementation:**
+
+1. **internal/tui/splash.go**:
+   - Updated `SplashModel` to start at scale 0.05 (tiny) and expand to 1.0 (full size) during entry animation
+   - Added new `ExitSplashModel` that starts at scale 1.0 (full size) and shrinks to 0.05 (tiny) during exit animation
+   - Both use the same easing function (ease-in-out cubic) for smooth animation
+
+2. **internal/tui/app_with_auth.go**:
+   - Added call to `ShowExitSplashScreen(2 * time.Second)` after the main app exits
+   - Exit splash runs for 2 seconds (shorter than entry splash's 3 seconds)
+
+**Animation Summary:**
+- Entry: Small logo → Expands to full size → App starts
+- Exit: App closes → Full size logo → Shrinks to tiny → Exit
+
+**Files Modified:**
+- cmd/status.go
+- internal/tui/main_menu.go
+- internal/tui/timesheet.go
+- internal/tui/splash.go
+- internal/tui/app_with_auth.go
+
+All tests passing.
