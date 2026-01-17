@@ -201,6 +201,21 @@ func findMatchingWorkspace(assocs *models.WorkspaceAssociations, projectID, task
 	return "", 0
 }
 
+// Nerd Font icons for waybar display
+const (
+	nfTimer     = "󰔛" // nf-md-timer - for recording state
+	nfPause     = "󰏤" // nf-md-pause - for idle state
+	nfError     = "󰅜" // nf-md-close-circle - for error state
+	nfFolder    = "󰉋" // nf-md-folder - for project
+	nfTask      = "󰄬" // nf-md-checkbox-marked - for task
+	nfActivity  = "󰒓" // nf-md-cog - for activity
+	nfRepo      = "󰊢" // nf-md-git - for repository
+	nfDesktop   = "󰍹" // nf-md-monitor - for desktop
+	nfClock     = "󰥔" // nf-md-clock - for start time
+	nfChart     = "󰄧" // nf-md-chart-bar - for task total
+	nfCalendar  = "󰃭" // nf-md-calendar - for today's total
+)
+
 func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {
 	if info.IsRecording {
 		// Recording state
@@ -208,56 +223,56 @@ func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {
 
 		// Build detailed tooltip with all information
 		var tooltipLines []string
-		tooltipLines = append(tooltipLines, "⏱️ Recording time")
+		tooltipLines = append(tooltipLines, nfTimer+" Recording time")
 		tooltipLines = append(tooltipLines, "")
 
 		// Project information
 		if info.ProjectName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("📁 Project: %s", info.ProjectName))
+			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Project: %s", nfFolder, info.ProjectName))
 		}
 
 		// Task information
 		if info.TaskName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("📋 Task: %s", info.TaskName))
+			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Task: %s", nfTask, info.TaskName))
 		}
 
 		// Activity information
 		if info.ActivityName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("🔧 Activity: %s", info.ActivityName))
+			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Activity: %s", nfActivity, info.ActivityName))
 		}
 
 		// Repository information (optional)
 		if info.RepoName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("🔗 Repo: %s", info.RepoName))
+			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Repo: %s", nfRepo, info.RepoName))
 		}
 
 		// Workspace/desktop information (optional)
 		if info.WorkspaceName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("🖥️ Desktop: %s (#%d)", info.WorkspaceName, info.WorkspaceNumber))
+			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Desktop: %s (#%d)", nfDesktop, info.WorkspaceName, info.WorkspaceNumber))
 		} else if info.WorkspaceNumber > 0 {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("🖥️ Desktop: #%d", info.WorkspaceNumber))
+			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Desktop: #%d", nfDesktop, info.WorkspaceNumber))
 		}
 
 		tooltipLines = append(tooltipLines, "")
 
 		// Timer start time
-		tooltipLines = append(tooltipLines, fmt.Sprintf("🕐 Started: %s", info.StartTime.Format("15:04")))
+		tooltipLines = append(tooltipLines, fmt.Sprintf("%s Started: %s", nfClock, info.StartTime.Format("15:04")))
 
 		// Current session duration
-		tooltipLines = append(tooltipLines, fmt.Sprintf("⏱️ Session: %s", elapsed))
+		tooltipLines = append(tooltipLines, fmt.Sprintf("%s Session: %s", nfTimer, elapsed))
 
 		// Task hours
 		if info.TaskHours > 0 {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("📊 Task total: %.2fh", info.TaskHours))
+			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Task total: %.2fh", nfChart, info.TaskHours))
 		}
 
 		// Today's total
-		tooltipLines = append(tooltipLines, fmt.Sprintf("📅 Today: %.2fh", info.DailyHours))
+		tooltipLines = append(tooltipLines, fmt.Sprintf("%s Today: %.2fh", nfCalendar, info.DailyHours))
 
 		tooltip := strings.Join(tooltipLines, "\n")
 
 		return WaybarStatus{
-			Text:    fmt.Sprintf("⏱️ %s", elapsed),
+			Text:    fmt.Sprintf("%s %s", nfTimer, elapsed),
 			Alt:     "recording",
 			Tooltip: tooltip,
 			Class:   "recording",
@@ -266,14 +281,14 @@ func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {
 
 	// Idle state
 	var tooltipLines []string
-	tooltipLines = append(tooltipLines, "⏸️ Timesheet idle")
+	tooltipLines = append(tooltipLines, nfPause+" Timesheet idle")
 	tooltipLines = append(tooltipLines, "")
-	tooltipLines = append(tooltipLines, fmt.Sprintf("📅 Today's total: %.2fh", info.DailyHours))
+	tooltipLines = append(tooltipLines, fmt.Sprintf("%s Today's total: %.2fh", nfCalendar, info.DailyHours))
 	tooltipLines = append(tooltipLines, "")
 	tooltipLines = append(tooltipLines, "Click to start tracking")
 
 	return WaybarStatus{
-		Text:    fmt.Sprintf("⏸️ %.1fh", info.DailyHours),
+		Text:    fmt.Sprintf("%s %.1fh", nfPause, info.DailyHours),
 		Alt:     "idle",
 		Tooltip: strings.Join(tooltipLines, "\n"),
 		Class:   "idle",
@@ -282,7 +297,7 @@ func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {
 
 func printErrorStatus(message string) {
 	status := WaybarStatus{
-		Text:    "❌",
+		Text:    nfError,
 		Alt:     "error",
 		Tooltip: fmt.Sprintf("Error: %s\n\nClick to open timesheet app", message),
 		Class:   "error",

@@ -161,7 +161,8 @@ func TestCreateWaybarStatusFromInfo(t *testing.T) {
 		if status.Alt != "idle" {
 			t.Errorf("Expected alt 'idle', got '%s'", status.Alt)
 		}
-		if status.Text != "⏸️ 4.5h" {
+		// Check for Nerd Font pause icon (nf-md-pause)
+		if status.Text != "󰏤 4.5h" {
 			t.Errorf("Unexpected text: %s", status.Text)
 		}
 	})
