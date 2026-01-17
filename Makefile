@@ -137,6 +137,15 @@ help:
 	@echo "  release        - Build release binaries for all platforms"
 	@echo "  release-upload - Build and upload release to GitHub (requires TAG=vX.Y)"
 	@echo "  release-clean  - Clean release artifacts"
+	@echo ""
+	@echo "Packaging targets:"
+	@echo "  deb            - Build Debian package (requires dpkg-buildpackage)"
+	@echo "  rpm            - Build RPM package (requires rpmbuild)"
+	@echo "  snap           - Build Snap package (requires snapcraft)"
+	@echo "  flatpak        - Build Flatpak package (requires flatpak-builder)"
+	@echo "  packages       - Build all packages (deb, rpm, snap, flatpak)"
+	@echo "  packages-clean - Clean packaging artifacts"
+	@echo ""
 	@echo "  help           - Show this help message"
 
 # Release directory
@@ -190,3 +199,76 @@ info:
 	@echo "Version: $(VERSION)"
 	@echo "Build flags: $(LDFLAGS)"
 	@echo "Static flags: $(STATIC_LDFLAGS)"
+
+# =============================================================================
+# Packaging Targets
+# =============================================================================
+
+PACKAGING_DIR=packaging
+
+# Build Debian package
+.PHONY: deb
+deb: clean
+	@echo "Building Debian package..."
+	@mkdir -p $(RELEASE_DIR)/deb
+	@# Create source tarball
+	@tar --exclude='.git' --exclude='release' --exclude='build' \
+		-czf $(RELEASE_DIR)/deb/$(BINARY_NAME)_$(VERSION).orig.tar.gz \
+		--transform 's,^,$(BINARY_NAME)-$(VERSION)/,' .
+	@# Extract and build
+	@cd $(RELEASE_DIR)/deb && tar -xzf $(BINARY_NAME)_$(VERSION).orig.tar.gz
+	@cp -r $(PACKAGING_DIR)/debian $(RELEASE_DIR)/deb/$(BINARY_NAME)-$(VERSION)/
+	@cd $(RELEASE_DIR)/deb/$(BINARY_NAME)-$(VERSION) && dpkg-buildpackage -us -uc -b
+	@echo "Debian package built: $(RELEASE_DIR)/deb/"
+	@ls -lh $(RELEASE_DIR)/deb/*.deb 2>/dev/null || echo "No .deb files found"
+
+# Build RPM package (requires rpmbuild)
+.PHONY: rpm
+rpm: clean
+	@echo "Building RPM package..."
+	@mkdir -p $(RELEASE_DIR)/rpm/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+	@# Create source tarball
+	@tar --exclude='.git' --exclude='release' --exclude='build' \
+		-czf $(RELEASE_DIR)/rpm/SOURCES/$(BINARY_NAME)-$(VERSION).tar.gz \
+		--transform 's,^,$(BINARY_NAME)-$(VERSION)/,' .
+	@cp $(PACKAGING_DIR)/rpm/$(BINARY_NAME).spec $(RELEASE_DIR)/rpm/SPECS/
+	@rpmbuild --define "_topdir $(CURDIR)/$(RELEASE_DIR)/rpm" \
+		-bb $(RELEASE_DIR)/rpm/SPECS/$(BINARY_NAME).spec
+	@echo "RPM package built: $(RELEASE_DIR)/rpm/RPMS/"
+	@find $(RELEASE_DIR)/rpm/RPMS -name "*.rpm" -exec ls -lh {} \;
+
+# Build Snap package (requires snapcraft)
+.PHONY: snap
+snap:
+	@echo "Building Snap package..."
+	@mkdir -p $(RELEASE_DIR)/snap
+	@cp $(PACKAGING_DIR)/snap/snapcraft.yaml .
+	@snapcraft --output $(RELEASE_DIR)/snap/$(BINARY_NAME)_$(VERSION)_amd64.snap
+	@rm -f snapcraft.yaml
+	@echo "Snap package built: $(RELEASE_DIR)/snap/"
+	@ls -lh $(RELEASE_DIR)/snap/*.snap
+
+# Build Flatpak package (requires flatpak-builder)
+.PHONY: flatpak
+flatpak:
+	@echo "Building Flatpak package..."
+	@mkdir -p $(RELEASE_DIR)/flatpak
+	@cd $(PACKAGING_DIR)/flatpak && flatpak-builder --force-clean --repo=$(CURDIR)/$(RELEASE_DIR)/flatpak/repo \
+		$(CURDIR)/$(RELEASE_DIR)/flatpak/build com.kartoza.Timesheet.yml
+	@flatpak build-bundle $(RELEASE_DIR)/flatpak/repo \
+		$(RELEASE_DIR)/flatpak/$(BINARY_NAME)-$(VERSION).flatpak com.kartoza.Timesheet
+	@echo "Flatpak built: $(RELEASE_DIR)/flatpak/"
+	@ls -lh $(RELEASE_DIR)/flatpak/*.flatpak
+
+# Build all packages
+.PHONY: packages
+packages: deb rpm snap flatpak
+	@echo ""
+	@echo "All packages built in $(RELEASE_DIR)/"
+
+# Clean packaging artifacts
+.PHONY: packages-clean
+packages-clean:
+	@echo "Cleaning packaging artifacts..."
+	rm -rf $(RELEASE_DIR)/deb $(RELEASE_DIR)/rpm $(RELEASE_DIR)/snap $(RELEASE_DIR)/flatpak
+	rm -f snapcraft.yaml

@@ -512,6 +512,14 @@ func (a *AppWithAuth) renderLoadingScreen(message string) string {
 
 // Run starts the application
 func (a *AppWithAuth) Run() error {
+	// Show splash screen first (3 seconds, skippable with any key)
+	// This runs as a separate program before the main app
+	if err := ShowSplashScreen(3 * time.Second); err != nil {
+		// If splash fails, continue anyway - it's not critical
+		_ = err
+	}
+
+	// Now run the main application
 	p := tea.NewProgram(a, tea.WithAltScreen())
 	_, err := p.Run()
 

@@ -532,3 +532,268 @@ Action Taken:
   * Shortened status labels: "✓ Sub", "● Run", "Pend"
   * Shortened date format to MM-DD
 - Build verified successful
+
+================================================================================
+
+Date: 2026-01-17
+Session: Linux Package Building Support
+
+Prompt:
+can we also build deb flatpack snap and rpm packages
+
+Action Taken:
+- Created comprehensive packaging infrastructure for four Linux package formats:
+
+**Debian Package (.deb):**
+- Created packaging/debian/ directory with:
+  * control - package metadata and dependencies
+  * rules - build instructions
+  * changelog - version history
+  * copyright - MIT license details
+  * source/format - quilt format specification
+  * compat - debhelper compatibility level
+
+**RPM Package (.rpm):**
+- Created packaging/rpm/kartoza-timesheet.spec with:
+  * Full RPM spec file for Fedora/RHEL/CentOS builds
+  * Build requirements and instructions
+  * Desktop file installation
+
+**Snap Package (.snap):**
+- Created packaging/snap/snapcraft.yaml with:
+  * Classic confinement for terminal access
+  * Multi-architecture support (amd64, arm64)
+  * Desktop file integration
+  * Go build plugin configuration
+
+**Flatpak Package (.flatpak):**
+- Created packaging/flatpak/ directory with:
+  * com.kartoza.Timesheet.yml - Flatpak manifest
+  * com.kartoza.Timesheet.desktop - Flatpak desktop file
+  * Freedesktop runtime and SDK configuration
+  * Go SDK extension for building
+
+**Build System:**
+- Updated Makefile with packaging targets:
+  * `make deb` - Build Debian package
+  * `make rpm` - Build RPM package
+  * `make snap` - Build Snap package
+  * `make flatpak` - Build Flatpak package
+  * `make packages` - Build all packages
+  * `make packages-clean` - Clean packaging artifacts
+- Updated help target to document new commands
+
+**CI/CD:**
+- Created .github/workflows/packages.yml with:
+  * Separate jobs for each package format
+  * Automatic builds on release events
+  * Manual trigger support via workflow_dispatch
+  * Artifact upload to GitHub releases
+  * Build artifact retention for testing
+
+Files Created:
+- packaging/debian/control
+- packaging/debian/rules
+- packaging/debian/changelog
+- packaging/debian/copyright
+- packaging/debian/source/format
+- packaging/debian/compat
+- packaging/rpm/kartoza-timesheet.spec
+- packaging/snap/snapcraft.yaml
+- packaging/flatpak/com.kartoza.Timesheet.yml
+- packaging/flatpak/com.kartoza.Timesheet.desktop
+- .github/workflows/packages.yml
+
+Build Commands Available:
+- make deb (requires dpkg-buildpackage)
+- make rpm (requires rpmbuild)
+- make snap (requires snapcraft)
+- make flatpak (requires flatpak-builder)
+- make packages (all formats)
+
+================================================================================
+
+Date: 2026-01-17
+Session: Splash Screen with Kitty Graphics Protocol
+
+Prompt:
+now that we have seen how to use the kitty protocol to show a graphic in the terminal, make a splash screen that shows when the application starts and shows the logo in resources
+
+Action Taken:
+- Created comprehensive splash screen module using the Kitty graphics protocol
+
+**New File Created:**
+- `internal/tui/splash.go` - Complete splash screen implementation with:
+  * Kitty graphics protocol support using go-termimg library
+  * Embedded logo using Go's embed package
+  * Automatic terminal protocol detection
+  * ASCII art fallback for non-Kitty terminals
+  * 2-second display duration (skippable with any key)
+  * SplashWrapper to integrate with existing Bubbletea app
+
+**Logo Resource:**
+- Copied `resources/kartoza-logo.png` to `internal/tui/resources/` for embedding
+- Logo is embedded at compile time using `//go:embed` directive
+
+**Features:**
+- Kitty Graphics Protocol:
+  * Detects Kitty terminal via KITTY_WINDOW_ID, TERM, TERM_PROGRAM env vars
+  * Falls back to go-termimg protocol detection
+  * Renders logo using Kitty's native image protocol for crisp display
+  * Responsive sizing based on terminal dimensions
+
+- Fallback ASCII Art:
+  * Beautiful KARTOZA ASCII banner for non-Kitty terminals
+  * Branded colors (orange, gray, blue)
+  * Same layout and styling as graphics version
+
+- Integration:
+  * SplashWrapper wraps the main AppWithAuth
+  * Shows splash before transitioning to login/main menu
+  * Preserves window size messages for proper layout
+  * Press any key to skip splash early
+
+**Technical Details:**
+- Uses image resizing (nfnt/resize) for proper terminal cell sizing
+- PNG encoding for Kitty protocol transmission
+- Centered layout using lipgloss.Place()
+- Brand colors from widgets.go (ColorOrange, ColorBlue, ColorGray)
+
+**Modified Files:**
+- `internal/tui/app_with_auth.go` - Run() method now uses SplashWrapper
+
+Build verified successful with `go build`.
+
+================================================================================
+
+Date: 2026-01-17
+Session: Splash Screen Refinement
+
+Prompt:
+by splash I mean the logo should be displayed in the center of the screen on its own for 3s and then fade away and be replaced by the main menu
+
+Action Taken:
+- Simplified splash screen to show ONLY the logo centered on screen
+- Extended duration to 3 seconds
+- Added fade-out animation effect
+
+**Changes Made:**
+- Removed all text (title, subtitle, motto) from splash screen
+- Logo now displays alone, centered both horizontally and vertically
+- Added fade animation system:
+  * 50ms tick interval for smooth animation
+  * 500ms fade duration after 3 second display
+  * RGB color interpolation for ASCII fallback (fades from orange to black)
+- Increased logo size to half screen width for better visibility
+
+**Technical Details:**
+- `splashTickMsg` type for animation timing
+- `opacity` field tracks fade progress (1.0 to 0.0)
+- `fading` boolean triggers fade sequence
+- For Kitty protocol: logo simply disappears after fade (Kitty doesn't support opacity)
+- For ASCII fallback: color gradually darkens using RGB interpolation
+
+**Behavior:**
+1. App starts → splash screen appears with logo centered
+2. 3 seconds pass → fade animation begins
+3. 0.5 seconds later → splash completes, main app initializes
+4. Press any key → skip splash immediately
+
+Build verified successful.
+
+================================================================================
+
+Date: 2026-01-17
+Session: Splash Screen Fix - Separate Program
+
+Prompt:
+its not right. the main menu screen should remain unchanged from before. Only a new screen that is shown and then hidden and we move to the main menu
+
+Action Taken:
+- Fixed splash screen to run as a completely separate program before the main app
+- Main app flow (login → main menu) remains completely unchanged
+
+**Changes Made:**
+- `app_with_auth.go`: Changed `Run()` to call `ShowSplashScreen()` first, then run main app normally
+- `splash.go`: Added `ShowSplashScreen()` function that runs splash as standalone tea.Program
+- `splash.go`: Update function now returns `tea.Quit` when done (not internal message)
+- Removed SplashWrapper approach - splash is now completely independent
+
+**New Flow:**
+1. `Run()` calls `ShowSplashScreen(3 * time.Second)`
+2. Splash displays logo for 3 seconds with fade
+3. Splash program exits (tea.Quit)
+4. Main app starts with `tea.NewProgram(a, tea.WithAltScreen())`
+5. Login or main menu appears exactly as before
+
+**Key Difference:**
+- Before: SplashWrapper wrapped the main app (broke the flow)
+- Now: Splash runs first, exits, then main app runs independently
+
+Build verified successful.
+
+================================================================================
+
+Date: 2026-01-17
+Session: Splash Screen - True Center Positioning
+
+Prompt:
+when I say centered on the screen, the center of the image should be pinned to the center of the terminal
+
+Action Taken:
+- Fixed centering so the CENTER of the logo aligns with the CENTER of the terminal
+
+**Kitty Graphics Changes:**
+- Calculate logo dimensions in terminal cells (width and height)
+- Account for terminal cell aspect ratio (~2:1 height:width in pixels)
+- Calculate centerX = (screen_width - logo_width) / 2
+- Calculate centerY = (screen_height - logo_height) / 2
+- Use ANSI escape sequence `\033[row;colH` to position cursor exactly
+
+**ASCII Fallback Changes:**
+- Calculate actual dimensions of ASCII art (lines and max width)
+- Position each line individually using ANSI cursor positioning
+- Center calculation: centerX = (screen_width - logo_width) / 2
+- Each line positioned at row = centerY + line_index
+
+**Technical Details:**
+- ANSI escape `\033[row;colH` positions cursor at exact terminal cell (1-indexed)
+- Logo size reduced to 1/3 screen width for better centering visibility
+- Both Kitty and ASCII now use same centering logic
+
+Build verified successful.
+
+================================================================================
+
+Date: 2026-01-17
+Session: Splash Screen - Fade to Transparent
+
+Prompt:
+perfect now are you able to transition the logo to completely transparent before switching to the main menu
+
+Action Taken:
+- Added true opacity fade for Kitty graphics protocol
+- Logo now fades smoothly to transparent before transitioning to main menu
+
+**New Function - `applyOpacity()`:**
+- Creates a new RGBA image with opacity applied to each pixel
+- Scales R, G, B, and A channels by the opacity value (0.0 to 1.0)
+- Fades toward transparent/black as opacity decreases
+
+**Kitty Rendering Changes:**
+- Check if opacity <= 0, return empty string (fully transparent)
+- If fading, apply opacity to resized logo before encoding to PNG
+- Each frame during fade re-renders with new opacity level
+- 50ms tick interval = ~10 frames during 500ms fade = smooth transition
+
+**Fade Behavior:**
+1. Logo displays at full opacity for 3 seconds
+2. Fade begins, opacity decreases from 1.0 → 0.0 over 500ms
+3. Each tick renders logo with reduced RGB/Alpha values
+4. When opacity reaches 0, splash exits to main menu
+
+**ASCII Fallback:**
+- Already had color fade (orange → black)
+- Now consistent with Kitty behavior
+
+Build verified successful.
