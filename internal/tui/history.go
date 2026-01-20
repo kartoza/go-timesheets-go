@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -375,6 +377,12 @@ func (h *HistoryView) updateDetailMode(msg tea.KeyMsg) (*HistoryView, tea.Cmd) {
 			h.initEditFields()
 			h.editFocusField = 0
 			h.editFields.description.Focus()
+		}
+
+	case "p":
+		// Play POW video if available
+		if h.selectedEntry != nil && h.store != nil {
+			return h, h.playPowVideo()
 		}
 	}
 
@@ -974,6 +982,26 @@ func (h *HistoryView) renderDetailView() string {
 	cleanDesc := renderHistoryDescription(desc, 58)
 	rows = append(rows, descStyle.Render(cleanDesc))
 
+	// POW Video (Proof of Work)
+	if h.store != nil {
+		if powVideoPath, err := h.store.GetPowVideoPath(entry.ID); err == nil && powVideoPath != "" {
+			rows = append(rows, "")
+			rows = append(rows, dividerStyle.Render(strings.Repeat("─", 62)))
+			rows = append(rows, "")
+
+			powLabelStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#DDA036")).
+				Bold(true)
+			rows = append(rows, powLabelStyle.Render("Proof of Work:"))
+
+			powPathStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#569FC6")).
+				Width(60).
+				MarginLeft(2)
+			rows = append(rows, powPathStyle.Render(powVideoPath))
+		}
+	}
+
 	// Success/Error messages
 	if h.editSuccess != "" {
 		successStyle := lipgloss.NewStyle().
@@ -992,11 +1020,27 @@ func (h *HistoryView) renderDetailView() string {
 		Foreground(lipgloss.Color("#9A9EA0")).
 		Italic(true)
 
+	// Check if POW video is available for this entry
+	hasPowVideo := false
+	if h.store != nil {
+		if powPath, err := h.store.GetPowVideoPath(entry.ID); err == nil && powPath != "" {
+			hasPowVideo = true
+		}
+	}
+
 	var helpText string
 	if entry.IsSubmitted() {
-		helpText = "Esc: Back to list"
+		if hasPowVideo {
+			helpText = "p: Play POW Video • Esc: Back to list"
+		} else {
+			helpText = "Esc: Back to list"
+		}
 	} else {
-		helpText = "e: Edit Entry • Esc: Back to list"
+		if hasPowVideo {
+			helpText = "e: Edit Entry • p: Play POW Video • Esc: Back to list"
+		} else {
+			helpText = "e: Edit Entry • Esc: Back to list"
+		}
 	}
 
 	mainSection := lipgloss.JoinVertical(
@@ -1328,6 +1372,17 @@ func (h *HistoryView) renderScrollableTable() string {
 			status = "✓ Sub"
 		} else if entry.EndTime().IsZero() {
 			status = "● Run"
+		}
+
+		// Check if entry has POW video linked
+		hasPow := false
+		if h.store != nil {
+			if powPath, err := h.store.GetPowVideoPath(entry.ID); err == nil && powPath != "" {
+				hasPow = true
+			}
+		}
+		if hasPow {
+			status = "🎬" + status
 		}
 
 		var row1 string
@@ -1664,5 +1719,57 @@ func (h *HistoryView) fetchCommitsForEntry() tea.Cmd {
 		}
 
 		return historyCommitsLoadedMsg{commits: api.FormatCommitsAsDescription(commits)}
+	}
+}
+
+// playPowVideo attempts to play the POW video for the selected entry
+func (h *HistoryView) playPowVideo() tea.Cmd {
+	return func() tea.Msg {
+		if h.selectedEntry == nil || h.store == nil {
+			return errorMsg(fmt.Errorf("no entry selected"))
+		}
+
+		videoPath, err := h.store.GetPowVideoPath(h.selectedEntry.ID)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to get POW video path: %w", err))
+		}
+
+		if videoPath == "" {
+			return errorMsg(fmt.Errorf("no POW video recorded for this entry"))
+		}
+
+		// Check if file exists
+		if _, err := os.Stat(videoPath); os.IsNotExist(err) {
+			return errorMsg(fmt.Errorf("POW video file not found: %s", videoPath))
+		}
+
+		// Try different video players in order of preference
+		players := []struct {
+			name string
+			args []string
+		}{
+			{"xdg-open", []string{videoPath}},   // Linux default
+			{"mpv", []string{videoPath}},        // MPV player
+			{"vlc", []string{videoPath}},        // VLC
+			{"totem", []string{videoPath}},      // GNOME Videos
+			{"celluloid", []string{videoPath}},  // Celluloid (MPV frontend)
+			{"open", []string{videoPath}},       // macOS default
+		}
+
+		for _, player := range players {
+			path, err := exec.LookPath(player.name)
+			if err != nil {
+				continue
+			}
+
+			cmd := exec.Command(path, player.args...)
+			// Start the player in the background (don't block the TUI)
+			if err := cmd.Start(); err != nil {
+				continue
+			}
+			return nil
+		}
+
+		return errorMsg(fmt.Errorf("no video player found - install mpv, vlc, or another player"))
 	}
 }

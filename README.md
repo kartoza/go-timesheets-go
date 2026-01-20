@@ -20,6 +20,7 @@
 - 📱 **Waybar Integration** - Desktop status bar integration with JSON output
 - 💾 **Data Persistence** - Local JSON-based storage with API sync
 - 🎯 **Activity Types** - Categorize work with activities (Coding, Planning, etc.)
+- 🎬 **Proof of Work (POW)** - Screenshot timelapse recording during work sessions
 - 🎉 **Celebration Mode** - Fireworks celebration after timesheet submission!
 
 ## 🚀 Quick Start
@@ -134,6 +135,44 @@ kartoza-timesheet celebration
 kartoza-timesheet celebration --duration 30  # 30 seconds
 kartoza-timesheet celebration --duration 0   # Unlimited (press any key to exit)
 ```
+
+## 🎬 Proof of Work (POW) Mode
+
+POW mode captures screenshots during your work sessions and creates timelapse videos to document your work progress.
+
+### Enabling POW Mode
+
+1. **In the TUI**: Press `p` to toggle POW mode on/off from the main menu
+2. **Via command line**: Add the `--pow` flag when running the application
+
+### How POW Works
+
+- When POW mode is enabled and you start a timer, screenshots are captured at regular intervals
+- When you stop the timer, a timelapse video is automatically generated from the screenshots
+- The video is linked to your timesheet entry and can be viewed from the History view
+
+### Viewing POW Videos
+
+1. Go to **View Timesheet History** from the main menu
+2. Entries with POW videos are marked with a 🎬 icon in the status column
+3. Select an entry and press **Enter** to view details
+4. If a POW video exists for that entry, it will be displayed under "Proof of Work"
+5. Press **p** to play the POW video in your system video player
+
+### Managing POW Videos
+
+```bash
+# List all POW videos
+kartoza-timesheet list-pow
+
+# Play a specific POW video
+kartoza-timesheet play-pow
+```
+
+### Requirements for POW
+
+- A screenshot tool (`grim`, `scrot`, or `import` from ImageMagick)
+- `ffmpeg` for video generation
 
 ## 🎉 Celebration Mode
 

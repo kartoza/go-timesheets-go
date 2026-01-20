@@ -703,6 +703,9 @@ func (m *MainMenuModel) stopActiveTimer() tea.Cmd {
 // performStopTimerWithDescription actually stops the timer with the given description
 func (m *MainMenuModel) performStopTimerWithDescription(description string) tea.Cmd {
 	return func() tea.Msg {
+		// Capture the entry ID before stopping (we need it for POW video mapping)
+		entryID := m.activeTimer.ID
+
 		var err error
 		if description != "" {
 			err = m.apiClient.StopTimesheetWithDescription(m.activeTimer, description)
@@ -721,6 +724,18 @@ func (m *MainMenuModel) performStopTimerWithDescription(description string) tea.
 				menuDebugLog.Printf("Failed to stop POW session: %v", err)
 			} else if videoPath != "" {
 				menuDebugLog.Printf("POW video created: %s", videoPath)
+				// Save the POW video path mapping to the entry ID
+				cfg, cfgErr := config.LoadConfig()
+				if cfgErr == nil {
+					store, storeErr := storage.New(cfg.GetStorageDir())
+					if storeErr == nil {
+						if saveErr := store.SavePowVideoPath(entryID, videoPath); saveErr != nil {
+							menuDebugLog.Printf("Failed to save POW video mapping: %v", saveErr)
+						} else {
+							menuDebugLog.Printf("POW video mapped to entry %d: %s", entryID, videoPath)
+						}
+					}
+				}
 			}
 		}
 

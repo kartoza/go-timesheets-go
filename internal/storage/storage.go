@@ -483,3 +483,74 @@ func formatTimeForAllField(rfc3339Time string) string {
 	}
 	return t.Format("2006-01-02 15:04:05")
 }
+
+// PowVideoMapping maps timesheet entry IDs to POW video file paths
+type PowVideoMapping struct {
+	Entries   map[int]string `json:"entries"` // Maps entry ID to video file path
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+// SavePowVideoPath saves a POW video path for a specific timesheet entry ID
+func (s *Storage) SavePowVideoPath(entryID int, videoPath string) error {
+	filePath := filepath.Join(s.dataDir, "pow_videos.json")
+
+	mapping, err := s.LoadPowVideoMapping()
+	if err != nil {
+		return err
+	}
+
+	if mapping.Entries == nil {
+		mapping.Entries = make(map[int]string)
+	}
+
+	mapping.Entries[entryID] = videoPath
+	mapping.UpdatedAt = time.Now()
+
+	data, err := json.MarshalIndent(mapping, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal POW video mapping: %w", err)
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// GetPowVideoPath retrieves the POW video path for a specific timesheet entry ID
+func (s *Storage) GetPowVideoPath(entryID int) (string, error) {
+	mapping, err := s.LoadPowVideoMapping()
+	if err != nil {
+		return "", err
+	}
+
+	if mapping.Entries == nil {
+		return "", nil
+	}
+
+	return mapping.Entries[entryID], nil
+}
+
+// LoadPowVideoMapping loads the POW video mapping from storage
+func (s *Storage) LoadPowVideoMapping() (*PowVideoMapping, error) {
+	filePath := filepath.Join(s.dataDir, "pow_videos.json")
+
+	data, err := os.ReadFile(filePath)
+	if os.IsNotExist(err) {
+		return &PowVideoMapping{
+			Entries:   make(map[int]string),
+			UpdatedAt: time.Now(),
+		}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read POW video mapping file: %w", err)
+	}
+
+	var mapping PowVideoMapping
+	if err := json.Unmarshal(data, &mapping); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal POW video mapping: %w", err)
+	}
+
+	if mapping.Entries == nil {
+		mapping.Entries = make(map[int]string)
+	}
+
+	return &mapping, nil
+}

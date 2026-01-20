@@ -958,3 +958,18 @@ User reported that `kartoza-timesheet status` shows idle even when a timer is ru
 - internal/tui/app_with_auth.go
 
 All tests passing.
+
+## 2026-01-20T12:56:01+00:00
+
+User: can you remind me where the pow link is shown if recorded for an entry
+
+User requested implementation of POW video linking to timesheet entries. Added:
+- POW video storage mapping in internal/storage/storage.go (SavePowVideoPath, GetPowVideoPath, LoadPowVideoMapping)
+- POW video path saved when timer stops in internal/tui/main_menu.go
+- POW video path displayed in History view detail mode in internal/tui/history.go
+- Press 'p' in History detail view to play POW video
+- Updated README.md with POW documentation
+i still would like to see timesheets annotated when there is a proof of work linked to them
+I got a panic when doing stop and save with a timesheet that was running in pow mode
+the application does not run properly with traceback enabled
+lets make a new release after commiting the current work and then make another beautiful changelog
