@@ -178,36 +178,38 @@ kartoza-timesheet play-pow
 
 ## ⭐ Favourites
 
-The Favourites feature provides a 3x3 grid of quick-start buttons for your most commonly used project/task/activity combinations.
+The Favourites feature provides a 3x3 grid of quick-start buttons displayed directly on the main menu, below the active timer and daily progress boxes. This allows instant access to your most commonly used project/task/activity combinations.
 
 ### Using Favourites
 
-1. From the main menu, select **Favourites**
-2. Use arrow keys or number keys (1-9) to navigate the grid
-3. Press **Enter** to start a timer with the selected favourite's settings
+1. The favourites grid is shown on the **main menu** below the dashboard
+2. Press number keys **1-9** to instantly start a timer for that slot
+3. Click on any slot to start the timer
 
 ### Key Features
 
-- **Quick Start**: One-click timer starting with preset configurations
+- **Quick Start**: One-click or one-key timer starting with preset configurations
+- **Main Menu Integration**: Favourites are always visible on the main menu for quick access
 - **Auto-stop Previous Timer**: When starting a new timer, any running timer is automatically stopped
 - **Git Commit Auto-fill**: If the previous task has a linked git repository, the description is automatically filled with commit messages from the work session
-- **Edit Mode**: Press **e** to enter edit mode and configure favourites
+- **Running Indicator**: Currently running favourite slots are highlighted in green with a ▶ indicator
 
 ### Configuring Favourites
 
-1. Press **e** to enter edit mode
-2. Select a slot and press **Enter** to configure
-3. Set a name for the favourite (optional)
-4. Select a project, task (optional), and activity
-5. Press **Ctrl+S** or complete the selection to save
+1. From the main menu, select **Edit Favourites**
+2. Press **e** to enter edit mode
+3. Select a slot and press **Enter** to configure
+4. Set a name for the favourite (optional)
+5. Select a project, task (optional), and activity
+6. Press **Ctrl+S** or complete the selection to save
 
-### Keyboard Shortcuts in Favourites
+### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `1-9` | Quick select slot |
-| `↑/↓/←/→` | Navigate grid |
-| `Enter` | Start timer (normal mode) or Edit slot (edit mode) |
+| `1-9` | Quick start timer from main menu |
+| `↑/↓/←/→` | Navigate grid (in Edit Favourites screen) |
+| `Enter` | Start timer or Edit slot (in edit mode) |
 | `e` | Toggle edit mode |
 | `p` | Toggle POW (Proof of Work) mode |
 | `Esc/q` | Back to main menu |
@@ -218,13 +220,13 @@ The application supports full mouse interaction on all screens:
 
 | Screen | Mouse Actions |
 |--------|--------------|
-| **Main Menu** | Click menu items to select and open |
+| **Main Menu** | Click menu items to select, click favourites grid to start timers |
 | **History View** | Click entries to view details |
 | **Workspace Associations** | Click Name to edit, Edit to configure, Clear to remove |
 | **Code Repos** | Click rows to edit repository associations |
 | **Timesheet Creator** | Click fields to focus, click popovers to select, click Submit |
 | **Login Screen** | Click input fields to focus |
-| **Favourites** | Click slots to start timers |
+| **Edit Favourites** | Click slots to configure in edit mode |
 
 Mouse support works alongside keyboard navigation - use whichever input method you prefer!
 

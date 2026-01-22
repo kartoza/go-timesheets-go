@@ -1050,3 +1050,11 @@ Added comprehensive mouse support throughout all TUI screens in the application:
 
 **Build Status:** All builds passing
 **Test Status:** All tests passing
+2026-01-22 14:59:28 - User request: the central content area e.g. for the history table should expand responsively horizontally to use the available real estate. it should cope with the terminal resizing
+2026-01-22 15:12:51 - User request: in the history table. put the project and task as 2 separate subrows for the then entry and if there is enough space on the screen show the start and end times for the entry too
+2026-01-22 15:19:23 - User request: There should still be a column for the project so that it goes project, activity, date, times, hours, status then the task would be a subrow
+lets move the favourites buttons on to the front page under the active time and daily progress boxes.
+I think we can make a settings menu and move the manage items into it and the edit favourites into it and log out into settings
+make a "Start Timer" button that is inside the active timer box at the bottom. If a timer is running, it should change to "Stop Timer". then we can remove those two menu entries
+we can make Timesheet History a button in the Daily Progress box bottom and then remove that and quit from the menu
+the history button should be at the bottom of the daily progress box so that it aligns with the start timer button in the neighbouring box

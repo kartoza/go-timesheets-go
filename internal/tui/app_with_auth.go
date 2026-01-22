@@ -29,6 +29,7 @@ const (
 	StateWorkspaceAssociations
 	StateCodeRepos
 	StateFavourites
+	StateSettings
 )
 
 // AppWithAuth is a wrapper app that handles authentication
@@ -41,6 +42,7 @@ type AppWithAuth struct {
 	workspaceView      *WorkspaceAssociationsModel
 	codeReposView      *CodeReposModel
 	favouritesView     *FavouritesModel
+	settingsView       *SettingsModel
 	width              int
 	height             int
 	tokenLoaded        bool
@@ -332,13 +334,29 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.timesheetCreator.Init()
 
 	case backToMenuMsg:
-		// Return to main menu
-		a.state = StateMainMenu
+		// Return to main menu (or settings if coming from a settings sub-screen)
+		// Clear the sub-views
 		a.timesheetCreator = nil
 		a.historyView = nil
+
+		// If we're in settings, just go back to main menu
+		if a.state == StateSettings {
+			a.settingsView = nil
+			a.state = StateMainMenu
+			if a.mainMenu != nil {
+				return a, a.mainMenu.Init()
+			}
+			return a, nil
+		}
+
+		// If coming from favourites/workspace/coderepos launched from settings, go back to settings
+		// Otherwise go back to main menu
 		a.workspaceView = nil
 		a.codeReposView = nil
 		a.favouritesView = nil
+		a.settingsView = nil
+		a.state = StateMainMenu
+
 		// Reload main menu to refresh state
 		if a.mainMenu != nil {
 			return a, a.mainMenu.Init()
@@ -397,6 +415,21 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = StateFavourites
 		return a, a.favouritesView.Init()
 
+	case launchSettingsMsg:
+		// Transition to settings view
+		settingsView := NewSettingsModel()
+		settingsView.width = a.width
+		settingsView.height = a.height
+		settingsView.SetHeaderState(a.getHeaderState())
+		a.settingsView = settingsView
+		a.state = StateSettings
+		return a, a.settingsView.Init()
+
+	case settingsLogoutConfirmedMsg:
+		// Logout confirmed from settings, delete token and quit
+		_ = config.DeleteToken()
+		return a, tea.Quit
+
 	case launchOfficeViewMsg:
 		// Launch office view as a subprocess that takes over the terminal
 		return a, a.launchOffice()
@@ -454,6 +487,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.favouritesView = model
 				cmds = append(cmds, c)
 			}
+		case StateSettings:
+			if a.settingsView != nil {
+				model, c := a.settingsView.Update(msg)
+				a.settingsView = model
+				cmds = append(cmds, c)
+			}
 		}
 	}
 
@@ -466,6 +505,7 @@ type launchHistoryViewMsg struct{}
 type launchWorkspaceAssociationsMsg struct{}
 type launchCodeReposMsg struct{}
 type launchFavouritesMsg struct{}
+type launchSettingsMsg struct{}
 type launchOfficeViewMsg struct{}
 type officeFinishedMsg struct{}
 type backToMenuMsg struct{}
@@ -526,6 +566,12 @@ func (a *AppWithAuth) View() string {
 			return a.favouritesView.View()
 		}
 		return a.renderLoadingScreen("Loading favourites")
+
+	case StateSettings:
+		if a.settingsView != nil {
+			return a.settingsView.View()
+		}
+		return a.renderLoadingScreen("Loading settings")
 	}
 
 	return "Unknown state"

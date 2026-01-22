@@ -395,14 +395,16 @@ func (d *DonutChart) Render() string {
 
 // TimerDashboard combines the LCD timer and progress chart
 type TimerDashboard struct {
-	Hours       int
-	Minutes     int
-	TodayWorked float64
-	ShiftTarget float64
-	IsActive    bool
-	ProjectName string
-	TaskName    string
-	BlinkOn     bool // For blinking colon and status dot
+	Hours                 int
+	Minutes               int
+	TodayWorked           float64
+	ShiftTarget           float64
+	IsActive              bool
+	ProjectName           string
+	TaskName              string
+	BlinkOn               bool // For blinking colon and status dot
+	ButtonSelected        bool // Whether the Start/Stop button is selected
+	HistoryButtonSelected bool // Whether the History button is selected
 }
 
 // NewTimerDashboard creates a new timer dashboard
@@ -416,7 +418,7 @@ func NewTimerDashboard() *TimerDashboard {
 func (td *TimerDashboard) Render() string {
 	// Consistent dimensions for both boxes
 	boxWidth := 40
-	boxHeight := 12
+	boxHeight := 14 // Increased to accommodate button
 	contentWidth := boxWidth - 6 // Account for border and padding
 
 	// Container style with fixed dimensions
@@ -487,7 +489,32 @@ func (td *TimerDashboard) Render() string {
 		projectInfo = infoStyle.Render(" ")
 	}
 
-	// Combine timer section
+	// Start/Stop button
+	buttonText := "▶ Start Timer"
+	buttonColor := lipgloss.Color("#2ECC71") // Green for start
+	if td.IsActive {
+		buttonText = "■ Stop Timer"
+		buttonColor = lipgloss.Color("#E74C3C") // Red for stop
+	}
+
+	buttonStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(buttonColor).
+		Padding(0, 2).
+		Bold(true)
+
+	if td.ButtonSelected {
+		buttonStyle = buttonStyle.
+			Background(lipgloss.Color("#DDA036")).
+			Underline(true)
+	}
+
+	buttonCentered := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(contentWidth).
+		Render(buttonStyle.Render(buttonText))
+
+	// Combine timer section with button
 	timerSection := lipgloss.JoinVertical(
 		lipgloss.Center,
 		statusIndicator,
@@ -495,6 +522,8 @@ func (td *TimerDashboard) Render() string {
 		centeredLCD,
 		"",
 		projectInfo,
+		"",
+		buttonCentered,
 	)
 
 	// Progress gauge section
@@ -563,6 +592,27 @@ func (td *TimerDashboard) renderGaugeSection(contentWidth int) string {
 		Align(lipgloss.Center).
 		Width(contentWidth)
 
+	// History button
+	historyButtonStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#569FC6")).
+		Padding(0, 2).
+		Bold(true)
+
+	if td.HistoryButtonSelected {
+		historyButtonStyle = historyButtonStyle.
+			Background(lipgloss.Color("#DDA036")).
+			Underline(true)
+	}
+
+	historyButtonCentered := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(contentWidth).
+		Render(historyButtonStyle.Render("📋 History"))
+
+	// Structure to match timer section for alignment:
+	// Timer: status, "", LCD (5 lines), "", projectInfo, "", button
+	// Gauge: title, "", bar, "", pct+hours (combined), "", button
 	return lipgloss.JoinVertical(
 		lipgloss.Center,
 		titleStyle.Render("Daily Progress"),
@@ -571,5 +621,10 @@ func (td *TimerDashboard) renderGaugeSection(contentWidth int) string {
 		"",
 		pctStyle.Render(fmt.Sprintf("%.0f%%", percentage*100)),
 		hoursStyle.Render(fmt.Sprintf("%.1fh / %.1fh", td.TodayWorked, td.ShiftTarget)),
+		"",
+		"", // Extra empty lines to align with timer box
+		"",
+		"",
+		historyButtonCentered,
 	)
 }

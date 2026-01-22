@@ -126,17 +126,19 @@ func (h *HistoryView) Init() tea.Cmd {
 }
 
 // getVisibleCount returns how many entries can fit on screen
+// Each entry now takes 3-4 rows (main row + optional task + description + separator)
 func (h *HistoryView) getVisibleCount() int {
-	availableHeight := h.height - 10
-	if availableHeight < 3 {
+	availableHeight := h.height - 12 // Account for header, borders, help text
+	if availableHeight < 4 {
 		return 1
 	}
-	count := availableHeight / 3
+	// Each entry takes approximately 4 rows (with task and separator)
+	count := availableHeight / 4
 	if count < 1 {
 		count = 1
 	}
-	if count > 15 {
-		count = 15
+	if count > 12 {
+		count = 12
 	}
 	return count
 }
@@ -147,6 +149,8 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		h.width = msg.Width
 		h.height = msg.Height
+		// Invalidate description cache on resize so they re-render with new width
+		h.descCache = make(map[int]string)
 
 	case tea.MouseMsg:
 		// Handle mouse clicks in list mode
@@ -875,6 +879,19 @@ func (h *HistoryView) renderListView() string {
 	)
 }
 
+// getDetailViewWidth returns a responsive width for detail/edit views
+func (h *HistoryView) getDetailViewWidth() int {
+	// Use 70% of terminal width, with min 60 and max 100
+	width := h.width * 70 / 100
+	if width < 60 {
+		width = 60
+	}
+	if width > 100 {
+		width = 100
+	}
+	return width
+}
+
 // renderDetailView renders the detail view for a selected entry
 func (h *HistoryView) renderDetailView() string {
 	if h.selectedEntry == nil {
@@ -883,6 +900,10 @@ func (h *HistoryView) renderDetailView() string {
 
 	entry := h.selectedEntry
 	header := h.renderHeader()
+
+	// Get responsive width
+	containerWidth := h.getDetailViewWidth()
+	contentWidth := containerWidth - 8 // Account for border and padding
 
 	// Styles
 	labelStyle := lipgloss.NewStyle().
@@ -902,7 +923,7 @@ func (h *HistoryView) renderDetailView() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(1, 3).
-		Width(70)
+		Width(containerWidth)
 
 	dividerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0"))
@@ -936,7 +957,7 @@ func (h *HistoryView) renderDetailView() string {
 	var rows []string
 
 	// Status badge row
-	statusRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(62).Render(statusBadge)
+	statusRow := lipgloss.NewStyle().Align(lipgloss.Center).Width(contentWidth).Render(statusBadge)
 	rows = append(rows, statusRow)
 	rows = append(rows, "")
 
@@ -979,7 +1000,7 @@ func (h *HistoryView) renderDetailView() string {
 
 	// Divider
 	rows = append(rows, "")
-	rows = append(rows, dividerStyle.Render(strings.Repeat("─", 62)))
+	rows = append(rows, dividerStyle.Render(strings.Repeat("─", contentWidth)))
 	rows = append(rows, "")
 
 	// Date
@@ -1017,7 +1038,7 @@ func (h *HistoryView) renderDetailView() string {
 
 	// Divider
 	rows = append(rows, "")
-	rows = append(rows, dividerStyle.Render(strings.Repeat("─", 62)))
+	rows = append(rows, dividerStyle.Render(strings.Repeat("─", contentWidth)))
 	rows = append(rows, "")
 
 	// Description
@@ -1026,19 +1047,19 @@ func (h *HistoryView) renderDetailView() string {
 	if desc == "" {
 		desc = "(no description)"
 	}
-	descStyle := lipgloss.NewStyle().
+	descTextStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Width(60).
+		Width(contentWidth - 2).
 		MarginLeft(2)
 	// Render description (strip HTML)
-	cleanDesc := renderHistoryDescription(desc, 58)
-	rows = append(rows, descStyle.Render(cleanDesc))
+	cleanDesc := renderHistoryDescription(desc, contentWidth-4)
+	rows = append(rows, descTextStyle.Render(cleanDesc))
 
 	// POW Video (Proof of Work)
 	if h.store != nil {
 		if powVideoPath, err := h.store.GetPowVideoPath(entry.ID); err == nil && powVideoPath != "" {
 			rows = append(rows, "")
-			rows = append(rows, dividerStyle.Render(strings.Repeat("─", 62)))
+			rows = append(rows, dividerStyle.Render(strings.Repeat("─", contentWidth)))
 			rows = append(rows, "")
 
 			powLabelStyle := lipgloss.NewStyle().
@@ -1048,7 +1069,7 @@ func (h *HistoryView) renderDetailView() string {
 
 			powPathStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#569FC6")).
-				Width(60).
+				Width(contentWidth - 2).
 				MarginLeft(2)
 			rows = append(rows, powPathStyle.Render(powVideoPath))
 		}
@@ -1056,13 +1077,13 @@ func (h *HistoryView) renderDetailView() string {
 
 	// Success/Error messages
 	if h.editSuccess != "" {
-		successStyle := lipgloss.NewStyle().
+		successMsgStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#569FC6")).
 			Bold(true).
 			Align(lipgloss.Center).
-			Width(62)
+			Width(contentWidth)
 		rows = append(rows, "")
-		rows = append(rows, successStyle.Render(h.editSuccess))
+		rows = append(rows, successMsgStyle.Render(h.editSuccess))
 	}
 
 	content := containerStyle.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
@@ -1130,6 +1151,10 @@ func (h *HistoryView) renderEditView() string {
 	entry := h.selectedEntry
 	header := h.renderHeader()
 
+	// Get responsive width
+	containerWidth := h.getDetailViewWidth()
+	contentWidth := containerWidth - 8 // Account for border and padding
+
 	// Styles
 	labelStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
@@ -1150,7 +1175,7 @@ func (h *HistoryView) renderEditView() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(1, 3).
-		Width(70)
+		Width(containerWidth)
 
 	dividerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0"))
@@ -1197,8 +1222,11 @@ func (h *HistoryView) renderEditView() string {
 
 	// Divider
 	rows = append(rows, "")
-	rows = append(rows, dividerStyle.Render(strings.Repeat("─", 62)))
+	rows = append(rows, dividerStyle.Render(strings.Repeat("─", contentWidth)))
 	rows = append(rows, "")
+
+	// Update description field width dynamically
+	h.editFields.description.Width = contentWidth - 20
 
 	// Editable fields
 	// Description
@@ -1247,13 +1275,13 @@ func (h *HistoryView) renderEditView() string {
 
 	// Error/Success messages
 	if h.editError != "" {
-		errorStyle := lipgloss.NewStyle().
+		editErrorStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF6B6B")).
 			Bold(true).
 			Align(lipgloss.Center).
-			Width(62)
+			Width(contentWidth)
 		rows = append(rows, "")
-		rows = append(rows, errorStyle.Render("Error: "+h.editError))
+		rows = append(rows, editErrorStyle.Render("Error: "+h.editError))
 	}
 
 	if h.isSaving {
@@ -1261,7 +1289,7 @@ func (h *HistoryView) renderEditView() string {
 			Foreground(lipgloss.Color("#DDA036")).
 			Bold(true).
 			Align(lipgloss.Center).
-			Width(62)
+			Width(contentWidth)
 		rows = append(rows, "")
 		rows = append(rows, savingStyle.Render("Saving..."))
 	}
@@ -1351,7 +1379,53 @@ func (h *HistoryView) renderScrollBar() string {
 	return sb.String()
 }
 
+// getTableColumnWidths calculates responsive column widths based on available width
+// Returns widths and whether to show times (when terminal is wide enough)
+func (h *HistoryView) getTableColumnWidths() (projectW, activityW, dateW, timesW, hoursW, statusW, rowW int, showTimes bool) {
+	// Leave space for borders, padding, and scrollbar
+	availableWidth := h.width - 12 // 2 border + 4 padding + 6 for scrollbar and margin
+	if availableWidth < 70 {
+		availableWidth = 70 // Minimum width
+	}
+	if availableWidth > 200 {
+		availableWidth = 200 // Maximum width to prevent excessive stretching
+	}
+
+	// Fixed width columns
+	dateW = 10       // "Mon 01-02" format
+	hoursW = 7       // "12.5h" format
+	statusW = 10     // Status with icons
+	timesW = 14      // "09:00 - 17:30" format
+
+	// Show times only when we have enough width (>110 chars)
+	showTimes = availableWidth > 110
+
+	// Calculate remaining width for project and activity
+	fixedWidth := dateW + hoursW + statusW
+	if showTimes {
+		fixedWidth += timesW
+	}
+
+	variableWidth := availableWidth - fixedWidth
+	// Split variable width between project and activity (60/40)
+	projectW = variableWidth * 55 / 100
+	activityW = variableWidth - projectW
+
+	if projectW < 15 {
+		projectW = 15
+	}
+	if activityW < 12 {
+		activityW = 12
+	}
+
+	rowW = availableWidth
+	return
+}
+
 // renderScrollableTable renders the visible portion of the history table
+// Layout: Row 1: Project | Activity | Date | [Times] | Hours | Status
+//         Row 2: Task name (indented, if present)
+//         Row 3: Description (indented)
 func (h *HistoryView) renderScrollableTable() string {
 	visibleCount := h.getVisibleCount()
 	totalEntries := len(h.allHistory)
@@ -1371,54 +1445,80 @@ func (h *HistoryView) renderScrollableTable() string {
 
 	visibleEntries := h.allHistory[startIdx:endIdx]
 
-	// Column widths: 12+12+10+10+6+10 = 60 (matches header width)
+	// Get responsive column widths
+	projectW, activityW, dateW, timesW, hoursW, statusW, rowW, showTimes := h.getTableColumnWidths()
+
+	// Styles
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#DDA036")).
-		Width(12).
 		Align(lipgloss.Left)
 
 	cellStyle := lipgloss.NewStyle().
-		Width(12).
+		Align(lipgloss.Left)
+
+	projectCellStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#569FC6")).
+		Bold(true).
 		Align(lipgloss.Left)
 
 	selectedStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#000000")).
 		Background(lipgloss.Color("#DDA036")).
-		Width(12).
 		Align(lipgloss.Left)
 
-	descStyle := lipgloss.NewStyle().
+	taskStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
-		Width(56).
-		Align(lipgloss.Left)
+		Italic(true)
+
+	selectedTaskStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#000000")).
+		Background(lipgloss.Color("#DDA036")).
+		Italic(true)
+
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#6A6A6A"))
 
 	selectedDescStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#000000")).
-		Background(lipgloss.Color("#DDA036")).
-		Width(56).
-		Align(lipgloss.Left)
+		Background(lipgloss.Color("#DDA036"))
 
-	header := lipgloss.JoinHorizontal(lipgloss.Top,
-		headerStyle.Render("Project"),
-		headerStyle.Render("Task"),
-		headerStyle.Width(10).Render("Activity"),
-		headerStyle.Width(10).Render("Date"),
-		headerStyle.Width(6).Render("Hrs"),
-		headerStyle.Width(10).Render("Status"),
-	)
+	// Build header row: Project | Activity | Date | [Times] | Hours | Status
+	var headerParts []string
+	headerParts = append(headerParts, headerStyle.Width(projectW).Render("Project"))
+	headerParts = append(headerParts, headerStyle.Width(activityW).Render("Activity"))
+	headerParts = append(headerParts, headerStyle.Width(dateW).Render("Date"))
+	if showTimes {
+		headerParts = append(headerParts, headerStyle.Width(timesW).Render("Times"))
+	}
+	headerParts = append(headerParts, headerStyle.Width(hoursW).Render("Hours"))
+	headerParts = append(headerParts, headerStyle.Width(statusW).Render("Status"))
+	header := lipgloss.JoinHorizontal(lipgloss.Top, headerParts...)
 
 	var rows []string
 	for i, entry := range visibleEntries {
 		absoluteIdx := startIdx + i
 		isSelected := absoluteIdx == h.cursor
 
-		project := truncate(entry.ProjectName, 10)
-		task := truncate(entry.TaskName, 10)
-		activity := truncate(entry.Activity(), 8)
-		dateStr := entry.StartTime().Format("01-02") // Shorter date format
+		// Format data
+		project := truncate(entry.ProjectName, projectW-2)
+		if project == "" {
+			project = "(no project)"
+		}
+		activity := truncate(entry.Activity(), activityW-2)
+		dateStr := entry.StartTime().Format("Mon 01-02")
 		hours := fmt.Sprintf("%.1fh", entry.Duration())
 
+		// Format times
+		startTimeStr := entry.StartTime().Format("15:04")
+		var timesStr string
+		if entry.EndTime().IsZero() {
+			timesStr = startTimeStr + " - ..."
+		} else {
+			timesStr = startTimeStr + " - " + entry.EndTime().Format("15:04")
+		}
+
+		// Status with icons
 		status := "Pend"
 		if entry.IsSubmitted() {
 			status = "✓ Sub"
@@ -1427,72 +1527,96 @@ func (h *HistoryView) renderScrollableTable() string {
 		}
 
 		// Check if entry has POW video linked
-		hasPow := false
 		if h.store != nil {
 			if powPath, err := h.store.GetPowVideoPath(entry.ID); err == nil && powPath != "" {
-				hasPow = true
+				status = "🎬" + status
 			}
 		}
-		if hasPow {
-			status = "🎬" + status
+
+		// Task for subrow
+		task := entry.TaskName
+		// Parse task to remove budget info if present
+		taskName, _, _, _ := ParseTaskLabelParts(task)
+		if taskName != "" {
+			task = taskName
 		}
 
-		var row1 string
+		// Row 1: Project | Activity | Date | [Times] | Hours | Status
+		var row1Parts []string
 		if isSelected {
-			row1 = lipgloss.JoinHorizontal(lipgloss.Top,
-				selectedStyle.Render(project),
-				selectedStyle.Render(task),
-				selectedStyle.Width(10).Render(activity),
-				selectedStyle.Width(10).Render(dateStr),
-				selectedStyle.Width(6).Render(hours),
-				selectedStyle.Width(10).Render(status),
-			)
+			row1Parts = append(row1Parts, selectedStyle.Width(projectW).Render(project))
+			row1Parts = append(row1Parts, selectedStyle.Width(activityW).Render(activity))
+			row1Parts = append(row1Parts, selectedStyle.Width(dateW).Render(dateStr))
+			if showTimes {
+				row1Parts = append(row1Parts, selectedStyle.Width(timesW).Render(timesStr))
+			}
+			row1Parts = append(row1Parts, selectedStyle.Width(hoursW).Render(hours))
+			row1Parts = append(row1Parts, selectedStyle.Width(statusW).Render(status))
 		} else {
-			row1 = lipgloss.JoinHorizontal(lipgloss.Top,
-				cellStyle.Render(project),
-				cellStyle.Render(task),
-				cellStyle.Width(10).Render(activity),
-				cellStyle.Width(10).Render(dateStr),
-				cellStyle.Width(6).Render(hours),
-				cellStyle.Width(10).Render(status),
-			)
+			row1Parts = append(row1Parts, projectCellStyle.Width(projectW).Render(project))
+			row1Parts = append(row1Parts, cellStyle.Width(activityW).Render(activity))
+			row1Parts = append(row1Parts, cellStyle.Width(dateW).Render(dateStr))
+			if showTimes {
+				row1Parts = append(row1Parts, cellStyle.Width(timesW).Render(timesStr))
+			}
+			row1Parts = append(row1Parts, cellStyle.Width(hoursW).Render(hours))
+			row1Parts = append(row1Parts, cellStyle.Width(statusW).Render(status))
+		}
+		row1 := lipgloss.JoinHorizontal(lipgloss.Top, row1Parts...)
+
+		// Row 2: Task name (indented) - only if task exists
+		var row2 string
+		if task != "" {
+			taskTrunc := truncate(task, rowW-6)
+			if isSelected {
+				row2 = selectedTaskStyle.Width(rowW).Render("  📋 " + taskTrunc)
+			} else {
+				row2 = taskStyle.Width(rowW).Render("  📋 " + taskTrunc)
+			}
 		}
 
+		// Row 3: Description (indented)
 		renderedDesc, ok := h.descCache[absoluteIdx]
 		if !ok {
 			desc := entry.GetDescriptionString()
 			if desc == "" {
 				renderedDesc = "(no description)"
 			} else {
-				renderedDesc = renderHistoryDescription(desc, 52)
+				renderedDesc = renderHistoryDescription(desc, rowW-6)
 			}
 			h.descCache[absoluteIdx] = renderedDesc
 		}
 
-		var row2 string
+		var row3 string
 		if isSelected {
-			row2 = selectedDescStyle.Render("  " + renderedDesc)
+			row3 = selectedDescStyle.Width(rowW).Render("  💬 " + renderedDesc)
 		} else {
-			row2 = descStyle.Render("  " + renderedDesc)
+			row3 = descStyle.Width(rowW).Render("  💬 " + renderedDesc)
 		}
 
-		rows = append(rows, row1, row2)
+		// Add all rows for this entry
+		rows = append(rows, row1)
+		if row2 != "" {
+			rows = append(rows, row2)
+		}
+		rows = append(rows, row3)
 
+		// Add separator between entries
 		if i < len(visibleEntries)-1 {
 			sep := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#9A9EA0")).
-				Render(strings.Repeat("─", 56))
+				Render(strings.Repeat("─", rowW))
 			rows = append(rows, sep)
 		}
 	}
 
-	var topIndicator, bottomIndicator string
 	indicatorStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#DDA036")).
 		Bold(true).
 		Align(lipgloss.Center).
-		Width(56)
+		Width(rowW)
 
+	var topIndicator, bottomIndicator string
 	if startIdx > 0 {
 		topIndicator = indicatorStyle.Render(fmt.Sprintf("↑ %d more entries above", startIdx))
 	}

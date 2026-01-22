@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
+	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/pow"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 )
@@ -23,16 +24,9 @@ const blinkInterval = 1 * time.Second
 type MainMenuItem int
 
 const (
-	MenuCreateTimer MainMenuItem = iota
-	MenuStopTimer
-	MenuFavourites
-	MenuWorkspaceAssociations
-	MenuCodeRepos
-	MenuViewHistory
+	MenuSettings MainMenuItem = iota
 	MenuOpenMonitor // Only visible in debug builds
 	MenuViewAPILog  // Only visible in debug builds
-	MenuLogOut
-	MenuQuit
 )
 
 // MainMenuModel represents the main menu screen
@@ -44,13 +38,11 @@ type MainMenuModel struct {
 	todayHours             float64
 	selectedItem           int
 	menuItems              []menuItem
-	width                  int
-	height                 int
-	err                    error
-	statusMsg              string // Informational status message (not an error)
-	confirmLogout          bool
-	logoutConfirmSelection int // 0 = Yes, 1 = No
-	dashboard              *TimerDashboard
+	width     int
+	height    int
+	err       error
+	statusMsg string // Informational status message (not an error)
+	dashboard *TimerDashboard
 	timerStartTime         time.Time
 	blinkOn                bool // Blink state for timer indicators
 
@@ -61,6 +53,13 @@ type MainMenuModel struct {
 
 	// POW (Proof of Work) capturer for screenshot capture during timer sessions
 	powCapturer *pow.Capturer
+
+	// Favourites grid state (embedded in main menu)
+	favourites         *models.FavouriteAssociations
+	favSelectedSlot    int  // 0-8 for the 3x3 grid
+	favStorage         *storage.Storage
+	favSuccessMessage  string
+	favStatusMessage   string
 }
 
 type menuItem struct {
@@ -72,14 +71,27 @@ type menuItem struct {
 // NewMainMenu creates a new main menu
 // powCapturer can be nil if POW mode is not enabled
 func NewMainMenu(apiClient *api.Client, username string, powCapturer *pow.Capturer) *MainMenuModel {
+	// Initialize storage and load favourites
+	cfg, _ := config.LoadConfig()
+	storageDir := cfg.GetStorageDir()
+	store, _ := storage.New(storageDir)
+
+	favourites, err := store.LoadFavouriteAssociations()
+	if err != nil {
+		favourites = models.NewFavouriteAssociations()
+	}
+
 	return &MainMenuModel{
-		apiClient:    apiClient,
-		username:     username,
-		selectedItem: 0,
-		width:        80,
-		height:       24,
-		dashboard:    NewTimerDashboard(),
-		powCapturer:  powCapturer,
+		apiClient:       apiClient,
+		username:        username,
+		selectedItem:    0,
+		width:           80,
+		height:          24,
+		dashboard:       NewTimerDashboard(),
+		powCapturer:     powCapturer,
+		favourites:      favourites,
+		favSelectedSlot: 0,
+		favStorage:      store,
 	}
 }
 
@@ -100,11 +112,28 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
-		// Handle mouse clicks on menu items
+		// Handle mouse clicks on menu items, favourites grid, and dashboard button
 		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
 			// Skip if dialogs are open
-			if m.confirmStopTimer || m.confirmLogout {
+			if m.confirmStopTimer {
 				return m, nil
+			}
+
+			// Check if click is on the dashboard Start/Stop button
+			if m.isClickOnDashboardButton(msg.X, msg.Y) {
+				return m, m.handleDashboardButtonClick()
+			}
+
+			// Check if click is on the dashboard History button
+			if m.isClickOnHistoryButton(msg.X, msg.Y) {
+				return m, func() tea.Msg { return launchHistoryViewMsg{} }
+			}
+
+			// First check if click is on favourites grid
+			favSlotIndex := m.getFavSlotFromMousePosition(msg.X, msg.Y)
+			if favSlotIndex >= 0 && favSlotIndex < 9 {
+				m.favSelectedSlot = favSlotIndex
+				return m, m.handleFavouriteSelect()
 			}
 
 			// Calculate which menu item was clicked
@@ -180,35 +209,6 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle logout confirmation dialog
-		if m.confirmLogout {
-			switch msg.String() {
-			case "left", "h":
-				m.logoutConfirmSelection = 0 // Yes
-				return m, nil
-			case "right", "l":
-				m.logoutConfirmSelection = 1 // No
-				return m, nil
-			case "enter":
-				if m.logoutConfirmSelection == 0 {
-					// Yes, log out
-					return m, m.performLogout()
-				} else {
-					// No, cancel
-					m.confirmLogout = false
-					return m, nil
-				}
-			case "n", "esc":
-				// Cancel logout
-				m.confirmLogout = false
-				return m, nil
-			case "y":
-				// Confirm logout
-				return m, m.performLogout()
-			}
-			return m, nil
-		}
-
 		// Normal menu navigation
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c", "q", "esc"))):
@@ -223,6 +223,20 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("p"))):
 			// Toggle POW mode
 			return m, m.togglePowMode()
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("s"))):
+			// Start/Stop timer shortcut
+			return m, m.handleDashboardButtonClick()
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("h"))):
+			// History shortcut
+			return m, func() tea.Msg { return launchHistoryViewMsg{} }
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"))):
+			// Quick select favourite slot by number
+			slotNum := int(msg.String()[0] - '0')
+			m.favSelectedSlot = slotNum - 1
+			return m, m.handleFavouriteSelect()
 
 		case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
 			m.selectedItem--
@@ -358,6 +372,19 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.startBlinkTicker()
 		}
 		return m, nil
+
+	case favTimerReadyToStartMsg:
+		// Previous timer stopped, now start the new favourite timer
+		return m, m.startFavouriteTimer(msg.slotIndex)
+
+	case favTimerStartedFromMainMsg:
+		// Timer started from favourites grid, reload active timer
+		m.favSuccessMessage = fmt.Sprintf("Timer started: %s", msg.projectName)
+		m.err = nil
+		return m, tea.Batch(
+			m.loadActiveTimer(),
+			m.loadHoursData(),
+		)
 	}
 
 	return m, nil
@@ -371,19 +398,32 @@ func (m *MainMenuModel) View() string {
 	// Render dashboard
 	dashboard := m.dashboard.Render()
 
+	// Render favourites grid
+	favouritesGrid := m.renderFavouritesGrid()
+
 	// Render menu items or confirmation dialog
 	var mainContent string
 	if m.confirmStopTimer {
 		mainContent = m.renderStopTimerConfirmation()
-	} else if m.confirmLogout {
-		mainContent = m.renderLogoutConfirmation()
 	} else {
 		mainContent = m.renderMenu()
 	}
 
 	// Render status or error message if any
 	var messageContent string
-	if m.statusMsg != "" {
+	if m.favSuccessMessage != "" {
+		statusStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#2ECC71")).
+			Bold(true).
+			Align(lipgloss.Center)
+		messageContent = statusStyle.Render(m.favSuccessMessage)
+	} else if m.favStatusMessage != "" {
+		statusStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#569FC6")).
+			Italic(true).
+			Align(lipgloss.Center)
+		messageContent = statusStyle.Render(m.favStatusMessage)
+	} else if m.statusMsg != "" {
 		statusStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#2ECC71")).
 			Bold(true).
@@ -401,7 +441,8 @@ func (m *MainMenuModel) View() string {
 	help := m.renderHelp()
 
 	// Combine main content (without help)
-	parts := []string{header, "", dashboard, "", mainContent}
+	// Layout: header -> dashboard -> favourites grid -> menu
+	parts := []string{header, "", dashboard, "", favouritesGrid, "", mainContent}
 	if messageContent != "" {
 		parts = append(parts, "", messageContent)
 	}
@@ -497,26 +538,22 @@ func (m *MainMenuModel) renderHelp() string {
 		return helpStyle.Render("Tab: Edit • ←/→: Select • Enter: Confirm • Ctrl+G: Add Commits • Esc: Cancel")
 	}
 
-	if m.confirmLogout {
-		return helpStyle.Render("←/→: Select • Enter/y: Confirm • n/Esc: Cancel")
-	}
-
 	powStatus := "off"
 	if m.powCapturer != nil && m.powCapturer.IsEnabled() {
 		powStatus = "on"
 	}
-	return helpStyle.Render(fmt.Sprintf("↑/↓: Navigate • Enter/Click: Select • o: Office • p: POW (%s) • Esc/q: Quit", powStatus))
+	return helpStyle.Render(fmt.Sprintf("s: Start/Stop • h: History • 1-9: Quick start • p: POW (%s) • q: Quit", powStatus))
 }
 
 // getMenuItemFromMousePosition calculates which menu item was clicked based on mouse coordinates
 // Returns -1 if the click was outside the menu area
 func (m *MainMenuModel) getMenuItemFromMousePosition(x, y int) int {
 	// The menu is rendered centered. We need to calculate its position.
-	// Header + dashboard + spacing take approximately 10-12 lines
-	// Menu starts after that, with each item taking 1 line
+	// Layout: header (~3) + dashboard (~16 with borders) + favourites grid (~17) + spacing = ~38 lines before menu
+	// Dashboard box height is now 14 + 2 borders = 16
 
-	// Estimate menu start Y (header ~3 lines + spacing + dashboard ~5 lines + spacing)
-	menuStartY := 10
+	// Estimate menu start Y (header ~3 + spacing + dashboard ~16 + spacing + favourites ~17 + spacing)
+	menuStartY := 38
 
 	// Check if click is within menu Y range
 	clickedIndex := y - menuStartY
@@ -539,38 +576,11 @@ func (m *MainMenuModel) getMenuItemFromMousePosition(x, y int) int {
 
 // updateMenuItems updates the menu items based on current state
 func (m *MainMenuModel) updateMenuItems() {
-	hasActiveTimer := m.activeTimer != nil
-
 	m.menuItems = []menuItem{
 		{
-			label:   "Create New Timer",
-			enabled: !hasActiveTimer,
-			action:  MenuCreateTimer,
-		},
-		{
-			label:   "Stop Running Timer",
-			enabled: hasActiveTimer,
-			action:  MenuStopTimer,
-		},
-		{
-			label:   "Favourites",
+			label:   "Settings",
 			enabled: true,
-			action:  MenuFavourites,
-		},
-		{
-			label:   "View Timesheet History",
-			enabled: true,
-			action:  MenuViewHistory,
-		},
-		{
-			label:   "Manage Workspace Associations",
-			enabled: true,
-			action:  MenuWorkspaceAssociations,
-		},
-		{
-			label:   "Manage Code Repos",
-			enabled: true,
-			action:  MenuCodeRepos,
+			action:  MenuSettings,
 		},
 	}
 
@@ -589,19 +599,6 @@ func (m *MainMenuModel) updateMenuItems() {
 			},
 		)
 	}
-
-	m.menuItems = append(m.menuItems,
-		menuItem{
-			label:   "Log Out",
-			enabled: true,
-			action:  MenuLogOut,
-		},
-		menuItem{
-			label:   "Quit",
-			enabled: true,
-			action:  MenuQuit,
-		},
-	)
 }
 
 // handleMenuSelection handles the selected menu item
@@ -613,37 +610,10 @@ func (m *MainMenuModel) handleMenuSelection() tea.Cmd {
 	action := m.menuItems[m.selectedItem].action
 
 	switch action {
-	case MenuCreateTimer:
-		// Launch the timer creation wizard
+	case MenuSettings:
+		// Launch settings screen
 		return func() tea.Msg {
-			return launchTimerCreationMsg{}
-		}
-
-	case MenuStopTimer:
-		return m.stopActiveTimer()
-
-	case MenuFavourites:
-		// Launch favourites screen
-		return func() tea.Msg {
-			return launchFavouritesMsg{}
-		}
-
-	case MenuWorkspaceAssociations:
-		// Launch workspace associations screen
-		return func() tea.Msg {
-			return launchWorkspaceAssociationsMsg{}
-		}
-
-	case MenuCodeRepos:
-		// Launch code repos screen
-		return func() tea.Msg {
-			return launchCodeReposMsg{}
-		}
-
-	case MenuViewHistory:
-		// Launch history view
-		return func() tea.Msg {
-			return launchHistoryViewMsg{}
+			return launchSettingsMsg{}
 		}
 
 	case MenuOpenMonitor:
@@ -659,15 +629,6 @@ func (m *MainMenuModel) handleMenuSelection() tea.Cmd {
 			m.err = err
 		}
 		return nil
-
-	case MenuLogOut:
-		// Show confirmation dialog
-		m.confirmLogout = true
-		m.logoutConfirmSelection = 1 // Default to "No"
-		return nil
-
-	case MenuQuit:
-		return tea.Quit
 	}
 
 	return nil
@@ -971,93 +932,6 @@ func (m *MainMenuModel) fetchGitHubCommits(owner, repo string, startTime, endTim
 	return api.FormatCommitsAsDescription(commits)
 }
 
-// performLogout deletes the auth token and quits the application
-func (m *MainMenuModel) performLogout() tea.Cmd {
-	return func() tea.Msg {
-		// Delete the auth token from disk
-		if err := config.DeleteToken(); err != nil {
-			return errorMsg(err)
-		}
-
-		return tea.Quit()
-	}
-}
-
-// renderLogoutConfirmation renders the logout confirmation dialog
-func (m *MainMenuModel) renderLogoutConfirmation() string {
-	dialogStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#DDA036")).
-		Padding(1, 2).
-		Width(50)
-
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Align(lipgloss.Center).
-		Width(46)
-
-	messageStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Align(lipgloss.Center).
-		Width(46)
-
-	buttonYesStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#9A9EA0")).
-		Padding(0, 2).
-		Margin(0, 1)
-
-	buttonYesSelectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#DDA036")).
-		Bold(true).
-		Padding(0, 2).
-		Margin(0, 1)
-
-	buttonNoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#9A9EA0")).
-		Padding(0, 2).
-		Margin(0, 1)
-
-	buttonNoSelectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#569FC6")).
-		Bold(true).
-		Padding(0, 2).
-		Margin(0, 1)
-
-	title := titleStyle.Render("Confirm Logout")
-	message := messageStyle.Render("Are you sure you want to log out?")
-
-	var yesButton, noButton string
-	if m.logoutConfirmSelection == 0 {
-		yesButton = buttonYesSelectedStyle.Render("Yes")
-		noButton = buttonNoStyle.Render("No")
-	} else {
-		yesButton = buttonYesStyle.Render("Yes")
-		noButton = buttonNoSelectedStyle.Render("No")
-	}
-
-	buttons := lipgloss.JoinHorizontal(lipgloss.Center, yesButton, noButton)
-	buttonsAligned := lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		Width(46).
-		Render(buttons)
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		"",
-		message,
-		"",
-		buttonsAligned,
-	)
-
-	return dialogStyle.Render(content)
-}
-
 // renderStopTimerConfirmation renders the stop timer confirmation dialog with editable description
 func (m *MainMenuModel) renderStopTimerConfirmation() string {
 	dialogStyle := lipgloss.NewStyle().
@@ -1201,6 +1075,345 @@ func (m *MainMenuModel) startBlinkTicker() tea.Cmd {
 	})
 }
 
+// renderFavouritesGrid renders the embedded 3x3 favourites grid
+func (m *MainMenuModel) renderFavouritesGrid() string {
+	buttonWidth := 18
+	buttonHeight := 3 // Compact height for main menu
+
+	var rows []string
+
+	for row := 0; row < 3; row++ {
+		var cols []string
+		for col := 0; col < 3; col++ {
+			slotIndex := row*3 + col
+			cols = append(cols, m.renderFavButton(slotIndex, buttonWidth, buttonHeight))
+		}
+		rowContent := lipgloss.JoinHorizontal(lipgloss.Center, cols...)
+		rows = append(rows, rowContent)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Center, rows...)
+}
+
+// renderFavButton renders a single favourite button for the main menu
+func (m *MainMenuModel) renderFavButton(slotIndex, width, height int) string {
+	assoc := m.favourites.Associations[slotIndex]
+	isSelected := slotIndex == m.favSelectedSlot
+	isRunning := m.isFavSlotRunning(slotIndex)
+
+	// Base style
+	style := lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Align(lipgloss.Center, lipgloss.Center).
+		Border(lipgloss.RoundedBorder()).
+		Margin(0, 1)
+
+	// Style based on state - running takes priority
+	if isRunning {
+		style = style.
+			BorderForeground(ColorGreen).
+			Foreground(ColorGreen).
+			Bold(true)
+	} else if isSelected {
+		style = style.
+			BorderForeground(ColorBlue).
+			Foreground(ColorBlue).
+			Bold(true)
+	} else if assoc.HasAssociation() {
+		style = style.
+			BorderForeground(ColorGray).
+			Foreground(ColorWhite)
+	} else {
+		style = style.
+			BorderForeground(ColorDarkGray).
+			Foreground(ColorGray)
+	}
+
+	// Button content - compact for main menu
+	slotNum := fmt.Sprintf("[%d]", slotIndex+1)
+	name := assoc.Name
+	if name == "" {
+		name = assoc.GetShortDisplayString(width - 4)
+	} else if len(name) > width-4 {
+		name = name[:width-5] + "…"
+	}
+
+	var content string
+	if assoc.HasAssociation() {
+		if isRunning {
+			content = lipgloss.JoinVertical(
+				lipgloss.Center,
+				slotNum+" ▶",
+				name,
+			)
+		} else {
+			content = lipgloss.JoinVertical(
+				lipgloss.Center,
+				slotNum,
+				name,
+			)
+		}
+	} else {
+		content = lipgloss.JoinVertical(
+			lipgloss.Center,
+			slotNum,
+			"Empty",
+		)
+	}
+
+	return style.Render(content)
+}
+
+// isFavSlotRunning checks if a slot's project/task/activity matches the currently running timer
+func (m *MainMenuModel) isFavSlotRunning(slotIndex int) bool {
+	if m.activeTimer == nil {
+		return false
+	}
+
+	assoc := m.favourites.Associations[slotIndex]
+	if !assoc.HasAssociation() {
+		return false
+	}
+
+	// Compare project, task, and activity IDs
+	if m.activeTimer.ProjectID != assoc.ProjectID {
+		return false
+	}
+
+	// Compare task - both must match (or both be unset)
+	activeTaskID := m.activeTimer.TaskID.Value
+	if activeTaskID != assoc.TaskID {
+		return false
+	}
+
+	// Compare activity
+	if m.activeTimer.ActivityID != assoc.ActivityID {
+		return false
+	}
+
+	return true
+}
+
+// getFavSlotFromMousePosition calculates which favourite slot was clicked
+func (m *MainMenuModel) getFavSlotFromMousePosition(x, y int) int {
+	// Grid layout constants (must match renderFavButton)
+	buttonWidth := 18 + 2  // width + margin
+	buttonHeight := 3 + 2  // height + borders (rounded border adds 2)
+
+	// Calculate grid dimensions
+	gridWidth := buttonWidth * 3
+	gridHeight := buttonHeight * 3
+
+	// Calculate actual vertical position based on rendered layout:
+	// - Header: ~3 lines
+	// - Empty line: 1
+	// - Dashboard: boxHeight(14) + borders(2) = 16 lines
+	// - Empty line: 1
+	// Total before favourites grid: ~21 lines
+	gridStartY := 21
+
+	// Calculate grid start X position (centered)
+	gridStartX := (m.width - gridWidth) / 2
+
+	// Check if click is within grid bounds
+	if x < gridStartX || x >= gridStartX+gridWidth {
+		return -1
+	}
+	if y < gridStartY || y >= gridStartY+gridHeight {
+		return -1
+	}
+
+	// Calculate column (0-2) and row (0-2)
+	col := (x - gridStartX) / buttonWidth
+	row := (y - gridStartY) / buttonHeight
+
+	// Bounds check
+	if col < 0 || col > 2 || row < 0 || row > 2 {
+		return -1
+	}
+
+	return row*3 + col
+}
+
+// handleFavouriteSelect handles starting a timer from a favourite slot
+func (m *MainMenuModel) handleFavouriteSelect() tea.Cmd {
+	assoc := m.favourites.Associations[m.favSelectedSlot]
+	if !assoc.HasAssociation() {
+		m.err = fmt.Errorf("slot %d is not configured - use Favourites menu to edit", m.favSelectedSlot+1)
+		return nil
+	}
+
+	// Check if this slot is already running
+	if m.isFavSlotRunning(m.favSelectedSlot) {
+		m.favStatusMessage = "This task is already running"
+		return nil
+	}
+
+	// Check if there's an active timer that needs to be stopped first
+	if m.activeTimer != nil {
+		return m.stopCurrentAndStartFavourite(m.favSelectedSlot)
+	}
+
+	// No active timer, just start new one
+	return m.startFavouriteTimer(m.favSelectedSlot)
+}
+
+// stopCurrentAndStartFavourite stops the current timer and starts a new one from favourite
+func (m *MainMenuModel) stopCurrentAndStartFavourite(slotIndex int) tea.Cmd {
+	return func() tea.Msg {
+		if m.activeTimer == nil {
+			return favTimerReadyToStartMsg{slotIndex: slotIndex}
+		}
+
+		// Capture entry ID for POW video mapping
+		entryID := m.activeTimer.ID
+
+		// Try to get git commits for description
+		description := m.fetchGitHubCommitsForTimer()
+
+		// Stop the timer
+		var err error
+		if description != "" {
+			err = m.apiClient.StopTimesheetWithDescription(m.activeTimer, description)
+		} else {
+			err = m.apiClient.StopTimesheet(m.activeTimer)
+		}
+
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to stop timer: %w", err))
+		}
+
+		// Stop POW session and generate video
+		if m.powCapturer != nil && m.powCapturer.IsEnabled() {
+			videoPath, err := m.powCapturer.StopSession()
+			if err != nil {
+				menuDebugLog.Printf("Failed to stop POW session: %v", err)
+			} else if videoPath != "" {
+				menuDebugLog.Printf("POW video created: %s", videoPath)
+				cfg, cfgErr := config.LoadConfig()
+				if cfgErr == nil {
+					store, storeErr := storage.New(cfg.GetStorageDir())
+					if storeErr == nil {
+						_ = store.SavePowVideoPath(entryID, videoPath)
+					}
+				}
+			}
+		}
+
+		return favTimerReadyToStartMsg{slotIndex: slotIndex}
+	}
+}
+
+// startFavouriteTimer starts a timer from a favourite slot
+func (m *MainMenuModel) startFavouriteTimer(slotIndex int) tea.Cmd {
+	return func() tea.Msg {
+		assoc := m.favourites.Associations[slotIndex]
+		if !assoc.HasAssociation() {
+			return errorMsg(fmt.Errorf("slot %d is not configured", slotIndex+1))
+		}
+
+		// Build description from favourite name if available
+		description := ""
+		if assoc.Name != "" {
+			description = assoc.Name
+		}
+
+		// Create the TimeEntry model
+		entry := models.TimeEntry{
+			ProjectID:   fmt.Sprintf("%d", assoc.ProjectID),
+			ActivityID:  fmt.Sprintf("%d", assoc.ActivityID),
+			Description: description,
+			StartTime:   time.Now(),
+		}
+
+		// Set TaskID if configured
+		if assoc.TaskID > 0 {
+			taskID := fmt.Sprintf("%d", assoc.TaskID)
+			entry.TaskID = &taskID
+		}
+
+		err := m.apiClient.CreateTimesheet(entry)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to start timer: %w", err))
+		}
+
+		return favTimerStartedFromMainMsg{projectName: assoc.ProjectName}
+	}
+}
+
+// isClickOnDashboardButton checks if a mouse click is on the dashboard Start/Stop button
+func (m *MainMenuModel) isClickOnDashboardButton(x, y int) bool {
+	// Dashboard layout:
+	// - Header: ~3 lines
+	// - Empty line: 1
+	// - Dashboard box starts at ~4, height is 14 (increased for button)
+	// - Button is at the bottom of the timer box (left box)
+	// Timer box is 40 wide, centered with gauge box (also 40 wide) with 2 space gap
+	// Total dashboard width: 40 + 2 + 40 = 82
+
+	dashboardWidth := 82
+	timerBoxWidth := 40
+	dashboardStartX := (m.width - dashboardWidth) / 2
+	timerBoxEndX := dashboardStartX + timerBoxWidth
+
+	// Button is roughly at line 15-16 (header 3 + empty 1 + box content ~11-12)
+	buttonY := 15
+
+	// Check if click is within timer box horizontal bounds
+	if x < dashboardStartX || x > timerBoxEndX {
+		return false
+	}
+
+	// Check if click is on or near the button row
+	if y >= buttonY-1 && y <= buttonY+1 {
+		return true
+	}
+
+	return false
+}
+
+// handleDashboardButtonClick handles clicking the Start/Stop button in the dashboard
+func (m *MainMenuModel) handleDashboardButtonClick() tea.Cmd {
+	if m.activeTimer != nil {
+		// Stop the timer
+		return m.stopActiveTimer()
+	}
+	// Start a new timer - launch timer creation
+	return func() tea.Msg {
+		return launchTimerCreationMsg{}
+	}
+}
+
+// isClickOnHistoryButton checks if a mouse click is on the History button in the Daily Progress box
+func (m *MainMenuModel) isClickOnHistoryButton(x, y int) bool {
+	// Dashboard layout:
+	// - The Daily Progress box is to the right of the timer box
+	// - Timer box is 40 wide, then 2 space gap, then gauge box 40 wide
+	// Total dashboard width: 40 + 2 + 40 = 82
+
+	dashboardWidth := 82
+	timerBoxWidth := 40
+	dashboardStartX := (m.width - dashboardWidth) / 2
+	gaugeBoxStartX := dashboardStartX + timerBoxWidth + 2
+	gaugeBoxEndX := gaugeBoxStartX + timerBoxWidth
+
+	// Button is at similar position as the Start/Stop button (bottom of box)
+	buttonY := 15
+
+	// Check if click is within gauge box horizontal bounds
+	if x < gaugeBoxStartX || x > gaugeBoxEndX {
+		return false
+	}
+
+	// Check if click is on or near the button row
+	if y >= buttonY-1 && y <= buttonY+1 {
+		return true
+	}
+
+	return false
+}
+
 // Message types
 type activeTimerLoadedMsg struct {
 	timer *api.TimelogEntry
@@ -1244,4 +1457,14 @@ type commitsAppendedMsg struct {
 type powToggledMsg struct {
 	enabled bool
 	ok      bool
+}
+
+// favTimerReadyToStartMsg is sent when previous timer stopped and ready to start favourite
+type favTimerReadyToStartMsg struct {
+	slotIndex int
+}
+
+// favTimerStartedFromMainMsg is sent when a timer was started from the main menu favourites grid
+type favTimerStartedFromMainMsg struct {
+	projectName string
 }
