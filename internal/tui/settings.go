@@ -146,20 +146,21 @@ func (m *SettingsModel) View() string {
 	// Render help text
 	help := m.renderHelp()
 
-	// Combine parts
+	// Combine parts - header at top, then menu content
 	mainSection := lipgloss.JoinVertical(
 		lipgloss.Center,
 		header,
 		"",
+		"",
 		mainContent,
 	)
 
-	// Center in viewport
+	// Place main content at top (not centered vertically)
 	centered := lipgloss.Place(
 		m.width,
 		m.height-2,
 		lipgloss.Center,
-		lipgloss.Center,
+		lipgloss.Top,
 		mainSection,
 	)
 
@@ -309,17 +310,16 @@ func (m *SettingsModel) renderLogoutConfirmation() string {
 
 // getMenuItemFromMousePosition calculates which menu item was clicked
 func (m *SettingsModel) getMenuItemFromMousePosition(x, y int) int {
-	// Menu is centered vertically and horizontally
-	// Estimate menu start Y (centered in viewport)
-	menuHeight := len(m.menuItems)
-	menuStartY := (m.height - menuHeight) / 2
+	// Menu is anchored at top after header
+	// Header takes ~3 lines, then 2 empty lines, then menu starts
+	menuStartY := 5 // header (3) + empty lines (2)
 
 	clickedIndex := y - menuStartY
 	if clickedIndex < 0 || clickedIndex >= len(m.menuItems) {
 		return -1
 	}
 
-	// Check X bounds
+	// Check X bounds - menu is centered horizontally
 	menuWidth := 40
 	menuStartX := (m.width - menuWidth) / 2
 	menuEndX := menuStartX + menuWidth

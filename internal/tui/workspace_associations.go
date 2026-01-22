@@ -101,6 +101,11 @@ type WorkspaceAssociationsModel struct {
 	// Error/success messages
 	err            error
 	successMessage string
+
+	// Clear confirmation dialog
+	confirmClear          bool
+	clearConfirmSelection int // 0 = Yes, 1 = No
+	clearTargetRow        int // Which row is being cleared
 }
 
 // NewWorkspaceAssociationsModel creates a new workspace associations model
@@ -195,6 +200,11 @@ func (m *WorkspaceAssociationsModel) Update(msg tea.Msg) (*WorkspaceAssociations
 		// Clear messages on key press
 		m.err = nil
 		m.successMessage = ""
+
+		// Handle clear confirmation dialog
+		if m.confirmClear {
+			return m.handleClearConfirmKeys(msg)
+		}
 
 		// Handle edit popup mode
 		if m.showEditPopup {
@@ -578,9 +588,15 @@ func (m *WorkspaceAssociationsModel) handleSelect() (*WorkspaceAssociationsModel
 		return m, textinput.Blink
 
 	case 2: // Clear button
-		m.associations.ClearAssociation(m.selectedRow + 1)
-		m.rows[m.selectedRow].association = m.associations.Associations[m.selectedRow]
-		return m, m.saveAssociations()
+		// Check if there's an association to clear
+		assoc := m.associations.Associations[m.selectedRow]
+		if assoc.ProjectID > 0 || assoc.TaskID > 0 || assoc.ActivityID > 0 {
+			// Show confirmation dialog
+			m.confirmClear = true
+			m.clearConfirmSelection = 1 // Default to "No"
+			m.clearTargetRow = m.selectedRow
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -598,6 +614,11 @@ func (m *WorkspaceAssociationsModel) View() string {
 	// If edit popup is showing, overlay it
 	if m.showEditPopup {
 		return m.renderWithModalOverlay(listView)
+	}
+
+	// If clear confirmation is showing, overlay it
+	if m.confirmClear {
+		return m.renderWithClearConfirmOverlay(listView)
 	}
 
 	// Header
@@ -650,6 +671,59 @@ func (m *WorkspaceAssociationsModel) View() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		centered,
+		helpStyle.Render(help),
+	)
+}
+
+// renderWithClearConfirmOverlay renders the view with the clear confirmation dialog
+func (m *WorkspaceAssociationsModel) renderWithClearConfirmOverlay(background string) string {
+	// Header
+	header := m.renderHeader()
+
+	// Help text
+	help := m.renderHelp()
+
+	// Render the confirmation dialog
+	dialog := m.renderClearConfirmation()
+
+	// Combine header, list (dimmed), and dialog
+	mainSection := lipgloss.JoinVertical(
+		lipgloss.Center,
+		header,
+		"",
+		background,
+	)
+
+	// Center in viewport
+	centered := lipgloss.Place(
+		m.width,
+		m.height-2,
+		lipgloss.Center,
+		lipgloss.Top,
+		mainSection,
+	)
+
+	// Overlay the dialog in the center
+	dialogPlaced := lipgloss.Place(
+		m.width,
+		m.height-2,
+		lipgloss.Center,
+		lipgloss.Center,
+		dialog,
+	)
+
+	// Combine centered background with dialog overlay (dialog on top)
+	_ = centered // background is dimmed by dialog overlay
+	combined := dialogPlaced
+
+	// Add help at bottom
+	helpStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Align(lipgloss.Center)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		combined,
 		helpStyle.Render(help),
 	)
 }
@@ -989,9 +1063,14 @@ func (m *WorkspaceAssociationsModel) handleColumnAction() (*WorkspaceAssociation
 		m.projectSearchInput.Focus()
 		return m, nil
 	case 2:
-		// Clear association
-		m.associations.ClearAssociation(m.selectedRow + 1)
-		return m, m.saveAssociations()
+		// Clear association - show confirmation if there's something to clear
+		assoc := m.associations.Associations[m.selectedRow]
+		if assoc.ProjectID > 0 || assoc.TaskID > 0 || assoc.ActivityID > 0 {
+			m.confirmClear = true
+			m.clearConfirmSelection = 1 // Default to "No"
+			m.clearTargetRow = m.selectedRow
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -1141,11 +1220,130 @@ func (m *WorkspaceAssociationsModel) renderHelp() string {
 		Foreground(wsGray).
 		Italic(true)
 
+	if m.confirmClear {
+		return helpStyle.Render("←/→: Select | Enter/y: Confirm | n/Esc: Cancel")
+	}
+
 	if m.editMode == EditModeName {
 		return helpStyle.Render("Type to edit name | Enter: Save | Esc: Cancel")
 	}
 
 	return helpStyle.Render("↑/↓: Navigate rows | ←/→: Navigate columns | Enter/Space: Select | q/Esc: Back to menu")
+}
+
+// handleClearConfirmKeys handles keys in the clear confirmation dialog
+func (m *WorkspaceAssociationsModel) handleClearConfirmKeys(msg tea.KeyMsg) (*WorkspaceAssociationsModel, tea.Cmd) {
+	switch msg.String() {
+	case "left", "h":
+		m.clearConfirmSelection = 0 // Yes
+		return m, nil
+	case "right", "l":
+		m.clearConfirmSelection = 1 // No
+		return m, nil
+	case "enter":
+		if m.clearConfirmSelection == 0 {
+			// Yes - clear the association
+			m.associations.ClearAssociation(m.clearTargetRow + 1)
+			m.rows[m.clearTargetRow].association = m.associations.Associations[m.clearTargetRow]
+			m.confirmClear = false
+			return m, m.saveAssociations()
+		} else {
+			// No - cancel
+			m.confirmClear = false
+			return m, nil
+		}
+	case "y":
+		// Yes - clear the association
+		m.associations.ClearAssociation(m.clearTargetRow + 1)
+		m.rows[m.clearTargetRow].association = m.associations.Associations[m.clearTargetRow]
+		m.confirmClear = false
+		return m, m.saveAssociations()
+	case "n", "esc":
+		m.confirmClear = false
+		return m, nil
+	}
+	return m, nil
+}
+
+// renderClearConfirmation renders the clear confirmation dialog
+func (m *WorkspaceAssociationsModel) renderClearConfirmation() string {
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(wsOrange).
+		Padding(1, 2).
+		Width(50)
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(wsOrange).
+		Align(lipgloss.Center).
+		Width(46)
+
+	messageStyle := lipgloss.NewStyle().
+		Foreground(wsWhite).
+		Align(lipgloss.Center).
+		Width(46)
+
+	buttonYesStyle := lipgloss.NewStyle().
+		Foreground(wsWhite).
+		Background(wsGray).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonYesSelectedStyle := lipgloss.NewStyle().
+		Foreground(wsWhite).
+		Background(wsOrange).
+		Bold(true).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonNoStyle := lipgloss.NewStyle().
+		Foreground(wsWhite).
+		Background(wsGray).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonNoSelectedStyle := lipgloss.NewStyle().
+		Foreground(wsWhite).
+		Background(wsBlue).
+		Bold(true).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	// Get the workspace name for the message
+	workspaceName := m.associations.Associations[m.clearTargetRow].WorkspaceName
+	if workspaceName == "" {
+		workspaceName = fmt.Sprintf("Workspace %d", m.clearTargetRow+1)
+	}
+
+	title := titleStyle.Render("Confirm Clear")
+	message := messageStyle.Render(fmt.Sprintf("Clear association for \"%s\"?", workspaceName))
+
+	var yesButton, noButton string
+	if m.clearConfirmSelection == 0 {
+		yesButton = buttonYesSelectedStyle.Render("Yes")
+		noButton = buttonNoStyle.Render("No")
+	} else {
+		yesButton = buttonYesStyle.Render("Yes")
+		noButton = buttonNoSelectedStyle.Render("No")
+	}
+
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, yesButton, noButton)
+	buttonsAligned := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(46).
+		Render(buttons)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		message,
+		"",
+		buttonsAligned,
+	)
+
+	return dialogStyle.Render(content)
 }
 
 // API loading commands (same pattern as TimesheetCreator)

@@ -1058,3 +1058,53 @@ I think we can make a settings menu and move the manage items into it and the ed
 make a "Start Timer" button that is inside the active timer box at the bottom. If a timer is running, it should change to "Stop Timer". then we can remove those two menu entries
 we can make Timesheet History a button in the Daily Progress box bottom and then remove that and quit from the menu
 the history button should be at the bottom of the daily progress box so that it aligns with the start timer button in the neighbouring box
+
+
+---
+
+**Prompt:** the settings menu is broken. the dry header bar is not anchored to the top of the screen and menu items cannot bo pressed and launched
+
+**Action:** Fixed two issues in settings.go:
+1. Changed vertical alignment from lipgloss.Center to lipgloss.Top in View() so header stays at top
+2. Fixed getMenuItemFromMousePosition() to use correct Y offset (5) accounting for header (3 lines) + empty lines (2)
+
+
+
+
+---
+
+**Prompt:** the header looks better but i still cannot navigate hte menu using the up and down keybinds
+
+**Action:** Fixed missing StateSettings case in tea.KeyMsg handler in app_with_auth.go. The key messages were being routed to all other states but not to Settings, so keyboard input was being ignored.
+
+
+
+
+---
+
+**Prompt:** there should be a confirmation request when deleting workspace associations
+
+**Action:** Added confirmation dialog for clearing workspace associations:
+1. Added confirmClear, clearConfirmSelection, and clearTargetRow state fields
+2. Added handleClearConfirmKeys() to handle dialog keyboard navigation (←/→, Enter, y, n, Esc)
+3. Added renderClearConfirmation() to render the dialog with Yes/No buttons
+4. Added renderWithClearConfirmOverlay() to overlay the dialog on the workspace list
+5. Updated both keyboard and mouse clear handlers to show confirmation instead of clearing immediately
+6. Updated renderHelp() to show dialog-specific help text
+
+
+
+
+---
+
+**Prompt:** i pressed backspace on a project repository and it still simply removed it without confirmation
+
+**Action:** Added confirmation dialog for deleting code repo associations:
+1. Added confirmDelete, deleteConfirmSelection, and deleteTargetRow state fields to CodeReposModel
+2. Added handleDeleteConfirmKeys() to handle dialog keyboard navigation (←/→, Enter, y, n, Esc)
+3. Added renderDeleteConfirmation() to render the dialog with Yes/No buttons
+4. Added renderWithDeleteConfirmOverlay() to overlay the dialog on the code repos list
+5. Updated delete handler (d/delete/backspace keys) to show confirmation instead of deleting immediately
+6. Updated renderHelp() to show dialog-specific help text
+
+

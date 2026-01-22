@@ -286,6 +286,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.favouritesView = model
 				cmds = append(cmds, c)
 			}
+		case StateSettings:
+			if a.settingsView != nil {
+				model, c := a.settingsView.Update(msg)
+				a.settingsView = model
+				cmds = append(cmds, c)
+			}
 		}
 
 	case LoginSuccessMsg:

@@ -82,6 +82,11 @@ type CodeReposModel struct {
 	// Error/success messages
 	err            error
 	successMessage string
+
+	// Delete confirmation dialog
+	confirmDelete          bool
+	deleteConfirmSelection int // 0 = Yes, 1 = No
+	deleteTargetRow        int // Which row is being deleted
 }
 
 // NewCodeReposModel creates a new code repos model
@@ -168,6 +173,11 @@ func (m *CodeReposModel) Update(msg tea.Msg) (*CodeReposModel, tea.Cmd) {
 		m.err = nil
 		m.successMessage = ""
 
+		// Handle delete confirmation dialog
+		if m.confirmDelete {
+			return m.handleDeleteConfirmKeys(msg)
+		}
+
 		// Handle edit popup mode
 		if m.editMode != CodeRepoEditModeNone {
 			return m.handleEditPopupKeys(msg)
@@ -232,15 +242,11 @@ func (m *CodeReposModel) Update(msg tea.Msg) (*CodeReposModel, tea.Cmd) {
 			return m, nil
 
 		case "d", "delete", "backspace":
-			// Delete selected association
+			// Show delete confirmation dialog
 			if len(m.associations.Associations) > 0 && m.selectedRow < len(m.associations.Associations) {
-				assoc := m.associations.Associations[m.selectedRow]
-				m.associations.RemoveAssociation(assoc.ProjectID)
-				// Adjust selected row if needed
-				if m.selectedRow >= len(m.associations.Associations) && m.selectedRow > 0 {
-					m.selectedRow--
-				}
-				return m, m.saveAssociations()
+				m.confirmDelete = true
+				m.deleteConfirmSelection = 1 // Default to "No"
+				m.deleteTargetRow = m.selectedRow
 			}
 			return m, nil
 		}
@@ -494,6 +500,11 @@ func (m *CodeReposModel) View() string {
 	// If edit popup is showing, overlay it
 	if m.editMode != CodeRepoEditModeNone {
 		return m.renderWithModalOverlay(listView)
+	}
+
+	// If delete confirmation is showing, overlay it
+	if m.confirmDelete {
+		return m.renderWithDeleteConfirmOverlay(listView)
 	}
 
 	// Header
@@ -878,7 +889,187 @@ func (m *CodeReposModel) renderHelp() string {
 		Foreground(crGray).
 		Italic(true)
 
-	return helpStyle.Render("  /  : Navigate | a: Add | e/Enter: Edit | d: Delete | q/Esc: Back to menu")
+	if m.confirmDelete {
+		return helpStyle.Render("←/→: Select | Enter/y: Confirm | n/Esc: Cancel")
+	}
+
+	return helpStyle.Render("↑/↓: Navigate | a: Add | e/Enter: Edit | d: Delete | q/Esc: Back to menu")
+}
+
+// handleDeleteConfirmKeys handles keys in the delete confirmation dialog
+func (m *CodeReposModel) handleDeleteConfirmKeys(msg tea.KeyMsg) (*CodeReposModel, tea.Cmd) {
+	switch msg.String() {
+	case "left", "h":
+		m.deleteConfirmSelection = 0 // Yes
+		return m, nil
+	case "right", "l":
+		m.deleteConfirmSelection = 1 // No
+		return m, nil
+	case "enter":
+		if m.deleteConfirmSelection == 0 {
+			// Yes - delete the association
+			assoc := m.associations.Associations[m.deleteTargetRow]
+			m.associations.RemoveAssociation(assoc.ProjectID)
+			// Adjust selected row if needed
+			if m.selectedRow >= len(m.associations.Associations) && m.selectedRow > 0 {
+				m.selectedRow--
+			}
+			m.confirmDelete = false
+			return m, m.saveAssociations()
+		} else {
+			// No - cancel
+			m.confirmDelete = false
+			return m, nil
+		}
+	case "y":
+		// Yes - delete the association
+		assoc := m.associations.Associations[m.deleteTargetRow]
+		m.associations.RemoveAssociation(assoc.ProjectID)
+		// Adjust selected row if needed
+		if m.selectedRow >= len(m.associations.Associations) && m.selectedRow > 0 {
+			m.selectedRow--
+		}
+		m.confirmDelete = false
+		return m, m.saveAssociations()
+	case "n", "esc":
+		m.confirmDelete = false
+		return m, nil
+	}
+	return m, nil
+}
+
+// renderWithDeleteConfirmOverlay renders the view with the delete confirmation dialog
+func (m *CodeReposModel) renderWithDeleteConfirmOverlay(background string) string {
+	// Header
+	header := m.renderHeader()
+
+	// Help text
+	help := m.renderHelp()
+
+	// Render the confirmation dialog
+	dialog := m.renderDeleteConfirmation()
+
+	// Combine header, list (dimmed), and dialog
+	mainSection := lipgloss.JoinVertical(
+		lipgloss.Center,
+		header,
+		"",
+		background,
+	)
+
+	// Center in viewport
+	centered := lipgloss.Place(
+		m.width,
+		m.height-2,
+		lipgloss.Center,
+		lipgloss.Top,
+		mainSection,
+	)
+
+	// Overlay the dialog in the center
+	dialogPlaced := lipgloss.Place(
+		m.width,
+		m.height-2,
+		lipgloss.Center,
+		lipgloss.Center,
+		dialog,
+	)
+
+	// Combine centered background with dialog overlay (dialog on top)
+	_ = centered // background is dimmed by dialog overlay
+	combined := dialogPlaced
+
+	// Add help at bottom
+	helpStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Align(lipgloss.Center)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		combined,
+		helpStyle.Render(help),
+	)
+}
+
+// renderDeleteConfirmation renders the delete confirmation dialog
+func (m *CodeReposModel) renderDeleteConfirmation() string {
+	dialogStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(crOrange).
+		Padding(1, 2).
+		Width(50)
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(crOrange).
+		Align(lipgloss.Center).
+		Width(46)
+
+	messageStyle := lipgloss.NewStyle().
+		Foreground(crWhite).
+		Align(lipgloss.Center).
+		Width(46)
+
+	buttonYesStyle := lipgloss.NewStyle().
+		Foreground(crWhite).
+		Background(crGray).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonYesSelectedStyle := lipgloss.NewStyle().
+		Foreground(crWhite).
+		Background(crOrange).
+		Bold(true).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonNoStyle := lipgloss.NewStyle().
+		Foreground(crWhite).
+		Background(crGray).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	buttonNoSelectedStyle := lipgloss.NewStyle().
+		Foreground(crWhite).
+		Background(crBlue).
+		Bold(true).
+		Padding(0, 2).
+		Margin(0, 1)
+
+	// Get the project name for the message
+	projectName := "this repository"
+	if m.deleteTargetRow < len(m.associations.Associations) {
+		projectName = m.associations.Associations[m.deleteTargetRow].ProjectName
+	}
+
+	title := titleStyle.Render("Confirm Delete")
+	message := messageStyle.Render(fmt.Sprintf("Delete repo link for \"%s\"?", projectName))
+
+	var yesButton, noButton string
+	if m.deleteConfirmSelection == 0 {
+		yesButton = buttonYesSelectedStyle.Render("Yes")
+		noButton = buttonNoStyle.Render("No")
+	} else {
+		yesButton = buttonYesStyle.Render("Yes")
+		noButton = buttonNoSelectedStyle.Render("No")
+	}
+
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, yesButton, noButton)
+	buttonsAligned := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(46).
+		Render(buttons)
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		message,
+		"",
+		buttonsAligned,
+	)
+
+	return dialogStyle.Render(content)
 }
 
 // API loading commands
