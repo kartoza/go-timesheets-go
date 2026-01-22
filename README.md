@@ -14,6 +14,7 @@
 ## ✨ Features
 
 - 🚀 **Beautiful TUI** - Terminal user interface with responsive design
+- 🖱️ **Full Mouse Support** - Click to interact with all screens and controls
 - ⏱️ **Time Tracking** - Start and stop time tracking for projects and activities
 - 📊 **Project Management** - Create and manage projects with tasks
 - 🖥️ **CLI Commands** - Command-line interface for automation
@@ -210,6 +211,22 @@ The Favourites feature provides a 3x3 grid of quick-start buttons for your most 
 | `e` | Toggle edit mode |
 | `p` | Toggle POW (Proof of Work) mode |
 | `Esc/q` | Back to main menu |
+
+## 🖱️ Mouse Support
+
+The application supports full mouse interaction on all screens:
+
+| Screen | Mouse Actions |
+|--------|--------------|
+| **Main Menu** | Click menu items to select and open |
+| **History View** | Click entries to view details |
+| **Workspace Associations** | Click Name to edit, Edit to configure, Clear to remove |
+| **Code Repos** | Click rows to edit repository associations |
+| **Timesheet Creator** | Click fields to focus, click popovers to select, click Submit |
+| **Login Screen** | Click input fields to focus |
+| **Favourites** | Click slots to start timers |
+
+Mouse support works alongside keyboard navigation - use whichever input method you prefer!
 
 ## 🎉 Celebration Mode
 
@@ -543,6 +560,8 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [x] API integration with timesheet server
 - [x] Fireworks celebration mode
 - [x] Request caching and monitoring
+- [x] Favourites quick-start grid
+- [x] Full mouse support
 - [ ] Advanced reporting and analytics
 - [ ] Team collaboration features
 - [ ] Mobile companion app

@@ -148,6 +148,22 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		h.width = msg.Width
 		h.height = msg.Height
 
+	case tea.MouseMsg:
+		// Handle mouse clicks in list mode
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			if h.mode == HistoryListMode {
+				// Calculate which entry was clicked
+				entryIndex := h.getEntryFromMousePosition(msg.X, msg.Y)
+				if entryIndex >= 0 && entryIndex < len(h.allHistory) {
+					h.cursor = entryIndex
+					// Click to view details
+					h.selectedEntry = &h.allHistory[entryIndex]
+					h.mode = HistoryDetailMode
+				}
+			}
+		}
+		return h, nil
+
 	case tea.KeyMsg:
 		switch h.mode {
 		case HistoryListMode:
@@ -583,6 +599,42 @@ func (h *HistoryView) renderHeader() string {
 // SetHeaderState sets the shared header state
 func (h *HistoryView) SetHeaderState(state *HeaderState) {
 	h.headerState = state
+}
+
+// getEntryFromMousePosition calculates which history entry was clicked based on mouse coordinates
+// Returns -1 if the click was outside the list area
+func (h *HistoryView) getEntryFromMousePosition(x, y int) int {
+	// Header takes about 4 lines, table header takes 2 lines
+	// Each entry row takes 1 line
+	tableHeaderOffset := 6
+
+	// Calculate clicked row (relative to first entry)
+	clickedRow := y - tableHeaderOffset
+
+	if clickedRow < 0 {
+		return -1
+	}
+
+	// Get visible window
+	visibleCount := h.getVisibleCount()
+	startIndex := h.cursor - visibleCount/2
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	if startIndex+visibleCount > len(h.allHistory) {
+		startIndex = len(h.allHistory) - visibleCount
+		if startIndex < 0 {
+			startIndex = 0
+		}
+	}
+
+	// Calculate actual index
+	actualIndex := startIndex + clickedRow
+	if actualIndex >= len(h.allHistory) {
+		return -1
+	}
+
+	return actualIndex
 }
 
 // renderListView renders the list mode view

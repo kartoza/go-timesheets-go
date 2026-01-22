@@ -979,3 +979,74 @@ there should also be a p binding on the favourites screen to toggle pow mode
 update the documentation and the commit and push then make a release with packages attached
 in the favourite, if a task is already running, it should be shown in a different colour and not possible to click it
 we need to enable mouse support throughout
+make the mouse support pervasive throughout the app
+
+================================================================================
+Date: 2026-01-22
+Session: Pervasive Mouse Support Implementation
+================================================================================
+
+**User Request:**
+"make the mouse support pervasive throughout the app"
+
+**Action Taken:**
+
+Added comprehensive mouse support throughout all TUI screens in the application:
+
+**1. Main Menu (internal/tui/main_menu.go):**
+- Added mouse click handling in Update() function
+- Added getMenuItemFromMousePosition() helper to determine clicked menu item
+- Click on menu item selects and opens it
+
+**2. History View (internal/tui/history.go):**
+- Added mouse click handling in Update() function
+- Added getEntryFromMousePosition() helper to determine clicked entry
+- Click on entry opens detail view
+
+**3. Workspace Associations (internal/tui/workspace_associations.go):**
+- Added mouse click handling in Update() function
+- Added getRowColFromMousePosition() helper to determine clicked row and column
+- Added handleColumnAction() method for handling mouse clicks on columns (Name, Edit, Clear)
+- Click on Name column enters edit mode
+- Click on Edit button opens association popup
+- Click on Clear button clears the association
+
+**4. Code Repos (internal/tui/code_repos.go):**
+- Added mouse click handling in Update() function
+- Added getRowFromMousePosition() helper to determine clicked row
+- Click on row opens edit mode for that association
+
+**5. Timesheet Creator (internal/tui/timesheet.go):**
+- Added mouse click handling in Update() function
+- Added handleMouseClick() method for comprehensive form interaction
+- Click on Project/Task/Activity fields opens their respective popovers
+- Click on popover items selects them and advances to next field
+- Click on Description/Date/Start/End fields focuses them
+- Click on Submit button triggers submission
+- Smart field detection based on screen coordinates
+
+**6. Login Screen (internal/tui/welcome.go):**
+- Added mouse click handling in Update() function
+- Added getInputFromMousePosition() helper to determine clicked input field
+- Click on any input field (API URL, Username, Password) focuses it
+
+**Technical Details:**
+- All screens use tea.MouseMsg for mouse event handling
+- Mouse events are filtered for tea.MouseActionRelease and tea.MouseButtonLeft
+- Position calculations account for screen centering, headers, and padding
+- Mouse support was already enabled via tea.WithMouseCellMotion() in app_with_auth.go
+
+**Bug Fix:**
+- Fixed workspace_associations.go handleColumnAction() which incorrectly referenced `m.nameInputs` (non-existent field)
+- Changed to use `m.rows[m.selectedRow].nameInput` matching the existing handleSelect() pattern
+
+**Files Modified:**
+- internal/tui/main_menu.go (added mouse handling + helper)
+- internal/tui/history.go (added mouse handling + helper)
+- internal/tui/workspace_associations.go (added mouse handling + helper + action method)
+- internal/tui/code_repos.go (added mouse handling + helper)
+- internal/tui/timesheet.go (added mouse handling + comprehensive click handler)
+- internal/tui/welcome.go (added mouse handling + helper)
+
+**Build Status:** All builds passing
+**Test Status:** All tests passing

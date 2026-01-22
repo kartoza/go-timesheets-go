@@ -173,6 +173,24 @@ func (m *WorkspaceAssociationsModel) Update(msg tea.Msg) (*WorkspaceAssociations
 		m.height = msg.Height
 		return m, nil
 
+	case tea.MouseMsg:
+		// Handle mouse clicks on workspace rows
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			if !m.showEditPopup && m.editMode == EditModeNone {
+				// Calculate which row was clicked
+				row, col := m.getRowColFromMousePosition(msg.X, msg.Y)
+				if row >= 0 && row < 10 {
+					m.selectedRow = row
+					if col >= 0 {
+						m.selectedColumn = col
+					}
+					// Single click selects, handle action based on column
+					return m.handleColumnAction()
+				}
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Clear messages on key press
 		m.err = nil
@@ -895,6 +913,87 @@ func (m *WorkspaceAssociationsModel) renderHeader() string {
 // SetHeaderState sets the shared header state
 func (m *WorkspaceAssociationsModel) SetHeaderState(state *HeaderState) {
 	m.headerState = state
+}
+
+// getRowColFromMousePosition calculates which row and column was clicked based on mouse coordinates
+// Returns row (-1 if outside), col (-1 if outside columns)
+func (m *WorkspaceAssociationsModel) getRowColFromMousePosition(x, y int) (int, int) {
+	// Header takes about 5 lines, column header takes 1 line
+	tableHeaderOffset := 6
+
+	// Calculate clicked row
+	clickedRow := y - tableHeaderOffset
+	if clickedRow < 0 || clickedRow >= 10 {
+		return -1, -1
+	}
+
+	// Calculate column based on X position
+	// Column widths: # (3) + Name (14) + Association (28) + Clear (10)
+	// Centered, so we need to find the start position
+	tableWidth := 60
+	tableStartX := (m.width - tableWidth) / 2
+
+	relX := x - tableStartX
+	if relX < 0 || relX > tableWidth {
+		return clickedRow, -1
+	}
+
+	// Determine column
+	col := -1
+	if relX < 3 {
+		col = -1 // Number column, not interactive
+	} else if relX < 17 {
+		col = 0 // Name column
+	} else if relX < 45 {
+		col = 1 // Association column
+	} else {
+		col = 2 // Clear column
+	}
+
+	return clickedRow, col
+}
+
+// handleColumnAction handles action when a column is selected (via keyboard or mouse)
+func (m *WorkspaceAssociationsModel) handleColumnAction() (*WorkspaceAssociationsModel, tea.Cmd) {
+	switch m.selectedColumn {
+	case 0:
+		// Edit name
+		m.editMode = EditModeName
+		m.rows[m.selectedRow].nameInput.Focus()
+		return m, textinput.Blink
+	case 1:
+		// Edit association - open popup
+		m.showEditPopup = true
+		m.editingRow = m.selectedRow
+		m.editField = EditFieldProject
+
+		// Pre-populate with existing values
+		assoc := m.associations.Associations[m.selectedRow]
+		if assoc.ProjectID > 0 {
+			m.editProject = &api.ProjectListItem{ID: assoc.ProjectID, Label: assoc.ProjectName}
+		} else {
+			m.editProject = nil
+		}
+		if assoc.TaskID > 0 {
+			m.editTask = &api.TaskListItem{ID: assoc.TaskID, Name: assoc.TaskName, Label: assoc.TaskName}
+		} else {
+			m.editTask = nil
+		}
+		if assoc.ActivityID > 0 {
+			m.editActivity = &api.ActivityListItem{ID: assoc.ActivityID, Label: assoc.ActivityName}
+		} else {
+			m.editActivity = nil
+		}
+
+		m.showProjectPopover = true
+		m.projectSearchInput.Focus()
+		return m, nil
+	case 2:
+		// Clear association
+		m.associations.ClearAssociation(m.selectedRow + 1)
+		return m, m.saveAssociations()
+	}
+	return m, nil
 }
 
 // renderWorkspaceList renders the list of workspace rows

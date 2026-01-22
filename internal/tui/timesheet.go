@@ -196,6 +196,13 @@ func (t *TimesheetCreator) Update(msg tea.Msg) (*TimesheetCreator, tea.Cmd) {
 		t.width = msg.Width
 		t.height = msg.Height
 
+	case tea.MouseMsg:
+		// Handle mouse clicks
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			return t.handleMouseClick(msg.X, msg.Y)
+		}
+		return t, nil
+
 	case tea.KeyMsg:
 		// Clear error message on any key press
 		if t.err != nil {
@@ -1284,4 +1291,264 @@ func (t *TimesheetCreator) fetchCommitsForDescription() tea.Cmd {
 
 		return timesheetCommitsLoadedMsg{commits: api.FormatCommitsAsDescription(commits)}
 	}
+}
+
+// handleMouseClick handles mouse clicks on the form
+func (t *TimesheetCreator) handleMouseClick(x, y int) (*TimesheetCreator, tea.Cmd) {
+	// Calculate the form area position (centered on screen)
+	formWidth := 70
+	formStartX := (t.width - formWidth) / 2
+	formEndX := formStartX + formWidth
+
+	// Check if click is within the form horizontally
+	if x < formStartX || x > formEndX {
+		return t, nil
+	}
+
+	// Calculate vertical position of form elements
+	// Header takes about 3-4 lines, then form starts
+	// Form container has padding of 1
+	headerHeight := 4
+	containerPadding := 2
+
+	// Calculate where form rows start
+	formStartY := headerHeight + containerPadding
+
+	// Row heights (approximately):
+	// Project row: 1 line
+	// Project popover: variable (if shown)
+	// Task row: 1 line (or 2 if task selected - shows budget)
+	// Task popover: variable (if shown)
+	// Activity row: 1 line
+	// Activity popover: variable (if shown)
+	// Divider: 3 lines
+	// Description row: 1 line
+	// Date/Time row: 1 line
+	// Submit button: 2 lines
+
+	// Track current Y position
+	currentY := formStartY
+
+	// Check Project field (row 0)
+	projectRowStart := currentY
+	projectRowEnd := currentY + 1
+	if y >= projectRowStart && y < projectRowEnd {
+		t.focusedField = FieldProject
+		t.closeAllPopovers()
+		if t.selectedProject == nil {
+			t.showProjectPopover = true
+			t.projectSearchInput.Focus()
+			return t, textinput.Blink
+		}
+		return t, nil
+	}
+	currentY++
+
+	// Check Project popover (if shown)
+	if t.showProjectPopover && len(t.projects) > 0 {
+		popoverHeight := len(t.projects)
+		if popoverHeight > 8 {
+			popoverHeight = 9 // 8 items + scroll indicator
+		}
+		popoverStart := currentY
+		popoverEnd := currentY + popoverHeight
+
+		if y >= popoverStart && y < popoverEnd {
+			// Click on popover item
+			clickedIndex := y - popoverStart
+			// Adjust for scroll
+			maxVisible := 8
+			startIdx := 0
+			if len(t.projects) > maxVisible {
+				startIdx = t.popoverCursor - maxVisible/2
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				if startIdx+maxVisible > len(t.projects) {
+					startIdx = len(t.projects) - maxVisible
+				}
+			}
+			actualIndex := startIdx + clickedIndex
+			if actualIndex >= 0 && actualIndex < len(t.projects) {
+				t.selectedProject = &t.projects[actualIndex]
+				t.showProjectPopover = false
+				t.popoverCursor = 0
+				// Auto-advance to task selection
+				t.focusedField = FieldTask
+				t.showTaskPopover = true
+				return t, t.loadTasks(t.selectedProject.ID)
+			}
+		}
+		currentY += popoverHeight
+	}
+
+	// Check Task field
+	taskRowStart := currentY
+	taskRowEnd := currentY + 1
+	if t.selectedTask != nil {
+		taskRowEnd = currentY + 2 // Task with budget info takes 2 lines
+	}
+	if y >= taskRowStart && y < taskRowEnd {
+		t.focusedField = FieldTask
+		t.closeAllPopovers()
+		if t.selectedProject != nil && t.selectedTask == nil {
+			t.showTaskPopover = true
+		}
+		return t, nil
+	}
+	currentY = taskRowEnd
+
+	// Check Task popover (if shown)
+	if t.showTaskPopover && len(t.tasks) > 0 {
+		popoverHeight := len(t.tasks)
+		if popoverHeight > 8 {
+			popoverHeight = 9
+		}
+		popoverStart := currentY
+		popoverEnd := currentY + popoverHeight
+
+		if y >= popoverStart && y < popoverEnd {
+			clickedIndex := y - popoverStart
+			maxVisible := 8
+			startIdx := 0
+			if len(t.tasks) > maxVisible {
+				startIdx = t.popoverCursor - maxVisible/2
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				if startIdx+maxVisible > len(t.tasks) {
+					startIdx = len(t.tasks) - maxVisible
+				}
+			}
+			actualIndex := startIdx + clickedIndex
+			if actualIndex >= 0 && actualIndex < len(t.tasks) {
+				t.selectedTask = &t.tasks[actualIndex]
+				t.showTaskPopover = false
+				t.popoverCursor = 0
+				// Auto-advance to activity selection
+				t.focusedField = FieldActivity
+				t.showActivityPopover = true
+				// Set cursor to last used activity
+				if t.lastUsedActivityID > 0 {
+					for i, act := range t.activities {
+						if act.ID == t.lastUsedActivityID {
+							t.popoverCursor = i
+							break
+						}
+					}
+				}
+				return t, nil
+			}
+		}
+		currentY += popoverHeight
+	}
+
+	// Check Activity field
+	activityRowStart := currentY
+	activityRowEnd := currentY + 1
+	if y >= activityRowStart && y < activityRowEnd {
+		t.focusedField = FieldActivity
+		t.closeAllPopovers()
+		if t.selectedActivity == nil {
+			t.showActivityPopover = true
+		}
+		return t, nil
+	}
+	currentY++
+
+	// Check Activity popover (if shown)
+	if t.showActivityPopover && len(t.activities) > 0 {
+		popoverHeight := len(t.activities)
+		if popoverHeight > 8 {
+			popoverHeight = 9
+		}
+		popoverStart := currentY
+		popoverEnd := currentY + popoverHeight
+
+		if y >= popoverStart && y < popoverEnd {
+			clickedIndex := y - popoverStart
+			maxVisible := 8
+			startIdx := 0
+			if len(t.activities) > maxVisible {
+				startIdx = t.popoverCursor - maxVisible/2
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				if startIdx+maxVisible > len(t.activities) {
+					startIdx = len(t.activities) - maxVisible
+				}
+			}
+			actualIndex := startIdx + clickedIndex
+			if actualIndex >= 0 && actualIndex < len(t.activities) {
+				t.selectedActivity = &t.activities[actualIndex]
+				t.lastUsedActivityID = t.selectedActivity.ID
+				t.showActivityPopover = false
+				t.popoverCursor = 0
+				// Auto-advance to description
+				t.focusedField = FieldDescription
+				t.descriptionInput.Focus()
+				return t, textinput.Blink
+			}
+		}
+		currentY += popoverHeight
+	}
+
+	// Divider (3 lines - empty, divider, empty)
+	currentY += 3
+
+	// Description field
+	descRowStart := currentY
+	descRowEnd := currentY + 1
+	if y >= descRowStart && y < descRowEnd {
+		t.focusedField = FieldDescription
+		t.closeAllPopovers()
+		t.descriptionInput.Focus()
+		return t, textinput.Blink
+	}
+	currentY++
+
+	// Date/Time row
+	dateTimeRowStart := currentY
+	dateTimeRowEnd := currentY + 1
+	if y >= dateTimeRowStart && y < dateTimeRowEnd {
+		// Determine which field based on X position
+		// Layout: Date  Start:  End:
+		dateFieldEnd := formStartX + 30
+		startFieldEnd := formStartX + 50
+
+		if x < dateFieldEnd {
+			t.focusedField = FieldDate
+			t.closeAllPopovers()
+			t.dateInput.Focus()
+		} else if x < startFieldEnd {
+			t.focusedField = FieldStartTime
+			t.closeAllPopovers()
+			t.startTimeInput.Focus()
+		} else {
+			t.focusedField = FieldEndTime
+			t.closeAllPopovers()
+			t.endTimeInput.Focus()
+		}
+		return t, textinput.Blink
+	}
+	currentY++
+
+	// Empty line + Submit button
+	currentY++ // empty line
+	buttonRowStart := currentY
+	buttonRowEnd := currentY + 1
+	if y >= buttonRowStart && y < buttonRowEnd {
+		// Check if within button area (centered)
+		buttonWidth := 16 // approximate
+		buttonStartX := (t.width - buttonWidth) / 2
+		buttonEndX := buttonStartX + buttonWidth
+		if x >= buttonStartX && x <= buttonEndX {
+			t.focusedField = FieldSubmit
+			t.closeAllPopovers()
+			// Trigger submit
+			return t.submitEntry()
+		}
+	}
+
+	return t, nil
 }

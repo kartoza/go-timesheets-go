@@ -141,6 +141,28 @@ func (m *CodeReposModel) Update(msg tea.Msg) (*CodeReposModel, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
+	case tea.MouseMsg:
+		// Handle mouse clicks on code repo rows
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			if m.editMode == CodeRepoEditModeNone {
+				// Calculate which row was clicked
+				row := m.getRowFromMousePosition(msg.X, msg.Y)
+				if row >= 0 && row < len(m.associations.Associations) {
+					m.selectedRow = row
+					// Click opens edit mode for that row
+					m.editMode = CodeRepoEditModeEdit
+					m.editField = CodeRepoFieldProject
+					m.editingIndex = m.selectedRow
+					assoc := m.associations.Associations[m.selectedRow]
+					m.editProject = &api.ProjectListItem{ID: assoc.ProjectID, Label: assoc.ProjectName}
+					m.repoURLInput.SetValue(assoc.RepoURL)
+					m.repoURLInput.Focus()
+					return m, nil
+				}
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Clear messages on key press
 		m.err = nil
@@ -948,4 +970,33 @@ type crSaveSuccessMsg struct{}
 
 type crSaveErrorMsg struct {
 	err error
+}
+
+// getRowFromMousePosition returns the row index from mouse coordinates
+// Returns -1 if the click is not on a valid row
+func (m *CodeReposModel) getRowFromMousePosition(x, y int) int {
+	// The list starts after header, subtitle, and a couple blank lines
+	// Header is centered, list is below it
+	// List structure: header row, separator, then data rows
+
+	// Calculate vertical center offset (same as in renderList/View)
+	contentHeight := 4 + len(m.associations.Associations) + 2 // header + rows + some padding
+	startY := (m.height - contentHeight) / 2
+	if startY < 0 {
+		startY = 0
+	}
+
+	// Account for: screen title (~3 lines), blank line, column header, separator
+	headerOffset := startY + 5
+
+	// Check if click is within the row area
+	rowY := y - headerOffset
+	if rowY < 0 {
+		return -1
+	}
+
+	// Calculate which row was clicked (accounting for scroll offset)
+	row := rowY + m.scrollOffset
+
+	return row
 }

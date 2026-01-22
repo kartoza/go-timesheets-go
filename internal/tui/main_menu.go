@@ -99,6 +99,25 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
+	case tea.MouseMsg:
+		// Handle mouse clicks on menu items
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			// Skip if dialogs are open
+			if m.confirmStopTimer || m.confirmLogout {
+				return m, nil
+			}
+
+			// Calculate which menu item was clicked
+			menuItemIndex := m.getMenuItemFromMousePosition(msg.X, msg.Y)
+			if menuItemIndex >= 0 && menuItemIndex < len(m.menuItems) {
+				m.selectedItem = menuItemIndex
+				if m.menuItems[menuItemIndex].enabled {
+					return m, m.handleMenuSelection()
+				}
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle stop timer confirmation dialog
 		if m.confirmStopTimer {
@@ -486,7 +505,36 @@ func (m *MainMenuModel) renderHelp() string {
 	if m.powCapturer != nil && m.powCapturer.IsEnabled() {
 		powStatus = "on"
 	}
-	return helpStyle.Render(fmt.Sprintf("↑/↓: Navigate • Enter: Select • o: Office • p: POW (%s) • Esc/q: Quit", powStatus))
+	return helpStyle.Render(fmt.Sprintf("↑/↓: Navigate • Enter/Click: Select • o: Office • p: POW (%s) • Esc/q: Quit", powStatus))
+}
+
+// getMenuItemFromMousePosition calculates which menu item was clicked based on mouse coordinates
+// Returns -1 if the click was outside the menu area
+func (m *MainMenuModel) getMenuItemFromMousePosition(x, y int) int {
+	// The menu is rendered centered. We need to calculate its position.
+	// Header + dashboard + spacing take approximately 10-12 lines
+	// Menu starts after that, with each item taking 1 line
+
+	// Estimate menu start Y (header ~3 lines + spacing + dashboard ~5 lines + spacing)
+	menuStartY := 10
+
+	// Check if click is within menu Y range
+	clickedIndex := y - menuStartY
+	if clickedIndex < 0 || clickedIndex >= len(m.menuItems) {
+		return -1
+	}
+
+	// Check if X is roughly in the center where menu is rendered
+	// Menu is centered, so check if X is within reasonable bounds
+	menuWidth := 40 // Approximate menu width
+	menuStartX := (m.width - menuWidth) / 2
+	menuEndX := menuStartX + menuWidth
+
+	if x < menuStartX-10 || x > menuEndX+10 {
+		return -1
+	}
+
+	return clickedIndex
 }
 
 // updateMenuItems updates the menu items based on current state

@@ -88,6 +88,26 @@ func (m LoginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
+	case tea.MouseMsg:
+		// Handle mouse clicks on input fields
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			clickedIndex := m.getInputFromMousePosition(msg.X, msg.Y)
+			if clickedIndex >= 0 && clickedIndex < len(m.inputs) {
+				m.focusIndex = clickedIndex
+				// Update focus
+				for i := 0; i < len(m.inputs); i++ {
+					if i == m.focusIndex {
+						m.inputs[i].Focus()
+						cmds = append(cmds, m.inputs[i].Cursor.BlinkCmd())
+					} else {
+						m.inputs[i].Blur()
+					}
+				}
+				return m, tea.Batch(cmds...)
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
@@ -310,4 +330,45 @@ func (m *LoginModel) performLogin() tea.Cmd {
 			Password: password,
 		}
 	}
+}
+
+// getInputFromMousePosition returns the input index from mouse coordinates
+// Returns -1 if the click is not on a valid input field
+func (m *LoginModel) getInputFromMousePosition(x, y int) int {
+	// The form is centered on screen
+	// Calculate the approximate position of the form
+
+	// Form layout (centered):
+	// - Title (2 lines with padding)
+	// - Motto (1 line)
+	// - Empty line
+	// - Divider (1 line)
+	// - Empty line
+	// - Form box with:
+	//   - Margin top (1 line)
+	//   - Border top (1 line)
+	//   - Padding top (1 line)
+	//   - "Please sign in to continue" (1 line)
+	//   - Empty line
+	//   - Input 0 (API URL) - 1 line
+	//   - Input 1 (Username) - 1 line
+	//   - Input 2 (Password) - 1 line
+
+	// Approximate vertical center
+	formHeight := 15 // rough estimate of form height
+	formStartY := (m.height - formHeight) / 2
+
+	// Calculate input field positions
+	// After title (2), motto (1), empty (1), divider (1), empty (1), margin (1), border (1), padding (1), welcome text (1), empty (1)
+	inputStartY := formStartY + 11
+
+	// Each input field is 1 line tall
+	for i := 0; i < len(m.inputs); i++ {
+		inputY := inputStartY + i
+		if y == inputY {
+			return i
+		}
+	}
+
+	return -1
 }

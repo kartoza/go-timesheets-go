@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-01-22
+
+### Added
+
+#### Pervasive Mouse Support
+- **Full mouse interaction** - Click to interact with all screens throughout the application
+- **Main Menu** - Click on menu items to select and open them
+- **History View** - Click on timesheet entries to view details
+- **Workspace Associations** - Click on Name column to edit, Edit button to open association popup, Clear button to remove associations
+- **Code Repos** - Click on repository rows to edit associations
+- **Timesheet Creator** - Click on form fields to focus them, click popover items to select, click Submit button to submit
+- **Login Screen** - Click on input fields (API URL, Username, Password) to focus them
+- **Favourites** - Click on favourite slots to start timers (already had mouse support)
+
+### Fixed
+- **Workspace associations edit mode** - Fixed bug where clicking Name column would crash due to referencing non-existent field
+
+---
+
 ## [0.6.0] - 2026-01-22
 
 ### Added
@@ -111,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.7.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.3.1...v0.4.0
