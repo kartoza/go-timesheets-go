@@ -1108,3 +1108,61 @@ the history button should be at the bottom of the daily progress box so that it 
 6. Updated renderHelp() to show dialog-specific help text
 
 
+Continue from context summary: Add Fyne GUI implementation
+
+The user requested a Fyne-based GUI that mirrors the TUI organization.
+The implementation is now complete with:
+
+1. Environment detection (internal/gui/detect.go)
+   - CanUseGUI() checks DISPLAY/WAYLAND_DISPLAY on Linux
+   - Auto-detects graphical environment
+
+2. Custom theme (internal/gui/theme.go)
+   - Ubuntu brand colors matching the TUI
+   - Implements fyne.Theme interface
+
+3. Async helpers (internal/gui/util/async.go)
+   - Generic RunAsync for non-blocking API calls
+
+4. Custom widgets (internal/gui/widgets/)
+   - timer_display.go - LCD-style timer
+   - progress_gauge.go - daily hours gauge
+   - favourite_button.go - 3x3 grid buttons
+   - searchable_select.go - searchable dropdown
+   - time_entry_card.go - history entry cards
+
+5. All screens (internal/gui/screens/)
+   - login.go - authentication screen
+   - dashboard.go - main dashboard with timer and favourites
+   - timesheet.go - timer creation form
+   - history.go - timesheet history view
+   - settings.go - settings menu
+   - favourites.go - favourites editor
+   - workspaces.go - workspace associations
+   - code_repos.go - code repository links
+
+6. Main controller (internal/gui/app.go)
+   - Manages screen navigation
+   - Handles auth state
+
+7. Modified cmd/root.go
+   - Added --tui/-t flag to force TUI mode
+   - Auto-detects GUI availability
+
+Code compiles but requires system libraries for Fyne on Linux:
+- libgl1-mesa-dev (or libgl-dev)
+- libxcursor-dev
+- libxrandr-dev
+- libxinerama-dev
+- libxi-dev
+- libxxf86vm-dev
+
+To install on Ubuntu/Debian:
+sudo apt install libgl1-mesa-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
+
+Usage:
+- Run normally: ./kartoza-timesheet (uses GUI if available)
+- Force TUI: ./kartoza-timesheet --tui
+
+2026-01-22 18:07:07 - User asked: how do I start it in gui mode - Updated flake.nix with Fyne GUI dependencies (libGL, mesa, X11, Wayland libs with dev packages), added CGO_CFLAGS/CGO_LDFLAGS, fixed NewUbuntuTheme constructor. GUI mode is default when display is available, use --tui to force terminal mode.
+2026-01-22 21:09:46 - User requested: System tray functionality - app runs in system tray, closing window hides it instead of quitting, left-click shows/focuses window, right-click shows menu with Quit option. Implemented: systray.go with SystrayManager, modified app.go to intercept close and handle systray events, added OnTimerStatusChange callback to dashboard to sync timer status to tray tooltip. Added libayatana-appindicator, gtk3, glib to flake.nix for Linux systray support.

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
+	"github.com/kartoza/go-timesheets-go/internal/gui"
 	"github.com/kartoza/go-timesheets-go/internal/pow"
 	"github.com/kartoza/go-timesheets-go/internal/service"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
@@ -19,23 +20,25 @@ var (
 	userID    string
 	debugMode bool
 	powMode   bool
+	tuiMode   bool
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "kartoza-timesheet",
-	Short: "A beautiful TUI timesheet application for Kartoza",
-	Long: `Kartoza Timesheet App - A terminal-based timesheet application
-built with Go and Bubbletea
+	Short: "A beautiful timesheet application for Kartoza",
+	Long: `Kartoza Timesheet App - A timesheet application
+built with Go, featuring both GUI (Fyne) and TUI (Bubbletea) interfaces
 
 Features:
 - Time tracking with projects, tasks, and activities
-- Beautiful terminal user interface with responsive layout
+- Beautiful graphical and terminal user interfaces
 - Weekly and daily time reports with charts
 - Timesheet submission workflow
 - Integration with waybar for desktop notifications
 - Workspace automation support
-- Proof of Work screenshot capture (--pow flag)`,
+- Proof of Work screenshot capture (--pow flag)
+- Auto-detects graphical environment (use --tui to force terminal mode)`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Set debug mode in TUI package (only effective in dev builds)
 		tui.SetDebugMode(debugMode)
@@ -56,16 +59,28 @@ Features:
 			}
 		}
 
-		// Launch TUI application with authentication
-		app, err := tui.NewAppWithAuth(powCapturer)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
-			os.Exit(1)
-		}
+		// Decide whether to use GUI or TUI
+		useGUI := !tuiMode && gui.CanUseGUI()
 
-		if err := app.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error running application: %v\n", err)
-			os.Exit(1)
+		if useGUI {
+			// Launch GUI application
+			guiApp := gui.NewApp(powCapturer)
+			if err := guiApp.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error running GUI application: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			// Launch TUI application with authentication
+			tuiApp, err := tui.NewAppWithAuth(powCapturer)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error initializing TUI application: %v\n", err)
+				os.Exit(1)
+			}
+
+			if err := tuiApp.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error running TUI application: %v\n", err)
+				os.Exit(1)
+			}
 		}
 	},
 }
@@ -89,6 +104,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&userID, "user", "default-user", "User ID for timesheet entries")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "d", false, "Enable debug mode (shows developer menu options)")
 	rootCmd.PersistentFlags().BoolVarP(&powMode, "pow", "p", false, "Enable Proof of Work mode (capture screenshots during timer sessions)")
+	rootCmd.PersistentFlags().BoolVarP(&tuiMode, "tui", "t", false, "Force terminal UI mode (skip GUI even if graphical environment is available)")
 }
 
 func initConfig() {

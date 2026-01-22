@@ -135,6 +135,30 @@
           gcc
           pkg-config
 
+          # Fyne GUI dependencies (OpenGL, X11, Wayland)
+          libGL
+          libGL.dev
+          mesa
+          xorg.libX11
+          xorg.libX11.dev
+          xorg.libXcursor
+          xorg.libXrandr
+          xorg.libXinerama
+          xorg.libXi
+          xorg.libXxf86vm
+          xorg.xorgproto
+          wayland
+          wayland.dev
+          wayland-protocols
+          libxkbcommon
+          libxkbcommon.dev
+          glfw
+
+          # System tray dependencies (Linux)
+          libayatana-appindicator
+          gtk3
+          glib
+
           # Documentation
           mdbook
           pandoc
@@ -234,6 +258,30 @@
         devShells.default = pkgs.mkShell {
           buildInputs = devTools;
 
+          # Native build inputs for CGO (Fyne GUI)
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+
+          # Set library paths for CGO
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
+            libGL
+            mesa
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXrandr
+            xorg.libXinerama
+            xorg.libXi
+            xorg.libXxf86vm
+            wayland
+            libxkbcommon
+            glfw
+          ]);
+
+          # Include paths for C headers
+          CGO_CFLAGS = "-I${pkgs.xorg.libX11.dev}/include -I${pkgs.xorg.xorgproto}/include -I${pkgs.libGL.dev}/include";
+          CGO_LDFLAGS = "-L${pkgs.xorg.libX11}/lib -L${pkgs.libGL}/lib";
+
           shellHook = ''
             echo "🚀 Kartoza Timesheet App Development Environment"
             echo "=============================================="
@@ -263,6 +311,9 @@
             export GO111MODULE=on
             export GOPROXY=https://proxy.golang.org,direct
             export GOSUMDB=sum.golang.org
+
+            # CGO settings for Fyne GUI
+            export CGO_ENABLED=1
 
 
             # Initialize Go module if it doesn't exist
