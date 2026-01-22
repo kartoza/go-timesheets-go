@@ -139,19 +139,19 @@ The project is in the **infrastructure setup phase**. The following components a
 ✅ **Sample Data** - Setup script for testing and demonstration
 ✅ **Documentation** - Comprehensive README and usage guides
 ✅ **GitHub Repository** - Published under kartoza/go-timesheets-go
+✅ **Favourites** - Quick-start 3x3 grid with preset project/task/activity combinations
 
 ## Future Enhancement Priorities
 
-1. **Advanced TUI Components** - Charts, complex tables, advanced layouts
-2. **Workspace Automation** - Virtual desktop integration for automatic tracking  
-3. **ERP Integration** - Submit timesheets to ERPNext
-4. **Testing Framework** - Comprehensive test coverage
-5. **CI/CD Pipeline** - GitHub Actions workflows
-6. **Advanced Reporting** - Time analytics and insights
-7. **Team Features** - Multi-user support and collaboration
-8. **Mobile Integration** - Companion mobile application
-9. **Export Capabilities** - PDF, CSV, Excel export formats
-10. **Performance Optimization** - Large dataset handling
+1. **Workspace Automation** - Virtual desktop integration for automatic tracking
+2. **ERP Integration** - Submit timesheets to ERPNext
+3. **Testing Framework** - Comprehensive test coverage
+4. **CI/CD Pipeline** - GitHub Actions workflows
+5. **Advanced Reporting** - Time analytics and insights
+6. **Team Features** - Multi-user support and collaboration
+7. **Mobile Integration** - Companion mobile application
+8. **Export Capabilities** - PDF, CSV, Excel export formats
+9. **Performance Optimization** - Large dataset handling
 
 ## Contact Information
 

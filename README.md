@@ -21,6 +21,7 @@
 - 💾 **Data Persistence** - Local JSON-based storage with API sync
 - 🎯 **Activity Types** - Categorize work with activities (Coding, Planning, etc.)
 - 🎬 **Proof of Work (POW)** - Screenshot timelapse recording during work sessions
+- ⭐ **Favourites** - Quick-start timers with preset project/task/activity combinations
 - 🎉 **Celebration Mode** - Fireworks celebration after timesheet submission!
 
 ## 🚀 Quick Start
@@ -173,6 +174,42 @@ kartoza-timesheet play-pow
 
 - A screenshot tool (`grim`, `scrot`, or `import` from ImageMagick)
 - `ffmpeg` for video generation
+
+## ⭐ Favourites
+
+The Favourites feature provides a 3x3 grid of quick-start buttons for your most commonly used project/task/activity combinations.
+
+### Using Favourites
+
+1. From the main menu, select **Favourites**
+2. Use arrow keys or number keys (1-9) to navigate the grid
+3. Press **Enter** to start a timer with the selected favourite's settings
+
+### Key Features
+
+- **Quick Start**: One-click timer starting with preset configurations
+- **Auto-stop Previous Timer**: When starting a new timer, any running timer is automatically stopped
+- **Git Commit Auto-fill**: If the previous task has a linked git repository, the description is automatically filled with commit messages from the work session
+- **Edit Mode**: Press **e** to enter edit mode and configure favourites
+
+### Configuring Favourites
+
+1. Press **e** to enter edit mode
+2. Select a slot and press **Enter** to configure
+3. Set a name for the favourite (optional)
+4. Select a project, task (optional), and activity
+5. Press **Ctrl+S** or complete the selection to save
+
+### Keyboard Shortcuts in Favourites
+
+| Key | Action |
+|-----|--------|
+| `1-9` | Quick select slot |
+| `↑/↓/←/→` | Navigate grid |
+| `Enter` | Start timer (normal mode) or Edit slot (edit mode) |
+| `e` | Toggle edit mode |
+| `p` | Toggle POW (Proof of Work) mode |
+| `Esc/q` | Back to main menu |
 
 ## 🎉 Celebration Mode
 

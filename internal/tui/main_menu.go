@@ -25,6 +25,7 @@ type MainMenuItem int
 const (
 	MenuCreateTimer MainMenuItem = iota
 	MenuStopTimer
+	MenuFavourites
 	MenuWorkspaceAssociations
 	MenuCodeRepos
 	MenuViewHistory
@@ -504,6 +505,11 @@ func (m *MainMenuModel) updateMenuItems() {
 			action:  MenuStopTimer,
 		},
 		{
+			label:   "Favourites",
+			enabled: true,
+			action:  MenuFavourites,
+		},
+		{
 			label:   "View Timesheet History",
 			enabled: true,
 			action:  MenuViewHistory,
@@ -567,6 +573,12 @@ func (m *MainMenuModel) handleMenuSelection() tea.Cmd {
 
 	case MenuStopTimer:
 		return m.stopActiveTimer()
+
+	case MenuFavourites:
+		// Launch favourites screen
+		return func() tea.Msg {
+			return launchFavouritesMsg{}
+		}
 
 	case MenuWorkspaceAssociations:
 		// Launch workspace associations screen

@@ -28,6 +28,7 @@ const (
 	StateHistoryView
 	StateWorkspaceAssociations
 	StateCodeRepos
+	StateFavourites
 )
 
 // AppWithAuth is a wrapper app that handles authentication
@@ -39,6 +40,7 @@ type AppWithAuth struct {
 	historyView        *HistoryView
 	workspaceView      *WorkspaceAssociationsModel
 	codeReposView      *CodeReposModel
+	favouritesView     *FavouritesModel
 	width              int
 	height             int
 	tokenLoaded        bool
@@ -158,6 +160,11 @@ func (a *AppWithAuth) Init() tea.Cmd {
 		if a.codeReposView != nil {
 			cmds = append(cmds, a.codeReposView.Init())
 		}
+
+	case StateFavourites:
+		if a.favouritesView != nil {
+			cmds = append(cmds, a.favouritesView.Init())
+		}
 	}
 
 	return tea.Batch(cmds...)
@@ -215,6 +222,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.codeReposView = model
 				cmds = append(cmds, c)
 			}
+		case StateFavourites:
+			if a.favouritesView != nil {
+				model, c := a.favouritesView.Update(msg)
+				a.favouritesView = model
+				cmds = append(cmds, c)
+			}
 		}
 
 	case tea.KeyMsg:
@@ -263,6 +276,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.codeReposView != nil {
 				model, c := a.codeReposView.Update(msg)
 				a.codeReposView = model
+				cmds = append(cmds, c)
+			}
+		case StateFavourites:
+			if a.favouritesView != nil {
+				model, c := a.favouritesView.Update(msg)
+				a.favouritesView = model
 				cmds = append(cmds, c)
 			}
 		}
@@ -319,6 +338,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.historyView = nil
 		a.workspaceView = nil
 		a.codeReposView = nil
+		a.favouritesView = nil
 		// Reload main menu to refresh state
 		if a.mainMenu != nil {
 			return a, a.mainMenu.Init()
@@ -366,6 +386,16 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.codeReposView = codeReposView
 		a.state = StateCodeRepos
 		return a, a.codeReposView.Init()
+
+	case launchFavouritesMsg:
+		// Transition to favourites view
+		favouritesView := NewFavouritesModel(a.apiClient, a.powCapturer)
+		favouritesView.width = a.width
+		favouritesView.height = a.height
+		favouritesView.SetHeaderState(a.getHeaderState())
+		a.favouritesView = favouritesView
+		a.state = StateFavourites
+		return a, a.favouritesView.Init()
 
 	case launchOfficeViewMsg:
 		// Launch office view as a subprocess that takes over the terminal
@@ -418,6 +448,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.codeReposView = model
 				cmds = append(cmds, c)
 			}
+		case StateFavourites:
+			if a.favouritesView != nil {
+				model, c := a.favouritesView.Update(msg)
+				a.favouritesView = model
+				cmds = append(cmds, c)
+			}
 		}
 	}
 
@@ -429,6 +465,7 @@ type launchTimerCreationMsg struct{}
 type launchHistoryViewMsg struct{}
 type launchWorkspaceAssociationsMsg struct{}
 type launchCodeReposMsg struct{}
+type launchFavouritesMsg struct{}
 type launchOfficeViewMsg struct{}
 type officeFinishedMsg struct{}
 type backToMenuMsg struct{}
@@ -483,6 +520,12 @@ func (a *AppWithAuth) View() string {
 			return a.codeReposView.View()
 		}
 		return a.renderLoadingScreen("Loading code repositories")
+
+	case StateFavourites:
+		if a.favouritesView != nil {
+			return a.favouritesView.View()
+		}
+		return a.renderLoadingScreen("Loading favourites")
 	}
 
 	return "Unknown state"

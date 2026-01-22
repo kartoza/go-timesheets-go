@@ -554,3 +554,44 @@ func (s *Storage) LoadPowVideoMapping() (*PowVideoMapping, error) {
 
 	return &mapping, nil
 }
+
+// SaveFavouriteAssociations saves favourite associations to persistent storage
+func (s *Storage) SaveFavouriteAssociations(associations *models.FavouriteAssociations) error {
+	filePath := filepath.Join(s.dataDir, "favourite_associations.json")
+
+	data, err := json.MarshalIndent(associations, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal favourite associations: %w", err)
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// LoadFavouriteAssociations loads favourite associations from storage
+func (s *Storage) LoadFavouriteAssociations() (*models.FavouriteAssociations, error) {
+	filePath := filepath.Join(s.dataDir, "favourite_associations.json")
+
+	data, err := os.ReadFile(filePath)
+	if os.IsNotExist(err) {
+		// Return default associations if file doesn't exist
+		return models.NewFavouriteAssociations(), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read favourite associations file: %w", err)
+	}
+
+	var associations models.FavouriteAssociations
+	if err := json.Unmarshal(data, &associations); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal favourite associations: %w", err)
+	}
+
+	// Ensure we have all 9 slots
+	if len(associations.Associations) < 9 {
+		defaults := models.NewFavouriteAssociations()
+		for i := len(associations.Associations); i < 9; i++ {
+			associations.Associations = append(associations.Associations, defaults.Associations[i])
+		}
+	}
+
+	return &associations, nil
+}

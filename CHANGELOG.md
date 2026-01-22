@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2026-01-22
+
+### Added
+
+#### Favourites Feature
+- **Quick-start 3x3 grid** - New Favourites screen with 9 configurable slots for instant timer starting
+- **Preset configurations** - Each favourite slot stores a project/task/activity combination for one-click timer starts
+- **Edit mode** - Press `e` to enter edit mode and configure favourite slots with custom names and associations
+- **Number key navigation** - Press `1-9` to quickly select any slot in the grid
+- **Auto-stop previous timer** - When starting a timer from favourites, any running timer is automatically stopped
+- **Git commit auto-fill** - When stopping a timer, if the project has a linked git repository, the description is automatically populated with commit messages from the work session
+- **POW mode toggle** - Press `p` in the favourites screen to toggle Proof of Work screenshot capture mode
+
+### Changed
+- Main menu now includes "Favourites" option for quick access to the new feature
+
+---
+
 ## [0.5.0] - 2026-01-20
 
 ### Added
@@ -91,6 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.6.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kartoza/go-timesheets-go/compare/v0.3.0...v0.3.1

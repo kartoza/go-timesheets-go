@@ -973,3 +973,7 @@ i still would like to see timesheets annotated when there is a proof of work lin
 I got a panic when doing stop and save with a timesheet that was running in pow mode
 the application does not run properly with traceback enabled
 lets make a new release after commiting the current work and then make another beautiful changelog
+push
+Add a new menu menu item called favourites. It should take you to a grid of 3 by 3 buttons. Each button should be linked to a project, task and activity that is preset. When it a button is pressed, any running timers should be stopped and a new timer associated with the button should be started. If the previous task being stopped had a git repo association to it, it should auto fill the task being stopped's description with the messages of the comments made during that work session, it should be possible to manage the button associations by pressing e and that will give a screen similar to the one used for workspace associations
+there should also be a p binding on the favourites screen to toggle pow mode
+update the documentation and the commit and push then make a release with packages attached
