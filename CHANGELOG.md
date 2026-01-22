@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2026-01-22
+
+### Added
+
+#### Streamlined Main Menu
+- **Dashboard buttons** - Start/Stop Timer button in Active Timer box, History button in Daily Progress box
+- **Settings submenu** - New Settings screen consolidating management options (Edit Favourites, Workspace Associations, Code Repos, Log Out)
+- **Embedded favourites grid** - 3x3 favourites grid now displayed directly on main menu for instant access
+- **New keyboard shortcuts** - `s` for Start/Stop timer, `h` for History, `1-9` for quick favourite selection
+
+#### Responsive History View
+- **Dynamic column widths** - History table now expands responsively to use available terminal width
+- **Terminal resize support** - Layout adjusts automatically when terminal is resized
+- **Improved table structure** - Project shown as column, Task as subrow with icon, optional Times column on wide terminals
+
+### Changed
+- Main menu simplified to just Settings (plus debug options in dev builds)
+- All timer controls moved to dashboard buttons
+- History access moved to dashboard button
+- Quit removed from menu (use `q` keyboard shortcut)
+
+---
+
 ## [0.7.0] - 2026-01-22
 
 ### Added
@@ -130,6 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.8.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.4.0...v0.5.0
