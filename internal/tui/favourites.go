@@ -168,6 +168,20 @@ func (m *FavouritesModel) Update(msg tea.Msg) (*FavouritesModel, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
+	case tea.MouseMsg:
+		// Handle mouse clicks on the grid
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+			if !m.showEditPopup {
+				// Calculate which button was clicked based on mouse position
+				slotIndex := m.getSlotFromMousePosition(msg.X, msg.Y)
+				if slotIndex >= 0 && slotIndex < 9 {
+					m.selectedSlot = slotIndex
+					return m.handleSelect()
+				}
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Clear messages on key press
 		m.err = nil
@@ -348,6 +362,12 @@ func (m *FavouritesModel) handleSelect() (*FavouritesModel, tea.Cmd) {
 	assoc := m.associations.Associations[m.selectedSlot]
 	if !assoc.HasAssociation() {
 		m.err = fmt.Errorf("slot %d is not configured - press 'e' to edit", m.selectedSlot+1)
+		return m, nil
+	}
+
+	// Check if this slot is already running - don't allow clicking it again
+	if m.isSlotRunning(m.selectedSlot) {
+		m.statusMessage = "This task is already running"
 		return m, nil
 	}
 
@@ -731,6 +751,7 @@ func (m *FavouritesModel) renderGrid() string {
 func (m *FavouritesModel) renderButton(slotIndex, width, height int) string {
 	assoc := m.associations.Associations[slotIndex]
 	isSelected := slotIndex == m.selectedSlot
+	isRunning := m.isSlotRunning(slotIndex)
 
 	// Base style
 	style := lipgloss.NewStyle().
@@ -740,8 +761,14 @@ func (m *FavouritesModel) renderButton(slotIndex, width, height int) string {
 		Border(lipgloss.RoundedBorder()).
 		Margin(0, 1)
 
-	// Style based on state
-	if isSelected {
+	// Style based on state - running takes priority
+	if isRunning {
+		// Running slot - show in green with pulsing effect
+		style = style.
+			BorderForeground(favGreen).
+			Foreground(favGreen).
+			Bold(true)
+	} else if isSelected {
 		if m.mode == FavModeEdit {
 			style = style.
 				BorderForeground(favOrange).
@@ -772,13 +799,28 @@ func (m *FavouritesModel) renderButton(slotIndex, width, height int) string {
 		name = name[:width-5] + "…"
 	}
 
+	// Add running indicator
+	var runningIndicator string
+	if isRunning {
+		runningIndicator = "▶ RUNNING"
+	}
+
 	var content string
 	if assoc.HasAssociation() {
-		content = lipgloss.JoinVertical(
-			lipgloss.Center,
-			slotNum,
-			name,
-		)
+		if isRunning {
+			content = lipgloss.JoinVertical(
+				lipgloss.Center,
+				slotNum,
+				name,
+				runningIndicator,
+			)
+		} else {
+			content = lipgloss.JoinVertical(
+				lipgloss.Center,
+				slotNum,
+				name,
+			)
+		}
 	} else {
 		content = lipgloss.JoinVertical(
 			lipgloss.Center,
@@ -1038,6 +1080,74 @@ func (m *FavouritesModel) renderPopover(items interface{}, getLabel func(int) st
 	}
 
 	return popoverStyle.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+}
+
+// isSlotRunning checks if a slot's project/task/activity matches the currently running timer
+func (m *FavouritesModel) isSlotRunning(slotIndex int) bool {
+	if m.activeTimer == nil {
+		return false
+	}
+
+	assoc := m.associations.Associations[slotIndex]
+	if !assoc.HasAssociation() {
+		return false
+	}
+
+	// Compare project, task, and activity IDs
+	if m.activeTimer.ProjectID != assoc.ProjectID {
+		return false
+	}
+
+	// Compare task - both must match (or both be unset)
+	activeTaskID := m.activeTimer.TaskID.Value
+	if activeTaskID != assoc.TaskID {
+		return false
+	}
+
+	// Compare activity
+	if m.activeTimer.ActivityID != assoc.ActivityID {
+		return false
+	}
+
+	return true
+}
+
+// getSlotFromMousePosition calculates which slot (0-8) was clicked based on mouse coordinates
+// Returns -1 if the click was outside the grid
+func (m *FavouritesModel) getSlotFromMousePosition(x, y int) int {
+	// Grid layout constants (matching renderButton)
+	buttonWidth := 18 + 2  // width + margin
+	buttonHeight := 5 + 2  // height + borders
+
+	// Calculate grid starting position (centered)
+	gridWidth := buttonWidth * 3
+	gridHeight := buttonHeight * 3
+
+	// Header takes approximately 4 lines, plus some padding
+	headerOffset := 8
+
+	// Calculate grid start position
+	gridStartX := (m.width - gridWidth) / 2
+	gridStartY := headerOffset
+
+	// Check if click is within grid bounds
+	if x < gridStartX || x >= gridStartX+gridWidth {
+		return -1
+	}
+	if y < gridStartY || y >= gridStartY+gridHeight {
+		return -1
+	}
+
+	// Calculate column (0-2) and row (0-2)
+	col := (x - gridStartX) / buttonWidth
+	row := (y - gridStartY) / buttonHeight
+
+	// Bounds check
+	if col < 0 || col > 2 || row < 0 || row > 2 {
+		return -1
+	}
+
+	return row*3 + col
 }
 
 // renderHeader renders the consistent header

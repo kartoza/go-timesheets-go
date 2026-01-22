@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-stop previous timer** - When starting a timer from favourites, any running timer is automatically stopped
 - **Git commit auto-fill** - When stopping a timer, if the project has a linked git repository, the description is automatically populated with commit messages from the work session
 - **POW mode toggle** - Press `p` in the favourites screen to toggle Proof of Work screenshot capture mode
+- **Running task indicator** - Currently running task is highlighted in green with "RUNNING" label and cannot be clicked again
+- **Mouse support** - Click on favourite slots to select and start timers (mouse support enabled throughout app)
 
 ### Changed
 - Main menu now includes "Favourites" option for quick access to the new feature

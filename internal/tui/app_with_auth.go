@@ -562,8 +562,8 @@ func (a *AppWithAuth) Run() error {
 		_ = err
 	}
 
-	// Now run the main application
-	p := tea.NewProgram(a, tea.WithAltScreen())
+	// Now run the main application with mouse support
+	p := tea.NewProgram(a, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 
 	// Cleanup on exit
