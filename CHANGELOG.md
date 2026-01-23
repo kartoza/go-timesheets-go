@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.1] - 2026-01-23
+
+### Added
+
+#### Cross-Platform Packages
+- **Windows package** - ZIP archive with GUI executable (no console window)
+- **macOS package** - Universal binary DMG supporting both Intel and Apple Silicon Macs
+- **macOS tar.gz** - Separate Intel (amd64) and ARM64 archives for manual installation
+- **Linux binary** - Standalone amd64 binary tar.gz for systems without package managers
+
+### Changed
+- Updated GitHub Actions workflow to build packages for all major platforms on release
+
+---
+
 ## [0.9.0] - 2026-01-23
 
 ### Added
@@ -178,6 +193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.9.1]: https://github.com/kartoza/go-timesheets-go/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.6.0...v0.7.0
