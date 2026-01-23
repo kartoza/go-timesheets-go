@@ -1359,3 +1359,7 @@ User: commit and push it
 User: there should be windows and mac packages too
 === sex 23 jan 2026 00:19:56 WET ===
 User: make a 0.9.1 release to get the new packages
+=== sex 23 jan 2026 07:42:11 WET ===
+User: Various package builds failed - can you fix or build locally and upload to the release
+=== sex 23 jan 2026 08:46:46 WET ===
+User: add a make packages makefile and nix flake command so that we can build packages locally at will and push them into a release

@@ -272,3 +272,35 @@ packages-clean:
 	@echo "Cleaning packaging artifacts..."
 	rm -rf $(RELEASE_DIR)/deb $(RELEASE_DIR)/rpm $(RELEASE_DIR)/snap $(RELEASE_DIR)/flatpak
 	rm -f snapcraft.yaml
+
+# =============================================================================
+# Docker-based Package Building (works on any system)
+# =============================================================================
+
+# Build Debian package using Docker
+.PHONY: deb-docker
+deb-docker:
+	@./scripts/build-packages.sh deb $(VERSION)
+
+# Build RPM package using Docker
+.PHONY: rpm-docker
+rpm-docker:
+	@./scripts/build-packages.sh rpm $(VERSION)
+
+# Build all packages using Docker (cross-platform)
+.PHONY: packages-docker
+packages-docker:
+	@./scripts/build-packages.sh all $(VERSION)
+
+# Upload packages to GitHub release
+.PHONY: packages-upload
+packages-upload:
+	@if [ -z "$(TAG)" ]; then echo "Error: TAG is required. Usage: make packages-upload TAG=v0.9.1"; exit 1; fi
+	@echo "Uploading packages to release $(TAG)..."
+	@for pkg in $(RELEASE_DIR)/deb/*.deb $(RELEASE_DIR)/rpm/*.rpm; do \
+		if [ -f "$$pkg" ]; then \
+			echo "  Uploading $$pkg..."; \
+			gh release upload $(TAG) "$$pkg" --clobber; \
+		fi; \
+	done
+	@echo "Done! View release at: https://github.com/kartoza/go-timesheets-go/releases/tag/$(TAG)"

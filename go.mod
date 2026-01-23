@@ -1,9 +1,10 @@
 module github.com/kartoza/go-timesheets-go
 
-go 1.25.4
+go 1.24.2
 
 require (
 	fyne.io/fyne/v2 v2.7.2
+	fyne.io/systray v1.12.0
 	github.com/blacktop/go-termimg v0.1.24
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -19,7 +20,6 @@ require (
 replace tim-particles => github.com/timlinux/tim-particles v0.0.0-20260114235936-77931bd31206
 
 require (
-	fyne.io/systray v1.12.0 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
