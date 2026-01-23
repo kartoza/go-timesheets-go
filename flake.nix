@@ -11,8 +11,85 @@
       # Version - update this with each release
       version = "0.9.1";
 
-      # Helper function to build for a specific platform
-      mkPackage = { pkgs, system, GOOS, GOARCH }:
+      # Helper function to build native package with CGO (for Fyne GUI/systray)
+      mkNativePackage = { pkgs }:
+        pkgs.buildGoModule {
+          pname = "kartoza-timesheet";
+          inherit version;
+          src = ./.;
+
+          vendorHash = "sha256-zgdlxgR3TQSaRS+npRL3wEhKZRizJZ6D4Y3Jj4O/Xhs=";
+
+          # Use release build tag to disable debug logging and monitoring
+          tags = [ "release" ];
+
+          ldflags = [
+            "-s"
+            "-w"
+            "-X main.version=${version}"
+          ];
+
+          # CGO is required for Fyne GUI and systray
+          env.CGO_ENABLED = 1;
+
+          # Native build inputs for CGO (Fyne GUI dependencies)
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+
+          buildInputs = with pkgs; [
+            # OpenGL
+            libGL
+            mesa
+
+            # X11
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXrandr
+            xorg.libXinerama
+            xorg.libXi
+            xorg.libXxf86vm
+
+            # Wayland
+            wayland
+            libxkbcommon
+            glfw
+
+            # System tray (Linux)
+            libayatana-appindicator
+            gtk3
+            glib
+          ];
+
+          doCheck = false;
+
+          postInstall = ''
+            # Rename binary for consistency
+            if [ -f "$out/bin/go-timesheets-go" ]; then
+              mv $out/bin/go-timesheets-go $out/bin/kartoza-timesheet
+            fi
+
+            # Remove scripts binary (we only want the main app)
+            rm -f $out/bin/scripts
+
+            # Install .desktop file and icon
+            mkdir -p $out/share/applications
+            mkdir -p $out/share/icons/hicolor/256x256/apps
+            cp $src/kartoza-timesheet.desktop $out/share/applications/
+            cp $src/resources/kartoza-logo.png $out/share/icons/hicolor/256x256/apps/kartoza-timesheet.png
+          '';
+
+          meta = with pkgs.lib; {
+            description = "A beautiful terminal-based timesheet application";
+            homepage = "https://github.com/kartoza/go-timesheets-go";
+            license = licenses.mit;
+            maintainers = [ ];
+            platforms = platforms.linux;
+          };
+        };
+
+      # Helper function to build for cross-compilation (CGO disabled, no GUI)
+      mkCrossPackage = { pkgs, system, GOOS, GOARCH }:
         let
           # For Windows, we need to add .exe extension
           binaryName = if GOOS == "windows" then "kartoza-timesheet.exe" else "kartoza-timesheet";
@@ -35,7 +112,7 @@
           ];
 
           # Set cross-compilation environment variables
-          # These need to be in preBuild to avoid conflicts
+          # CGO disabled for cross-compilation (TUI-only mode)
           preBuild = ''
             export CGO_ENABLED=0
             export GOOS=${GOOS}
@@ -63,15 +140,6 @@
 
             # Remove scripts binary (we only want the main app)
             rm -f $out/bin/scripts $out/bin/scripts.exe
-
-            # Only install .desktop file and icon for Linux
-            ${if GOOS == "linux" then ''
-              mkdir -p $out/share/applications
-              mkdir -p $out/share/icons/hicolor/256x256/apps
-              mkdir -p $out/share/icons/hicolor/scalable/apps
-              cp $src/kartoza-timesheet.desktop $out/share/applications/
-              cp $src/resources/kartoza-logo.png $out/share/icons/hicolor/256x256/apps/kartoza-timesheet.png
-            '' else ""}
 
             # Create a tarball for distribution
             mkdir -p $out/dist
@@ -187,46 +255,38 @@
           gnused
         ];
 
-        # Native package (for current system)
-        kartoza-timesheet = mkPackage {
-          inherit pkgs system;
-          GOOS = if pkgs.stdenv.isLinux then "linux"
-                 else if pkgs.stdenv.isDarwin then "darwin"
-                 else throw "Unsupported system";
-          GOARCH = if pkgs.stdenv.isx86_64 then "amd64"
-                   else if pkgs.stdenv.isAarch64 then "arm64"
-                   else throw "Unsupported architecture";
-        };
+        # Native package (for current system) - uses CGO for full GUI/systray support
+        kartoza-timesheet = mkNativePackage { inherit pkgs; };
 
-        # Cross-compilation packages
+        # Cross-compilation packages (CGO disabled, TUI-only)
         # Linux builds
-        linux-amd64 = mkPackage {
+        linux-amd64 = mkCrossPackage {
           inherit pkgs system;
           GOOS = "linux";
           GOARCH = "amd64";
         };
 
-        linux-arm64 = mkPackage {
+        linux-arm64 = mkCrossPackage {
           inherit pkgs system;
           GOOS = "linux";
           GOARCH = "arm64";
         };
 
         # macOS builds
-        darwin-amd64 = mkPackage {
+        darwin-amd64 = mkCrossPackage {
           inherit pkgs system;
           GOOS = "darwin";
           GOARCH = "amd64";
         };
 
-        darwin-arm64 = mkPackage {
+        darwin-arm64 = mkCrossPackage {
           inherit pkgs system;
           GOOS = "darwin";
           GOARCH = "arm64";
         };
 
         # Windows builds
-        windows-amd64 = mkPackage {
+        windows-amd64 = mkCrossPackage {
           inherit pkgs system;
           GOOS = "windows";
           GOARCH = "amd64";
