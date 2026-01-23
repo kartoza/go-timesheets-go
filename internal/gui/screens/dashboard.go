@@ -37,8 +37,11 @@ type DashboardScreen struct {
 	startStopButton *widget.Button
 	historyButton   *widget.Button
 	settingsButton  *widget.Button
+	powButton       *widget.Button
+	officeButton    *widget.Button
 	headerLabel     *canvas.Text
 	statusLabel     *canvas.Text
+	powStatusLabel  *canvas.Text
 
 	// State
 	activeTimer    *api.TimelogEntry
@@ -50,10 +53,11 @@ type DashboardScreen struct {
 	stopTicker     chan struct{}
 
 	// Callbacks
-	OnSettings        func()
-	OnHistory         func()
-	OnNewTimesheet    func()
-	OnTimerStatusChange func(running bool, projectName, taskName string)
+	OnSettings          func()
+	OnHistory           func()
+	OnNewTimesheet      func()
+	OnOffice            func()
+	OnTimerStatusChange func(running bool, projectName, taskName, activityName string, startTime time.Time)
 }
 
 // NewDashboardScreen creates a new dashboard screen
@@ -161,6 +165,26 @@ func (s *DashboardScreen) build() {
 		}
 	})
 
+	// POW mode button
+	s.powButton = widget.NewButton("📸 POW: OFF", s.togglePowMode)
+
+	// Office mode button
+	s.officeButton = widget.NewButton("🏢 Office", s.showOffice)
+
+	// POW status label
+	s.powStatusLabel = canvas.NewText("", color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF})
+	s.powStatusLabel.TextSize = 10
+	s.powStatusLabel.Alignment = fyne.TextAlignCenter
+
+	// Button row
+	buttonRow := container.NewHBox(
+		layout.NewSpacer(),
+		s.powButton,
+		s.officeButton,
+		s.settingsButton,
+		layout.NewSpacer(),
+	)
+
 	// Status label
 	s.statusLabel = canvas.NewText("", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
 	s.statusLabel.TextSize = 12
@@ -174,10 +198,14 @@ func (s *DashboardScreen) build() {
 		layout.NewSpacer(),
 		favSection,
 		layout.NewSpacer(),
-		container.NewCenter(s.settingsButton),
+		buttonRow,
+		container.NewCenter(s.powStatusLabel),
 		widget.NewSeparator(),
 		container.NewCenter(s.statusLabel),
 	)
+
+	// Update POW button state
+	s.updatePowButton()
 }
 
 func (s *DashboardScreen) onStartStopClicked() {
@@ -196,14 +224,34 @@ func (s *DashboardScreen) showStopTimerDialog() {
 	if s.activeTimer.Description != nil {
 		descEntry.SetText(*s.activeTimer.Description)
 	}
-	descEntry.SetMinRowsVisible(3)
+	descEntry.SetMinRowsVisible(5)
+
+	// Check if there's a repo association for this project
+	hasRepoAssoc := s.hasRepoAssociation(s.activeTimer.ProjectID)
+
+	// Create "Fetch from Git" button
+	fetchButton := widget.NewButton("📥 Fetch from Git", func() {
+		s.fetchGitCommitsForDescription(descEntry)
+	})
+	if !hasRepoAssoc {
+		fetchButton.Disable()
+	}
+
+	// Wrap the description entry with the fetch button
+	descContainer := container.NewBorder(
+		nil,
+		container.NewHBox(layout.NewSpacer(), fetchButton),
+		nil,
+		nil,
+		descEntry,
+	)
 
 	form := dialog.NewForm(
 		"Stop Timer",
 		"Stop",
 		"Cancel",
 		[]*widget.FormItem{
-			widget.NewFormItem("Description", descEntry),
+			widget.NewFormItem("Description", descContainer),
 		},
 		func(confirmed bool) {
 			if confirmed {
@@ -212,8 +260,163 @@ func (s *DashboardScreen) showStopTimerDialog() {
 		},
 		s.window,
 	)
-	form.Resize(fyne.NewSize(400, 200))
+	form.Resize(fyne.NewSize(500, 300))
 	form.Show()
+}
+
+// hasRepoAssociation checks if there's a code repo association for the given project
+func (s *DashboardScreen) hasRepoAssociation(projectID int) bool {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return false
+	}
+
+	store, err := storage.New(cfg.GetStorageDir())
+	if err != nil {
+		return false
+	}
+
+	associations, err := store.LoadCodeRepoAssociations()
+	if err != nil || associations == nil {
+		return false
+	}
+
+	assoc := associations.GetAssociationByProject(projectID)
+	return assoc != nil && assoc.HasAssociation()
+}
+
+// fetchGitCommitsForDescription fetches git commits and populates the description field
+func (s *DashboardScreen) fetchGitCommitsForDescription(descEntry *widget.Entry) {
+	if s.activeTimer == nil {
+		return
+	}
+
+	// Load code repo associations
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		dialog.ShowError(err, s.window)
+		return
+	}
+
+	store, err := storage.New(cfg.GetStorageDir())
+	if err != nil {
+		dialog.ShowError(err, s.window)
+		return
+	}
+
+	associations, err := store.LoadCodeRepoAssociations()
+	if err != nil {
+		dialog.ShowError(err, s.window)
+		return
+	}
+
+	assoc := associations.GetAssociationByProject(s.activeTimer.ProjectID)
+	if assoc == nil || !assoc.HasAssociation() {
+		dialog.ShowInformation("No Repository", "No repository is linked to this project.\n\nGo to Settings > Code Repositories to link a repository.", s.window)
+		return
+	}
+
+	// Get timer time range
+	startTime := s.timerStartTime
+	endTime := time.Now()
+
+	// Determine if local or GitHub repo
+	if api.IsLocalPath(assoc.RepoURL) {
+		// Local repository
+		s.fetchLocalGitCommits(assoc.RepoURL, startTime, endTime, descEntry)
+	} else {
+		// GitHub repository
+		s.fetchGitHubCommits(assoc.RepoOwner, assoc.RepoName, startTime, endTime, descEntry)
+	}
+}
+
+// fetchLocalGitCommits fetches commits from a local git repository
+func (s *DashboardScreen) fetchLocalGitCommits(repoPath string, startTime, endTime time.Time, descEntry *widget.Entry) {
+	repoPath = api.ExpandPath(repoPath)
+
+	if !api.IsGitRepository(repoPath) {
+		dialog.ShowError(fmt.Errorf("not a git repository: %s", repoPath), s.window)
+		return
+	}
+
+	util.RunAsync(
+		func() (string, error) {
+			localGitClient := api.NewLocalGitClient()
+			commits, err := localGitClient.GetCommitsInTimeRange(repoPath, startTime, endTime, "")
+			if err != nil {
+				return "", err
+			}
+			if len(commits) == 0 {
+				return "", nil
+			}
+			return api.FormatLocalCommitsAsDescription(commits), nil
+		},
+		func(description string, err error) {
+			if err != nil {
+				dialog.ShowError(err, s.window)
+				return
+			}
+			if description == "" {
+				dialog.ShowInformation("No Commits", "No commits found in the timer time range.", s.window)
+				return
+			}
+			// Append to existing description or set new
+			existing := descEntry.Text
+			if existing != "" {
+				descEntry.SetText(existing + "\n\n" + description)
+			} else {
+				descEntry.SetText(description)
+			}
+		},
+	)
+}
+
+// fetchGitHubCommits fetches commits from a GitHub repository
+func (s *DashboardScreen) fetchGitHubCommits(owner, repo string, startTime, endTime time.Time, descEntry *widget.Entry) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to load config: %w", err), s.window)
+		return
+	}
+
+	githubToken := cfg.GetGitHubToken()
+	if githubToken == "" {
+		dialog.ShowInformation("GitHub Token Required",
+			"A GitHub token is required to fetch commits.\n\nSet GITHUB_TOKEN environment variable or configure it in settings.",
+			s.window)
+		return
+	}
+
+	util.RunAsync(
+		func() (string, error) {
+			githubClient := api.NewGitHubClient(githubToken)
+			commits, err := githubClient.GetCommitsInTimeRange(owner, repo, startTime, endTime, "")
+			if err != nil {
+				return "", err
+			}
+			if len(commits) == 0 {
+				return "", nil
+			}
+			return api.FormatCommitsAsDescription(commits), nil
+		},
+		func(description string, err error) {
+			if err != nil {
+				dialog.ShowError(err, s.window)
+				return
+			}
+			if description == "" {
+				dialog.ShowInformation("No Commits", "No commits found in the timer time range.", s.window)
+				return
+			}
+			// Append to existing description or set new
+			existing := descEntry.Text
+			if existing != "" {
+				descEntry.SetText(existing + "\n\n" + description)
+			} else {
+				descEntry.SetText(description)
+			}
+		},
+	)
 }
 
 func (s *DashboardScreen) stopTimer(description string) {
@@ -316,7 +519,7 @@ func (s *DashboardScreen) updateTimerDisplay() {
 		s.startStopButton.SetText("■ Stop Timer")
 		// Notify systray of timer status
 		if s.OnTimerStatusChange != nil {
-			s.OnTimerStatusChange(true, s.activeTimer.ProjectName, s.activeTimer.TaskName)
+			s.OnTimerStatusChange(true, s.activeTimer.ProjectName, s.activeTimer.TaskName, s.activeTimer.ActivityType, s.timerStartTime)
 		}
 	} else {
 		s.timerDisplay.SetTime(0, 0)
@@ -325,7 +528,7 @@ func (s *DashboardScreen) updateTimerDisplay() {
 		s.startStopButton.SetText("▶ Start Timer")
 		// Notify systray of timer status
 		if s.OnTimerStatusChange != nil {
-			s.OnTimerStatusChange(false, "", "")
+			s.OnTimerStatusChange(false, "", "", "", time.Time{})
 		}
 	}
 
@@ -433,7 +636,10 @@ func (s *DashboardScreen) StartTicker() {
 					elapsed := time.Since(s.timerStartTime)
 					hours := int(elapsed.Hours())
 					minutes := int(elapsed.Minutes()) % 60
-					s.timerDisplay.SetTime(hours, minutes)
+					// Use fyne.Do for thread-safe UI updates
+					fyne.Do(func() {
+						s.timerDisplay.SetTime(hours, minutes)
+					})
 				}
 			case <-s.stopTicker:
 				return
@@ -451,5 +657,52 @@ func (s *DashboardScreen) StopTicker() {
 	select {
 	case s.stopTicker <- struct{}{}:
 	default:
+	}
+}
+
+// togglePowMode toggles POW (Proof of Work) screenshot capture mode
+func (s *DashboardScreen) togglePowMode() {
+	if s.powCapture == nil {
+		// Initialize POW capturer if not exists
+		cfg := pow.DefaultConfig()
+		cfg.Enabled = true
+		capturer, err := pow.New(cfg)
+		if err != nil {
+			s.setStatus("POW Error: " + err.Error())
+			return
+		}
+		s.powCapture = capturer
+	}
+
+	enabled, ok := s.powCapture.Toggle()
+	if ok {
+		s.updatePowButton()
+		if enabled {
+			s.setStatus("POW mode enabled - screenshots will be captured")
+		} else {
+			s.setStatus("POW mode disabled")
+		}
+	} else {
+		s.setStatus("Failed to toggle POW mode")
+	}
+}
+
+// updatePowButton updates the POW button text based on current state
+func (s *DashboardScreen) updatePowButton() {
+	if s.powCapture != nil && s.powCapture.IsEnabled() {
+		s.powButton.SetText("📸 POW: ON")
+		s.powStatusLabel.Text = "Screenshots will be captured during timer sessions"
+		s.powStatusLabel.Color = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF} // Green
+	} else {
+		s.powButton.SetText("📸 POW: OFF")
+		s.powStatusLabel.Text = ""
+	}
+	s.powStatusLabel.Refresh()
+}
+
+// showOffice launches the office mode visualization
+func (s *DashboardScreen) showOffice() {
+	if s.OnOffice != nil {
+		s.OnOffice()
 	}
 }

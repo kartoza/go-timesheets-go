@@ -1,0 +1,9 @@
+kartoza-timesheet (0.3.1-1) unstable; urgency=medium
+
+  * Initial Debian package release
+  * Full TUI application for timesheet management
+  * CLI commands: start, stop, status, current, today, list
+  * Waybar integration with JSON output
+  * ERPNext integration for timesheet submission
+
+ -- Tim Sutton <tim@kartoza.com>  Fri, 17 Jan 2026 12:00:00 +0200

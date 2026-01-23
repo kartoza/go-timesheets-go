@@ -1,10 +1,11 @@
 package widgets
 
 import (
+	"image/color"
 	"strings"
-	"sync"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 )
@@ -25,12 +26,12 @@ type SearchableSelect struct {
 	OnChanged   func(*SelectItem)
 	OnSearch    func(query string) // Called when user types to trigger async search
 
-	entry      *widget.Entry
-	list       *widget.List
-	popup      *widget.PopUp
-	filtered   []SelectItem
-	mu         sync.Mutex
-	parentWin  fyne.Window
+	entry     *widget.Entry
+	list      *widget.List
+	popup     *widget.PopUp
+	filtered  []SelectItem
+	parentWin fyne.Window
+	isTyping  bool
 }
 
 // NewSearchableSelect creates a new searchable select widget
@@ -45,14 +46,17 @@ func NewSearchableSelect(placeholder string, parentWin fyne.Window) *SearchableS
 	return s
 }
 
-// SetItems updates the items list
+// SetItems updates the items list (called from async via fyne.Do)
 func (s *SearchableSelect) SetItems(items []SelectItem) {
-	s.mu.Lock()
 	s.Items = items
 	s.filtered = items
-	s.mu.Unlock()
+
 	if s.list != nil {
 		s.list.Refresh()
+	}
+	// Show popup if we have items and user is typing
+	if len(items) > 0 && s.isTyping {
+		s.showPopup()
 	}
 }
 
@@ -85,45 +89,60 @@ func (s *SearchableSelect) ClearSelection() {
 func (s *SearchableSelect) CreateRenderer() fyne.WidgetRenderer {
 	s.entry = widget.NewEntry()
 	s.entry.PlaceHolder = s.PlaceHolder
+
+	if s.Selected != nil {
+		s.entry.SetText(s.Selected.Label)
+	}
+
 	s.entry.OnChanged = func(text string) {
+		s.isTyping = true
 		s.filterItems(text)
-		if len(text) >= 2 && s.OnSearch != nil {
+
+		// Trigger search callback - API requires 2+ characters
+		if s.OnSearch != nil && len(text) >= 2 {
 			s.OnSearch(text)
 		}
-		if s.popup != nil && !s.popup.Visible() && len(text) > 0 {
+
+		// Show popup when typing (with 2+ chars to match API requirement)
+		if len(text) >= 2 {
 			s.showPopup()
+		} else {
+			s.hidePopup()
 		}
 	}
 
+	// Dark text color for light popup background
+	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+
 	s.list = widget.NewList(
 		func() int {
-			s.mu.Lock()
-			defer s.mu.Unlock()
 			return len(s.filtered)
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("Template")
+			label := canvas.NewText("Template item text here", darkGray)
+			label.TextSize = 14
+			return container.NewPadded(label)
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			s.mu.Lock()
-			defer s.mu.Unlock()
 			if id < len(s.filtered) {
-				obj.(*widget.Label).SetText(s.filtered[id].Label)
+				padded := obj.(*fyne.Container)
+				label := padded.Objects[0].(*canvas.Text)
+				label.Text = s.filtered[id].Label
+				label.Refresh()
 			}
 		},
 	)
+
 	s.list.OnSelected = func(id widget.ListItemID) {
-		s.mu.Lock()
 		if id < len(s.filtered) {
 			item := s.filtered[id]
 			s.Selected = &item
-			s.mu.Unlock()
+			s.isTyping = false
 			s.entry.SetText(item.Label)
+
 			if s.OnChanged != nil {
 				s.OnChanged(&item)
 			}
-		} else {
-			s.mu.Unlock()
 		}
 		s.hidePopup()
 	}
@@ -135,9 +154,6 @@ func (s *SearchableSelect) CreateRenderer() fyne.WidgetRenderer {
 }
 
 func (s *SearchableSelect) filterItems(query string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if query == "" {
 		s.filtered = s.Items
 	} else {
@@ -149,36 +165,61 @@ func (s *SearchableSelect) filterItems(query string) {
 			}
 		}
 	}
+
 	if s.list != nil {
 		s.list.Refresh()
 	}
 }
 
 func (s *SearchableSelect) showPopup() {
+	if s.parentWin == nil || s.entry == nil {
+		return
+	}
+
+	// Don't show empty popup
+	if len(s.filtered) == 0 {
+		s.hidePopup()
+		return
+	}
+
 	if s.popup != nil {
 		s.popup.Show()
 		return
 	}
 
-	if s.parentWin == nil {
-		return
-	}
-
 	listContainer := container.NewVScroll(s.list)
-	listContainer.SetMinSize(fyne.NewSize(300, 200))
+	listContainer.SetMinSize(fyne.NewSize(350, 200))
 
 	s.popup = widget.NewPopUp(listContainer, s.parentWin.Canvas())
 
-	// Position below the entry
-	pos := s.entry.Position()
-	pos.Y += s.entry.Size().Height
-	s.popup.ShowAtPosition(pos)
+	// Get entry position
+	var entryPos fyne.Position
+	if driver := fyne.CurrentApp().Driver(); driver != nil {
+		entryPos = driver.AbsolutePositionForObject(s.entry)
+	}
+	entryPos.Y += s.entry.Size().Height + 2 // Position below entry with small gap
+
+	s.popup.ShowAtPosition(entryPos)
 }
 
 func (s *SearchableSelect) hidePopup() {
 	if s.popup != nil {
 		s.popup.Hide()
 	}
+}
+
+// FocusGained is called when the entry gains focus
+func (s *SearchableSelect) FocusGained() {
+	// Show existing items when focused
+	if len(s.Items) > 0 {
+		s.showPopup()
+	}
+}
+
+// FocusLost is called when the entry loses focus
+func (s *SearchableSelect) FocusLost() {
+	// Delay hiding to allow list selection to complete
+	// The popup will be hidden when an item is selected
 }
 
 type searchableSelectRenderer struct {
@@ -192,7 +233,7 @@ func (r *searchableSelectRenderer) Layout(size fyne.Size) {
 }
 
 func (r *searchableSelectRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(200, 36)
+	return fyne.NewSize(250, 36)
 }
 
 func (r *searchableSelectRenderer) Refresh() {

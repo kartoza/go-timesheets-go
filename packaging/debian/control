@@ -1,0 +1,24 @@
+Source: kartoza-timesheet
+Section: utils
+Priority: optional
+Maintainer: Tim Sutton <tim@kartoza.com>
+Build-Depends: debhelper-compat (= 13), golang-go (>= 1.21)
+Standards-Version: 4.6.2
+Homepage: https://github.com/kartoza/go-timesheets-go
+Vcs-Browser: https://github.com/kartoza/go-timesheets-go
+Vcs-Git: https://github.com/kartoza/go-timesheets-go.git
+Rules-Requires-Root: no
+
+Package: kartoza-timesheet
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Terminal-based timesheet application
+ Kartoza Timesheet is a beautiful terminal user interface (TUI)
+ application for tracking time spent on projects and tasks.
+ .
+ Features include:
+  - Project and task management
+  - Time entry tracking with start/stop functionality
+  - Waybar integration for desktop status display
+  - ERPNext integration for timesheet submission
+  - CLI commands for automation and scripting

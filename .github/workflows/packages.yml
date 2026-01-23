@@ -1,0 +1,217 @@
+name: Build Packages
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:  # Allow manual trigger for testing
+
+jobs:
+  build-deb:
+    name: Build Debian Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev debhelper devscripts
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+
+      - name: Build Debian package
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}  # Remove 'v' prefix if present
+          mkdir -p release/deb
+          # Create source tarball
+          tar --exclude='.git' --exclude='release' --exclude='build' \
+            -czf release/deb/kartoza-timesheet_${VERSION}.orig.tar.gz \
+            --transform "s,^,kartoza-timesheet-${VERSION}/," .
+          # Extract and build
+          cd release/deb
+          tar -xzf kartoza-timesheet_${VERSION}.orig.tar.gz
+          cp -r ../../packaging/debian kartoza-timesheet-${VERSION}/
+          cd kartoza-timesheet-${VERSION}
+          # Update changelog version
+          sed -i "s/0.3.1-1/${VERSION}-1/g" debian/changelog
+          dpkg-buildpackage -us -uc -b
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} release/deb/*.deb --clobber
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: release/deb/*.deb
+          retention-days: 7
+
+  build-rpm:
+    name: Build RPM Package
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          dnf install -y golang rpm-build git
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+
+      - name: Build RPM package
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}  # Remove 'v' prefix if present
+          mkdir -p release/rpm/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          # Create source tarball
+          tar --exclude='.git' --exclude='release' --exclude='build' \
+            -czf release/rpm/SOURCES/kartoza-timesheet-${VERSION}.tar.gz \
+            --transform "s,^,kartoza-timesheet-${VERSION}/," .
+          # Update spec file version
+          sed "s/Version:        0.3.1/Version:        ${VERSION}/" \
+            packaging/rpm/kartoza-timesheet.spec > release/rpm/SPECS/kartoza-timesheet.spec
+          # Build
+          rpmbuild --define "_topdir $(pwd)/release/rpm" \
+            -bb release/rpm/SPECS/kartoza-timesheet.spec
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find release/rpm/RPMS -name "*.rpm" -exec gh release upload ${{ github.event.release.tag_name }} {} --clobber \;
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-package
+          path: release/rpm/RPMS/**/*.rpm
+          retention-days: 7
+
+  build-snap:
+    name: Build Snap Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+
+      - name: Set up snapcraft
+        run: |
+          sudo snap install snapcraft --classic
+
+      - name: Build Snap
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}  # Remove 'v' prefix if present
+          cp packaging/snap/snapcraft.yaml .
+          # Update version in snapcraft.yaml
+          sed -i "s/version: '0.3.1'/version: '${VERSION}'/" snapcraft.yaml
+          mkdir -p release/snap
+          snapcraft --destructive-mode
+          mv *.snap release/snap/
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} release/snap/*.snap --clobber
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: snap-package
+          path: release/snap/*.snap
+          retention-days: 7
+
+  build-flatpak:
+    name: Build Flatpak Package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+
+      - name: Install Flatpak dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08
+          flatpak install --user -y flathub org.freedesktop.Sdk.Extension.golang//23.08
+
+      - name: Build Flatpak
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${VERSION#v}  # Remove 'v' prefix if present
+          mkdir -p release/flatpak
+          # Update version in manifest
+          sed -i "s/version=0.3.1/version=${VERSION}/" packaging/flatpak/com.kartoza.Timesheet.yml
+          # Build
+          cd packaging/flatpak
+          flatpak-builder --user --force-clean --repo=../../release/flatpak/repo \
+            ../../release/flatpak/build com.kartoza.Timesheet.yml
+          flatpak build-bundle ../../release/flatpak/repo \
+            ../../release/flatpak/kartoza-timesheet-${VERSION}.flatpak com.kartoza.Timesheet
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} release/flatpak/*.flatpak --clobber
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-package
+          path: release/flatpak/*.flatpak
+          retention-days: 7

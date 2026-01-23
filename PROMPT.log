@@ -1166,3 +1166,192 @@ Usage:
 
 2026-01-22 18:07:07 - User asked: how do I start it in gui mode - Updated flake.nix with Fyne GUI dependencies (libGL, mesa, X11, Wayland libs with dev packages), added CGO_CFLAGS/CGO_LDFLAGS, fixed NewUbuntuTheme constructor. GUI mode is default when display is available, use --tui to force terminal mode.
 2026-01-22 21:09:46 - User requested: System tray functionality - app runs in system tray, closing window hides it instead of quitting, left-click shows/focuses window, right-click shows menu with Quit option. Implemented: systray.go with SystrayManager, modified app.go to intercept close and handle systray events, added OnTimerStatusChange callback to dashboard to sync timer status to tray tooltip. Added libayatana-appindicator, gtk3, glib to flake.nix for Linux systray support.
+2026-01-22 21:45:19 - User reported Fyne thread safety errors and unable to search projects in favourites editor. Fixes applied: 1) RunAsync now wraps callbacks in fyne.Do() for thread-safe UI updates (util/async.go). 2) showWindow/hideWindow/quit in app.go wrapped in fyne.Do(). 3) SearchableSelect popup now uses fyne.CurrentApp().Driver().AbsolutePositionForObject() for correct positioning in dialogs. 4) Dashboard StartTicker now uses fyne.Do() for timer display updates. 5) Started ticker when showing dashboard.
+2026-01-22 21:57:29 - Added TUI features to GUI: 1) POW mode toggle button with status display on dashboard 2) Office mode button (shows placeholder dialog for now) 3) Fireworks celebration widget with particle animation after successful timesheet submission 4) Submit All Pending button in history screen 5) Blinking timer colon already implemented with thread-safe fyne.Do()
+2026-01-22 22:XX:XX - User requested: 1) Rotating system tray icon when timer is running 2) Detailed tooltip showing project, task, activity, start time, and elapsed time. Implemented: Pre-render 12 rotated icon versions, cycle through them every 250ms when timer running. Added TimerInfo struct to track timer details, updateTooltip() method with periodic 30-second refresh showing all timer information in tooltip format.
+2026-01-22 22:XX:XX - User requested: Stop timer dialog should have option to pull description from associated git repository. Implemented: Added "Fetch from Git" button to stop timer dialog in dashboard.go. Button is enabled only when project has a code repo association. Supports both local git repositories and GitHub repos. Fetches commits in the timer time range and formats them as description text. Uses existing api.LocalGitClient, api.GitHubClient, and api.FormatLocalCommitsAsDescription/FormatCommitsAsDescription functions.
+2026-01-22 23:XX:XX - User reported: History list doesn't show status icons, detail view is blank white with just delete/close. Fixed: 1) Added status icons to history list (🎬 POW, 🟢 Running, ✓ Submitted, ○ Pending) 2) Completely rewrote showEntryDetail with proper Kartoza-styled content (gold/blue/gray colors, proper layout) 3) Added POW video section with path display and "Play POW Video" button 4) Added loadPowVideoMapping() to load all POW videos on refresh 5) Status bar now shows POW count
+2026-01-22 23:XX:XX - User reported: Detail dialog missing details (white text on white background) and POW icon not visible in list. Fixed: 1) Changed all dialog text to use canvas.NewText with explicit dark colors (darkGray #333333) instead of widget.NewLabel which uses theme colors 2) Added icons to all labels (📋 Task, 🎯 Activity, 📝 Description) 3) Combined POW icon with status text in list (🎬 before status) 4) Simplified list card structure to single status label containing both icon and status
+
+## 2026-01-22 - POW icons and dialog visibility fixes
+
+User reports:
+1. POW icons not showing in history table or detail view
+2. Submit pending confirmation dialog has white text on white background
+
+Investigation findings:
+- POW video mapping is correctly loaded (status bar shows "6 with POW")
+- All 6 POW entries are found and added to powVideoMap
+- The updateEntryCard function IS called with correct POW data
+- Only entries visible in viewport trigger updateEntryCard (Fyne List optimization)
+- The emojis ARE being added to the status text
+
+Fixes applied:
+1. Created custom confirmation dialogs with explicit dark text colors for light dialog backgrounds
+2. Fixed submitPendingEntries() to use custom dialog with canvas.NewText in dark gray
+3. Fixed confirmDelete() to use custom dialog with canvas.NewText in dark gray
+4. Both dialogs now have properly visible title and message text
+
+The POW icons (🎬) should now be visible when scrolling to entries that have POW videos.
+
+## 2026-01-22 - Project name completion hang fix
+
+User report: "the project name completion hangs on the new timesheet form" and "its crashed and I cannot even kill it"
+
+Root cause: Deadlock in SearchableSelect widget
+- `filterItems()` acquired mutex, then called `s.list.Refresh()` while holding it
+- `list.Refresh()` triggers the list's `Length()` callback which tries to acquire the same mutex
+- Result: Classic mutex deadlock causing the app to hang/freeze
+
+Fix applied in internal/gui/widgets/searchable_select.go:
+1. Modified `filterItems()` to release mutex BEFORE calling `s.list.Refresh()`
+2. Modified `SetItems()` to release mutex BEFORE calling `s.list.Refresh()` 
+3. Added safety check in `showPopup()` to not show empty popups
+
+## 2026-01-22 - Activity dropdown too large fix
+
+User report: "look at screenshot.png - the activity list is unreasonable"
+
+Issue: The activity dropdown (standard Fyne widget.Select) was showing ALL items 
+without any height limit, making it unreasonably tall and covering most of the screen.
+
+Fix applied:
+1. Created new BoundedSelect widget (internal/gui/widgets/bounded_select.go)
+   - Uses a button that shows selected value
+   - Popup list with max height of 8 items (scrollable for more)
+   - Dark text on light popup background for visibility
+2. Updated TimesheetScreen to use BoundedSelect for both:
+   - Task dropdown
+   - Activity dropdown
+3. SearchableSelect (for project search) was also updated to use dark text labels
+
+## 2026-01-22 - Isometric office scene feature
+
+User request: "the application is built with opengl right? Can you make a little 3d office scene similar to the ascii art one in the tui app"
+
+Explanation given: Fyne uses OpenGL for 2D rendering acceleration, not 3D. Offered three options:
+1. Isometric 2D pseudo-3D office scene (using Fyne canvas primitives)
+2. Integrate a 3D library (g3n or raylib-go)
+3. Something else
+
+User chose option "1" (isometric 2D).
+
+Implementation:
+1. Created internal/gui/widgets/isometric_office.go:
+   - IsometricOffice widget with animated workers, desks, computers, plants, etc.
+   - Workers have states: working, walking, idle - with smooth animations
+   - Furniture includes: desks, chairs, computers, plants, coffee machine, whiteboard, water cooler
+   - Grid floor pattern with walls and door
+   - Worker leg/arm animations when typing and walking
+   - Name tags for each worker
+
+2. Created internal/gui/screens/office.go:
+   - OfficeScreen wrapper with header, subtitle, and back button
+   - StartAnimation/StopAnimation methods for managing the animation loop
+
+3. Updated internal/gui/screens/dashboard.go:
+   - Added OnOffice callback to DashboardScreen
+   - Modified showOffice() to call OnOffice callback instead of showing placeholder dialog
+
+4. Updated internal/gui/app.go:
+   - Added officeScreen field to App struct
+   - Added showOffice() method to create/show office screen
+   - Wired OnOffice callback in showDashboard()
+   - Added officeScreen to handleLogout() reset list
+
+The office scene features:
+- 6 workers at desks (Tim, Amy, Bob, Eve, Dan, Zoe)
+- Workers randomly get up from desks, walk around, and return
+- Typing animation when working at desk
+- Walking animation with arm/leg swing
+- Grid floor with walls
+- Decorative furniture: plants, coffee machine, water cooler, whiteboard with "writing"
+- Computer screens with subtle flicker animation
+
+## 2026-01-22 - Favourites dialog styling update
+
+User request: "the add favourite dialog should use the same logic and styling as the new timesheet dialog"
+
+Changes made to internal/gui/screens/favourites.go:
+
+1. Replaced standard widget.Select with widgets.BoundedSelect for:
+   - Task dropdown (max 8 visible items, scrollable)
+   - Activity dropdown (max 8 visible items, scrollable)
+
+2. Applied consistent styling matching timesheet dialog:
+   - Gold color (#DDA036) for title and border
+   - Dark gray background (#1E1E1E)
+   - Gray labels (#9A9EA0) with 12px size
+   - Rounded corners (CornerRadius = 10)
+   - Same color scheme for buttons
+
+3. Changed from dialog.NewCustomConfirm to widget.NewModalPopUp for:
+   - Better control over styling
+   - Consistent dark theme appearance
+   - Gold border with rounded corners
+
+4. Validation matching timesheet form:
+   - Project is required (marked with *)
+   - Activity is required (marked with *)
+   - Task is optional
+   - Name is optional (display name override)
+
+5. Button layout:
+   - Clear Slot (danger/red) on the left
+   - Cancel and Save on the right
+   - Save button highlighted (HighImportance)
+
+## 2026-01-22 - Office scene expanded and team fetching integrated
+
+User request: "the office scene should be expanded to fill the whole dialog instead of just being a small area in the center. also you should copy the logic for fetching the people in the office from the tui version"
+
+Changes made:
+
+1. **internal/gui/widgets/isometric_office.go** - Complete rewrite:
+   - Now imports `github.com/kartoza/go-timesheets-go/internal/office` to use `FetchTeamMembers()`
+   - Fetches real team members from kartoza.com asynchronously
+   - Falls back to hardcoded team list if fetch fails
+   - Dynamically calculates desk layout based on screen size
+   - Shows up to 6 desks per row, with rows wrapping
+   - Activity bubbles show what each team member is working on (role-based)
+   - Activities are determined by role (Director, Developer, DevOps, GIS, Manager, etc.)
+   - Loading indicator while fetching team data
+   - Title bar overlaid on the scene showing "Kartoza Virtual Office" and team count
+
+2. **internal/gui/screens/office.go** - Simplified:
+   - Office widget now fills entire container (no header/footer)
+   - Back button floats over the office scene in top-left corner
+   - Uses container.NewStack to layer button over scene
+
+Features from TUI office module integrated:
+- Team member fetching from kartoza.com
+- Hardcoded fallback team list
+- Role-based activity assignment
+- Worker colors matching TUI version (15 distinct colors)
+- Speech bubbles showing current activity when working
+
+Layout improvements:
+- Office expands to fill available window space
+- Desks automatically repositioned when window resized
+- Decorative furniture (plants, coffee machine, water cooler, whiteboard) positioned along edges
+- Workers stay within bounds during walking animations
+
+## 2026-01-22 - Activity list alphabetical sorting
+
+User request: "the activity list picker should show the items in alphabetical order"
+
+Changes made:
+
+1. **internal/gui/screens/timesheet.go**:
+   - Added `sort` import
+   - In `Refresh()`, activities are now sorted alphabetically by Label before populating the dropdown
+
+2. **internal/gui/screens/favourites.go**:
+   - Added `sort` import  
+   - In `loadActivities()`, activities are sorted alphabetically when fetched from the API
+
+Both the timesheet creation form and the favourites editor now show activities in alphabetical order.
+=== sex 23 jan 2026 00:12:24 WET ===
+User: ok lets commit and make a new release with a beautiful change log and packages for all platforms
+=== sex 23 jan 2026 00:15:56 WET ===
+User: commit and push it

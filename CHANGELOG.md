@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-01-23
+
+### Added
+
+#### GUI Mode Enhancements
+- **Consistent dialog styling** - Favourites editor now uses the same polished styling as the timesheet dialog with gold borders, dark backgrounds, and rounded corners
+- **Height-bounded dropdowns** - Both task and activity selectors in the favourites editor now use `BoundedSelect` widget showing maximum 8 items to prevent overflow issues
+- **Alphabetical activity sorting** - Activities are now sorted alphabetically in both the timesheet creator and favourites editor for easier navigation
+
+#### Virtual Office Scene
+- **Full-screen office view** - The isometric office scene now expands to fill the entire window instead of being a small centered area
+- **Real team data integration** - Office scene fetches actual Kartoza team members from kartoza.com with proper fallback handling
+- **Activity bubbles** - Each worker now displays a speech bubble showing what they're currently working on
+- **Dynamic desk layout** - Desk positions automatically adjust based on screen size and number of team members
+- **Floating back button** - Navigation overlays elegantly on the office scene
+
+### Changed
+- Favourites editor task/activity dropdowns changed from standard Select to BoundedSelect for better UX
+- Office scene rendering now uses responsive layout calculations
+
+### Fixed
+- Fixed dropdown overflow in favourites editor when many options are available
+
+---
+
 ## [0.8.0] - 2026-01-22
 
 ### Added
@@ -153,6 +178,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.9.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.5.0...v0.6.0

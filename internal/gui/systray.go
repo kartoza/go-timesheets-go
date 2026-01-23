@@ -1,13 +1,27 @@
 package gui
 
 import (
+	"bytes"
 	_ "embed"
+	"fmt"
+	"image"
+	"image/png"
+	"math"
+	"time"
 
 	"fyne.io/systray"
 )
 
 //go:embed icon.png
 var iconData []byte
+
+// TimerInfo contains details about the running timer for tooltip display
+type TimerInfo struct {
+	ProjectName  string
+	TaskName     string
+	ActivityName string
+	StartTime    time.Time
+}
 
 // SystrayManager handles the system tray icon and menu
 type SystrayManager struct {
@@ -21,15 +35,89 @@ type SystrayManager struct {
 	// Channels for communication
 	showChan chan struct{}
 	quitChan chan struct{}
+
+	// Icon rotation
+	rotationTicker *time.Ticker
+	stopRotation   chan struct{}
+	isRotating     bool
+	rotationAngle  float64
+	baseIcon       image.Image
+	rotatedIcons   [][]byte // Pre-rendered rotated icons
+
+	// Timer info for tooltip
+	timerInfo     *TimerInfo
+	tooltipTicker *time.Ticker
+	stopTooltip   chan struct{}
 }
 
 // NewSystrayManager creates a new system tray manager
 func NewSystrayManager(app *App) *SystrayManager {
-	return &SystrayManager{
-		app:      app,
-		showChan: make(chan struct{}, 1),
-		quitChan: make(chan struct{}, 1),
+	s := &SystrayManager{
+		app:          app,
+		showChan:     make(chan struct{}, 1),
+		quitChan:     make(chan struct{}, 1),
+		stopRotation: make(chan struct{}),
+		stopTooltip:  make(chan struct{}),
 	}
+	s.loadAndPrepareIcons()
+	return s
+}
+
+// loadAndPrepareIcons loads the base icon and pre-renders rotated versions
+func (s *SystrayManager) loadAndPrepareIcons() {
+	// Decode the base icon
+	img, err := png.Decode(bytes.NewReader(iconData))
+	if err != nil {
+		return
+	}
+	s.baseIcon = img
+
+	// Pre-render 12 rotated versions (30 degrees each = 360/12)
+	s.rotatedIcons = make([][]byte, 12)
+	for i := 0; i < 12; i++ {
+		angle := float64(i) * 30.0 * math.Pi / 180.0
+		rotated := rotateImage(img, angle)
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, rotated); err == nil {
+			s.rotatedIcons[i] = buf.Bytes()
+		}
+	}
+}
+
+// rotateImage rotates an image by the given angle (in radians)
+func rotateImage(src image.Image, angle float64) image.Image {
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	// Create a new RGBA image
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+
+	// Center of rotation
+	cx, cy := float64(w)/2, float64(h)/2
+
+	// Precompute sin and cos
+	sin, cos := math.Sin(-angle), math.Cos(-angle)
+
+	// For each pixel in the destination
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			// Translate to center
+			dx := float64(x) - cx
+			dy := float64(y) - cy
+
+			// Rotate (inverse rotation to find source pixel)
+			srcX := dx*cos - dy*sin + cx
+			srcY := dx*sin + dy*cos + cy
+
+			// Check bounds and copy pixel
+			sx, sy := int(srcX), int(srcY)
+			if sx >= 0 && sx < w && sy >= 0 && sy < h {
+				dst.Set(x, y, src.At(sx, sy))
+			}
+		}
+	}
+
+	return dst
 }
 
 // ShowChan returns the channel that signals when to show the window
@@ -70,7 +158,7 @@ func (s *SystrayManager) OnReady() {
 
 // OnExit is called when the systray is exiting
 func (s *SystrayManager) OnExit() {
-	// Cleanup if needed
+	s.StopIconRotation()
 }
 
 // handleClicks handles menu item clicks
@@ -99,18 +187,145 @@ func (s *SystrayManager) UpdateStatus(status string) {
 	}
 }
 
+// StartIconRotation starts the icon rotation animation
+func (s *SystrayManager) StartIconRotation() {
+	if s.isRotating || len(s.rotatedIcons) == 0 {
+		return
+	}
+
+	s.isRotating = true
+	s.rotationTicker = time.NewTicker(250 * time.Millisecond) // Rotate every 250ms
+
+	go func() {
+		iconIndex := 0
+		for {
+			select {
+			case <-s.rotationTicker.C:
+				// Set the next rotated icon
+				if iconIndex < len(s.rotatedIcons) && s.rotatedIcons[iconIndex] != nil {
+					systray.SetIcon(s.rotatedIcons[iconIndex])
+				}
+				iconIndex = (iconIndex + 1) % len(s.rotatedIcons)
+			case <-s.stopRotation:
+				return
+			}
+		}
+	}()
+}
+
+// StopIconRotation stops the icon rotation and resets to base icon
+func (s *SystrayManager) StopIconRotation() {
+	if !s.isRotating {
+		return
+	}
+
+	s.isRotating = false
+	if s.rotationTicker != nil {
+		s.rotationTicker.Stop()
+		s.rotationTicker = nil
+	}
+
+	select {
+	case s.stopRotation <- struct{}{}:
+	default:
+	}
+
+	// Reset to base icon
+	systray.SetIcon(iconData)
+}
+
 // SetTimerRunning updates the tray to indicate a timer is running
-func (s *SystrayManager) SetTimerRunning(projectName string, taskName string) {
+func (s *SystrayManager) SetTimerRunning(projectName, taskName, activityName string, startTime time.Time) {
+	// Store timer info
+	s.timerInfo = &TimerInfo{
+		ProjectName:  projectName,
+		TaskName:     taskName,
+		ActivityName: activityName,
+		StartTime:    startTime,
+	}
+
+	// Update menu status
 	if taskName != "" {
 		s.UpdateStatus("⏱ " + projectName + " - " + taskName)
 	} else {
 		s.UpdateStatus("⏱ " + projectName)
 	}
-	systray.SetTooltip("Timer running: " + projectName)
+
+	// Update tooltip immediately
+	s.updateTooltip()
+
+	// Start tooltip update ticker (every 30 seconds)
+	s.startTooltipUpdater()
+
+	// Start icon rotation
+	s.StartIconRotation()
+}
+
+// updateTooltip updates the systray tooltip with current timer info
+func (s *SystrayManager) updateTooltip() {
+	if s.timerInfo == nil {
+		systray.SetTooltip("Kartoza Timesheets - Time tracking made simple")
+		return
+	}
+
+	elapsed := time.Since(s.timerInfo.StartTime)
+	hours := int(elapsed.Hours())
+	minutes := int(elapsed.Minutes()) % 60
+
+	// Build tooltip lines
+	tooltip := fmt.Sprintf("Project: %s", s.timerInfo.ProjectName)
+	if s.timerInfo.TaskName != "" {
+		tooltip += fmt.Sprintf("\nTask: %s", s.timerInfo.TaskName)
+	}
+	if s.timerInfo.ActivityName != "" {
+		tooltip += fmt.Sprintf("\nActivity: %s", s.timerInfo.ActivityName)
+	}
+	tooltip += fmt.Sprintf("\nStarted: %s", s.timerInfo.StartTime.Format("15:04"))
+	tooltip += fmt.Sprintf("\nElapsed: %dh %02dm", hours, minutes)
+
+	systray.SetTooltip(tooltip)
+}
+
+// startTooltipUpdater starts the periodic tooltip update
+func (s *SystrayManager) startTooltipUpdater() {
+	if s.tooltipTicker != nil {
+		return
+	}
+
+	s.tooltipTicker = time.NewTicker(30 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-s.tooltipTicker.C:
+				s.updateTooltip()
+			case <-s.stopTooltip:
+				return
+			}
+		}
+	}()
+}
+
+// stopTooltipUpdater stops the periodic tooltip update
+func (s *SystrayManager) stopTooltipUpdater() {
+	if s.tooltipTicker != nil {
+		s.tooltipTicker.Stop()
+		s.tooltipTicker = nil
+	}
+	select {
+	case s.stopTooltip <- struct{}{}:
+	default:
+	}
 }
 
 // SetTimerStopped updates the tray to indicate no timer is running
 func (s *SystrayManager) SetTimerStopped() {
+	s.timerInfo = nil
 	s.UpdateStatus("No active timer")
 	systray.SetTooltip("Kartoza Timesheets - Time tracking made simple")
+
+	// Stop tooltip updater
+	s.stopTooltipUpdater()
+
+	// Stop icon rotation
+	s.StopIconRotation()
 }

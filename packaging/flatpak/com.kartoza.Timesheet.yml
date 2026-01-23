@@ -1,0 +1,37 @@
+app-id: com.kartoza.Timesheet
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.golang
+command: kartoza-timesheet
+
+finish-args:
+  # Network access for ERPNext API
+  - --share=network
+  # Access to home directory for data storage (~/.kartoza-timesheet)
+  - --filesystem=home
+  # Terminal access
+  - --socket=session-bus
+
+build-options:
+  append-path: /usr/lib/sdk/golang/bin
+  env:
+    GOROOT: /usr/lib/sdk/golang
+    GOPATH: /run/build/kartoza-timesheet/go
+    CGO_ENABLED: '0'
+
+modules:
+  - name: kartoza-timesheet
+    buildsystem: simple
+    build-commands:
+      - |
+        export GOFLAGS="-mod=vendor"
+        go build -ldflags "-s -w -X main.version=0.3.1" -o kartoza-timesheet .
+      - install -D -m 0755 kartoza-timesheet ${FLATPAK_DEST}/bin/kartoza-timesheet
+      - install -D -m 0644 com.kartoza.Timesheet.desktop ${FLATPAK_DEST}/share/applications/com.kartoza.Timesheet.desktop
+    sources:
+      - type: dir
+        path: ../..
+      - type: file
+        path: com.kartoza.Timesheet.desktop

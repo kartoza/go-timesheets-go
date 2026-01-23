@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export GOCACHE = $(CURDIR)/.gocache
+export GOFLAGS = -mod=vendor
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=$(shell dpkg-parsechangelog -S Version)" -o kartoza-timesheet .
+
+override_dh_auto_install:
+	install -D -m 0755 kartoza-timesheet $(CURDIR)/debian/kartoza-timesheet/usr/bin/kartoza-timesheet
+	install -D -m 0644 kartoza-timesheet.desktop $(CURDIR)/debian/kartoza-timesheet/usr/share/applications/kartoza-timesheet.desktop
+
+override_dh_auto_test:
+	# Skip tests during package build
+
+override_dh_auto_clean:
+	rm -f kartoza-timesheet
+	rm -rf .gocache

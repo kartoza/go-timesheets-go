@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"image/color"
+	"sort"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -26,8 +27,8 @@ type TimesheetScreen struct {
 
 	// Form widgets
 	projectSelect  *widgets.SearchableSelect
-	taskSelect     *widget.Select
-	activitySelect *widget.Select
+	taskSelect     *widgets.BoundedSelect
+	activitySelect *widgets.BoundedSelect
 	descEntry      *widget.Entry
 	submitButton   *widget.Button
 	cancelButton   *widget.Button
@@ -45,8 +46,8 @@ type TimesheetScreen struct {
 	selectedActivity *api.ActivityListItem
 
 	// Callbacks
-	OnBack          func()
-	OnTimerStarted  func()
+	OnBack         func()
+	OnTimerStarted func()
 }
 
 // NewTimesheetScreen creates a new timesheet creation screen
@@ -74,35 +75,34 @@ func (s *TimesheetScreen) build() {
 			s.loadTasks(item.ID)
 		} else {
 			s.selectedProject = nil
-			s.taskSelect.Options = []string{}
-			s.taskSelect.Refresh()
+			s.taskSelect.SetOptions([]string{})
 		}
 	}
 	s.projectSelect.OnSearch = func(query string) {
 		s.searchProjects(query)
 	}
 
-	// Task select
-	s.taskSelect = widget.NewSelect([]string{}, func(selected string) {
+	// Task select (bounded height dropdown)
+	s.taskSelect = widgets.NewBoundedSelect("Select task...", []string{}, s.window)
+	s.taskSelect.OnChanged = func(selected string) {
 		for _, t := range s.tasks {
 			if t.Label == selected {
 				s.selectedTask = &t
 				break
 			}
 		}
-	})
-	s.taskSelect.PlaceHolder = "Select task..."
+	}
 
-	// Activity select
-	s.activitySelect = widget.NewSelect([]string{}, func(selected string) {
+	// Activity select (bounded height dropdown)
+	s.activitySelect = widgets.NewBoundedSelect("Select activity...", []string{}, s.window)
+	s.activitySelect.OnChanged = func(selected string) {
 		for _, a := range s.activities {
 			if a.Label == selected {
 				s.selectedActivity = &a
 				break
 			}
 		}
-	})
-	s.activitySelect.PlaceHolder = "Select activity..."
+	}
 
 	// Description entry
 	s.descEntry = widget.NewMultiLineEntry()
@@ -203,8 +203,7 @@ func (s *TimesheetScreen) loadTasks(projectID int) {
 			for i, t := range tasks {
 				options[i] = t.Label
 			}
-			s.taskSelect.Options = options
-			s.taskSelect.Refresh()
+			s.taskSelect.SetOptions(options)
 		},
 	)
 }
@@ -282,13 +281,16 @@ func (s *TimesheetScreen) Refresh() {
 				s.showError("Error loading activities: " + err.Error())
 				return
 			}
+			// Sort activities alphabetically
+			sort.Slice(activities, func(i, j int) bool {
+				return activities[i].Label < activities[j].Label
+			})
 			s.activities = activities
 			options := make([]string, len(activities))
 			for i, a := range activities {
 				options[i] = a.Label
 			}
-			s.activitySelect.Options = options
-			s.activitySelect.Refresh()
+			s.activitySelect.SetOptions(options)
 		},
 	)
 

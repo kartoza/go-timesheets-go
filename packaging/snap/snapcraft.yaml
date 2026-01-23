@@ -1,0 +1,51 @@
+name: kartoza-timesheet
+version: '0.3.1'
+summary: Terminal-based timesheet application
+description: |
+  Kartoza Timesheet is a beautiful terminal user interface (TUI)
+  application for tracking time spent on projects and tasks.
+
+  Features include:
+  - Project and task management
+  - Time entry tracking with start/stop functionality
+  - Waybar integration for desktop status display
+  - ERPNext integration for timesheet submission
+  - CLI commands for automation and scripting
+
+  Run with: kartoza-timesheet
+
+grade: stable
+confinement: classic
+base: core22
+license: MIT
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+apps:
+  kartoza-timesheet:
+    command: bin/kartoza-timesheet
+    environment:
+      TERM: xterm-256color
+
+parts:
+  kartoza-timesheet:
+    plugin: go
+    source: .
+    source-type: local
+    build-snaps:
+      - go/1.21/stable
+    build-environment:
+      - CGO_ENABLED: "0"
+      - GOFLAGS: "-mod=vendor"
+    override-build: |
+      go build -ldflags "-s -w -X main.version=$SNAPCRAFT_PROJECT_VERSION" -o $SNAPCRAFT_PART_INSTALL/bin/kartoza-timesheet .
+
+  desktop-file:
+    plugin: dump
+    source: .
+    organize:
+      kartoza-timesheet.desktop: share/applications/kartoza-timesheet.desktop
+    stage:
+      - share/applications/kartoza-timesheet.desktop

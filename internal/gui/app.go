@@ -1,6 +1,8 @@
 package gui
 
 import (
+	"time"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
@@ -27,6 +29,7 @@ type App struct {
 	favouritesScreen *screens.FavouritesScreen
 	workspacesScreen *screens.WorkspacesScreen
 	codeReposScreen  *screens.CodeReposScreen
+	officeScreen     *screens.OfficeScreen
 
 	// Main container
 	content *fyne.Container
@@ -98,27 +101,33 @@ func (a *App) handleSystrayEvents() {
 
 // showWindow shows and focuses the main window
 func (a *App) showWindow() {
-	if a.window != nil {
-		a.window.Show()
-		a.window.RequestFocus()
-		a.windowVisible = true
-	}
+	fyne.Do(func() {
+		if a.window != nil {
+			a.window.Show()
+			a.window.RequestFocus()
+			a.windowVisible = true
+		}
+	})
 }
 
 // hideWindow hides the main window but keeps the app running
 func (a *App) hideWindow() {
-	if a.window != nil {
-		a.window.Hide()
-		a.windowVisible = false
-	}
+	fyne.Do(func() {
+		if a.window != nil {
+			a.window.Hide()
+			a.windowVisible = false
+		}
+	})
 }
 
 // quit cleanly exits the application
 func (a *App) quit() {
 	systray.Quit()
-	if a.fyneApp != nil {
-		a.fyneApp.Quit()
-	}
+	fyne.Do(func() {
+		if a.fyneApp != nil {
+			a.fyneApp.Quit()
+		}
+	})
 }
 
 func (a *App) showLogin() {
@@ -142,20 +151,22 @@ func (a *App) showDashboard() {
 		a.dashboardScreen.OnSettings = a.showSettings
 		a.dashboardScreen.OnHistory = a.showHistory
 		a.dashboardScreen.OnNewTimesheet = a.showTimesheet
+		a.dashboardScreen.OnOffice = a.showOffice
 		a.dashboardScreen.OnTimerStatusChange = a.onTimerStatusChange
 	}
 
 	a.setContent(a.dashboardScreen.Container)
 	a.dashboardScreen.Refresh()
+	a.dashboardScreen.StartTicker() // Start timer updates
 }
 
 // onTimerStatusChange updates the systray when timer status changes
-func (a *App) onTimerStatusChange(running bool, projectName, taskName string) {
+func (a *App) onTimerStatusChange(running bool, projectName, taskName, activityName string, startTime time.Time) {
 	if a.systrayManager == nil {
 		return
 	}
 	if running {
-		a.systrayManager.SetTimerRunning(projectName, taskName)
+		a.systrayManager.SetTimerRunning(projectName, taskName, activityName, startTime)
 	} else {
 		a.systrayManager.SetTimerStopped()
 	}
@@ -227,6 +238,19 @@ func (a *App) showCodeRepos() {
 	a.codeReposScreen.Refresh()
 }
 
+func (a *App) showOffice() {
+	if a.officeScreen == nil {
+		a.officeScreen = screens.NewOfficeScreen(a.window)
+		a.officeScreen.OnBack = func() {
+			a.officeScreen.StopAnimation()
+			a.showDashboard()
+		}
+	}
+
+	a.setContent(a.officeScreen.Container)
+	a.officeScreen.StartAnimation()
+}
+
 func (a *App) handleLogout() {
 	// Clear API client
 	a.apiClient = nil
@@ -239,6 +263,7 @@ func (a *App) handleLogout() {
 	a.favouritesScreen = nil
 	a.workspacesScreen = nil
 	a.codeReposScreen = nil
+	a.officeScreen = nil
 	a.loginScreen = nil
 
 	// Show login

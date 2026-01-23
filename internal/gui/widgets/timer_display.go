@@ -66,7 +66,10 @@ func (t *TimerDisplay) StartBlinking() {
 			select {
 			case <-t.ticker.C:
 				t.BlinkOn = !t.BlinkOn
-				t.Refresh()
+				// Use fyne.Do for thread-safe UI update
+				fyne.Do(func() {
+					t.Refresh()
+				})
 			case <-t.stopChan:
 				return
 			}
