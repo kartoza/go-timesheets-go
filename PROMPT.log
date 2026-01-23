@@ -1355,3 +1355,5 @@ Both the timesheet creation form and the favourites editor now show activities i
 User: ok lets commit and make a new release with a beautiful change log and packages for all platforms
 === sex 23 jan 2026 00:15:56 WET ===
 User: commit and push it
+=== sex 23 jan 2026 00:18:46 WET ===
+User: there should be windows and mac packages too
