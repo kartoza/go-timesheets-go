@@ -1365,3 +1365,5 @@ User: Various package builds failed - can you fix or build locally and upload to
 User: add a make packages makefile and nix flake command so that we can build packages locally at will and push them into a release
 === sex 23 jan 2026 08:49:57 WET ===
 User: the flake should provide a nice .desktop file too when it installs the binary
+=== sex 23 jan 2026 08:52:01 WET ===
+User: when I tried to use this flake as an input on my system flake I got [hash mismatch error]

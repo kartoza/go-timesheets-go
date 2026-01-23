@@ -23,7 +23,7 @@
           inherit version;
           src = ./.;
 
-          vendorHash = "sha256-Ks2JKoVtCZqUF9NOb9TSw2rTwnZ7TPk46+Whfi2Ze2I=";
+          vendorHash = "sha256-zgdlxgR3TQSaRS+npRL3wEhKZRizJZ6D4Y3Jj4O/Xhs=";
 
           # Use release build tag to disable debug logging and monitoring
           tags = [ "release" ];
