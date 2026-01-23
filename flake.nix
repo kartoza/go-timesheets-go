@@ -9,7 +9,7 @@
   outputs = { self, nixpkgs, flake-utils }:
     let
       # Version - update this with each release
-      version = "0.4.0";
+      version = "0.9.1";
 
       # Helper function to build for a specific platform
       mkPackage = { pkgs, system, GOOS, GOARCH }:
@@ -64,10 +64,13 @@
             # Remove scripts binary (we only want the main app)
             rm -f $out/bin/scripts $out/bin/scripts.exe
 
-            # Only install .desktop file for Linux
+            # Only install .desktop file and icon for Linux
             ${if GOOS == "linux" then ''
               mkdir -p $out/share/applications
+              mkdir -p $out/share/icons/hicolor/256x256/apps
+              mkdir -p $out/share/icons/hicolor/scalable/apps
               cp $src/kartoza-timesheet.desktop $out/share/applications/
+              cp $src/resources/kartoza-logo.png $out/share/icons/hicolor/256x256/apps/kartoza-timesheet.png
             '' else ""}
 
             # Create a tarball for distribution

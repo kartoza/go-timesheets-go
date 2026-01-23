@@ -1363,3 +1363,5 @@ User: make a 0.9.1 release to get the new packages
 User: Various package builds failed - can you fix or build locally and upload to the release
 === sex 23 jan 2026 08:46:46 WET ===
 User: add a make packages makefile and nix flake command so that we can build packages locally at will and push them into a release
+=== sex 23 jan 2026 08:49:57 WET ===
+User: the flake should provide a nice .desktop file too when it installs the binary
