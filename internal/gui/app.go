@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"fmt"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/gui/screens"
+	"github.com/kartoza/go-timesheets-go/internal/gui/util"
+	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/pow"
 )
 
@@ -21,15 +24,16 @@ type App struct {
 	powCapture *pow.Capturer
 
 	// Screens
-	loginScreen      *screens.LoginScreen
-	dashboardScreen  *screens.DashboardScreen
-	timesheetScreen  *screens.TimesheetScreen
-	historyScreen    *screens.HistoryScreen
-	settingsScreen   *screens.SettingsScreen
-	favouritesScreen *screens.FavouritesScreen
-	workspacesScreen *screens.WorkspacesScreen
-	codeReposScreen  *screens.CodeReposScreen
-	officeScreen     *screens.OfficeScreen
+	loginScreen       *screens.LoginScreen
+	dashboardScreen   *screens.DashboardScreen
+	timesheetScreen   *screens.TimesheetScreen
+	historyScreen     *screens.HistoryScreen
+	settingsScreen    *screens.SettingsScreen
+	favouritesScreen  *screens.FavouritesScreen
+	workspacesScreen  *screens.WorkspacesScreen
+	codeReposScreen   *screens.CodeReposScreen
+	officeScreen      *screens.OfficeScreen
+	aiAssistantScreen *screens.AIAssistantScreen
 
 	// Navigation
 	currentScreen string // Track current screen for ESC navigation
@@ -160,6 +164,8 @@ func (a *App) navigateBack() {
 			a.officeScreen.StopAnimation()
 		}
 		a.showDashboard()
+	case "aiassistant":
+		a.showDashboard()
 	// login and dashboard have no back navigation
 	}
 }
@@ -190,6 +196,7 @@ func (a *App) showDashboard() {
 		a.dashboardScreen.OnHistory = a.showHistory
 		a.dashboardScreen.OnNewTimesheet = a.showTimesheet
 		a.dashboardScreen.OnOffice = a.showOffice
+		a.dashboardScreen.OnAIAssistant = a.showAIAssistant
 		a.dashboardScreen.OnTimerStatusChange = a.onTimerStatusChange
 	}
 
@@ -303,6 +310,49 @@ func (a *App) showOffice() {
 	a.officeScreen.StartAnimation()
 }
 
+func (a *App) showAIAssistant() {
+	a.currentScreen = "aiassistant"
+
+	if a.aiAssistantScreen == nil {
+		a.aiAssistantScreen = screens.NewAIAssistantScreen(a.apiClient, a.window)
+		a.aiAssistantScreen.OnBack = a.showDashboard
+		a.aiAssistantScreen.OnStartTimer = func(projectID, taskID, activityID int, projectName, taskName, activityName string) {
+			// Start the timer and go back to dashboard
+			a.startTimerFromAI(projectID, taskID, activityID, projectName)
+		}
+	}
+
+	a.setContent(a.aiAssistantScreen.Container)
+	a.aiAssistantScreen.Refresh()
+}
+
+func (a *App) startTimerFromAI(projectID, taskID, activityID int, projectName string) {
+	entry := models.TimeEntry{
+		ProjectID:   fmt.Sprintf("%d", projectID),
+		ActivityID:  fmt.Sprintf("%d", activityID),
+		Description: fmt.Sprintf("AI suggested: %s", projectName),
+		StartTime:   time.Now(),
+	}
+	if taskID > 0 {
+		taskIDStr := fmt.Sprintf("%d", taskID)
+		entry.TaskID = &taskIDStr
+	}
+
+	util.RunAsync(
+		func() (bool, error) {
+			return true, a.apiClient.CreateTimesheet(entry)
+		},
+		func(_ bool, err error) {
+			if err != nil {
+				// Show error on dashboard
+				a.showDashboard()
+				return
+			}
+			a.showDashboard()
+		},
+	)
+}
+
 func (a *App) handleLogout() {
 	// Clear API client
 	a.apiClient = nil
@@ -316,6 +366,7 @@ func (a *App) handleLogout() {
 	a.workspacesScreen = nil
 	a.codeReposScreen = nil
 	a.officeScreen = nil
+	a.aiAssistantScreen = nil
 	a.loginScreen = nil
 
 	// Show login

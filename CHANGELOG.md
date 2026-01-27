@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### AI Assistant
+- **Multi-level AI engine** - 4-level fallback chain: Embedded LLM (llama.cpp) → Ollama (local LLM server) → Neural Network (TF-IDF similarity) → Rule-based fuzzy matching
+- **Natural language project discovery** - Ask questions like "Which project for GeoServer Docker?" to find the right project/task/activity combination
+- **Timesheet analytics** - Ask analytical questions: "Which projects did I work on last week?", "How consistent was my timekeeping?", "Which project did I spend the most time on?"
+- **Consistency analysis** - Detects rounded entries (exact hours, half-hours, quarter-hours) indicating retroactive rather than as-you-work recording
+- **One-click timer start** - Select an AI-suggested match to immediately start a timer with the correct project/task/activity
+- **Neural network training** - TF-IDF cosine similarity model automatically trains from your timesheet history
+- **Ollama integration** - Connects to local Ollama LLM server for enhanced AI responses (no API key required)
+- **Embedded LLM support** - Optional llama.cpp integration via `llamacpp` build tag for fully offline AI
+- **GUI AI screen** - Full AI assistant interface in the Fyne GUI with query input, example queries, and clickable match results
+- **TUI AI screen** - Full AI assistant interface in the Bubbletea TUI with keyboard navigation and example query shortcuts
+- **Dashboard access** - AI button on dashboard (GUI) and 'a' shortcut key (TUI) for quick access
+
 #### GUI Timesheet Creator
 - **Date and time editing** - GUI timesheet form now includes editable Date, Start Time, and End Time fields matching TUI functionality
 - **Completed entry support** - Provide an end time to submit a completed entry with calculated duration, or leave it blank to start a running timer

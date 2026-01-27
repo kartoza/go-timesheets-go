@@ -30,6 +30,7 @@ const (
 	StateCodeRepos
 	StateFavourites
 	StateSettings
+	StateAIAssistant
 )
 
 // AppWithAuth is a wrapper app that handles authentication
@@ -43,6 +44,7 @@ type AppWithAuth struct {
 	codeReposView      *CodeReposModel
 	favouritesView     *FavouritesModel
 	settingsView       *SettingsModel
+	aiAssistantView    *AIAssistantModel
 	width              int
 	height             int
 	tokenLoaded        bool
@@ -167,6 +169,11 @@ func (a *AppWithAuth) Init() tea.Cmd {
 		if a.favouritesView != nil {
 			cmds = append(cmds, a.favouritesView.Init())
 		}
+
+	case StateAIAssistant:
+		if a.aiAssistantView != nil {
+			cmds = append(cmds, a.aiAssistantView.Init())
+		}
 	}
 
 	return tea.Batch(cmds...)
@@ -228,6 +235,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.favouritesView != nil {
 				model, c := a.favouritesView.Update(msg)
 				a.favouritesView = model
+				cmds = append(cmds, c)
+			}
+		case StateAIAssistant:
+			if a.aiAssistantView != nil {
+				model, c := a.aiAssistantView.Update(msg)
+				a.aiAssistantView = model
 				cmds = append(cmds, c)
 			}
 		}
@@ -292,6 +305,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.settingsView = model
 				cmds = append(cmds, c)
 			}
+		case StateAIAssistant:
+			if a.aiAssistantView != nil {
+				model, c := a.aiAssistantView.Update(msg)
+				a.aiAssistantView = model
+				cmds = append(cmds, c)
+			}
 		}
 
 	case LoginSuccessMsg:
@@ -344,6 +363,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear the sub-views
 		a.timesheetCreator = nil
 		a.historyView = nil
+		a.aiAssistantView = nil
 
 		// If we're in settings, just go back to main menu
 		if a.state == StateSettings {
@@ -431,6 +451,16 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = StateSettings
 		return a, a.settingsView.Init()
 
+	case launchAIAssistantMsg:
+		// Transition to AI assistant view
+		aiView := NewAIAssistantModel(a.apiClient)
+		aiView.width = a.width
+		aiView.height = a.height
+		aiView.SetHeaderState(a.getHeaderState())
+		a.aiAssistantView = aiView
+		a.state = StateAIAssistant
+		return a, a.aiAssistantView.Init()
+
 	case settingsLogoutConfirmedMsg:
 		// Logout confirmed from settings, delete token and quit
 		_ = config.DeleteToken()
@@ -497,6 +527,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.settingsView != nil {
 				model, c := a.settingsView.Update(msg)
 				a.settingsView = model
+				cmds = append(cmds, c)
+			}
+		case StateAIAssistant:
+			if a.aiAssistantView != nil {
+				model, c := a.aiAssistantView.Update(msg)
+				a.aiAssistantView = model
 				cmds = append(cmds, c)
 			}
 		}
@@ -578,6 +614,12 @@ func (a *AppWithAuth) View() string {
 			return a.settingsView.View()
 		}
 		return a.renderLoadingScreen("Loading settings")
+
+	case StateAIAssistant:
+		if a.aiAssistantView != nil {
+			return a.aiAssistantView.View()
+		}
+		return a.renderLoadingScreen("Loading AI assistant")
 	}
 
 	return "Unknown state"

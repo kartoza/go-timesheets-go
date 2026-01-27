@@ -23,6 +23,7 @@
 - 🎯 **Activity Types** - Categorize work with activities (Coding, Planning, etc.)
 - 🎬 **Proof of Work (POW)** - Screenshot timelapse recording during work sessions
 - ⭐ **Favourites** - Quick-start timers with preset project/task/activity combinations
+- 🤖 **AI Assistant** - Natural language project discovery and timesheet analytics with multi-level AI fallback (LLM, Neural Network, Fuzzy matching)
 - 🎉 **Celebration Mode** - Fireworks celebration after timesheet submission!
 
 ## 🚀 Quick Start

@@ -58,6 +58,7 @@ type DashboardScreen struct {
 	OnHistory           func()
 	OnNewTimesheet      func()
 	OnOffice            func()
+	OnAIAssistant       func()
 	OnTimerStatusChange func(running bool, projectName, taskName, activityName string, startTime time.Time)
 }
 
@@ -172,6 +173,13 @@ func (s *DashboardScreen) build() {
 	// Office mode button
 	s.officeButton = widget.NewButton("🏢 Office", s.showOffice)
 
+	// AI Assistant button
+	aiButton := widget.NewButton("🤖 AI", func() {
+		if s.OnAIAssistant != nil {
+			s.OnAIAssistant()
+		}
+	})
+
 	// POW status label
 	s.powStatusLabel = canvas.NewText("", color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF})
 	s.powStatusLabel.TextSize = 10
@@ -180,6 +188,7 @@ func (s *DashboardScreen) build() {
 	// Button row
 	buttonRow := container.NewHBox(
 		layout.NewSpacer(),
+		aiButton,
 		s.powButton,
 		s.officeButton,
 		s.settingsButton,
