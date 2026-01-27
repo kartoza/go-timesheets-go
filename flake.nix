@@ -18,7 +18,7 @@
           inherit version;
           src = ./.;
 
-          vendorHash = "sha256-zgdlxgR3TQSaRS+npRL3wEhKZRizJZ6D4Y3Jj4O/Xhs=";
+          vendorHash = "sha256-r4LTVSstZiB6EJ7e6GHvB7XbQL/vPrpYCqyW25YBARA=";
 
           # Use release build tag to disable debug logging and monitoring
           tags = [ "release" ];
@@ -100,7 +100,7 @@
           inherit version;
           src = ./.;
 
-          vendorHash = "sha256-zgdlxgR3TQSaRS+npRL3wEhKZRizJZ6D4Y3Jj4O/Xhs=";
+          vendorHash = "sha256-r4LTVSstZiB6EJ7e6GHvB7XbQL/vPrpYCqyW25YBARA=";
 
           # Use release build tag to disable debug logging and monitoring
           tags = [ "release" ];
