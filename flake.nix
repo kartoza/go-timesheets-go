@@ -9,7 +9,7 @@
   outputs = { self, nixpkgs, flake-utils }:
     let
       # Version - update this with each release
-      version = "0.9.1";
+      version = "0.10.0";
 
       # Helper function to build native package with CGO (for Fyne GUI/systray)
       mkNativePackage = { pkgs }:
