@@ -55,6 +55,20 @@ func (s *BoundedSelect) ClearSelected() {
 	s.updateButtonText()
 }
 
+// Disable disables the bounded select
+func (s *BoundedSelect) Disable() {
+	if s.button != nil {
+		s.button.Disable()
+	}
+}
+
+// Enable enables the bounded select
+func (s *BoundedSelect) Enable() {
+	if s.button != nil {
+		s.button.Enable()
+	}
+}
+
 func (s *BoundedSelect) updateButtonText() {
 	if s.button == nil {
 		return

@@ -1367,3 +1367,44 @@ User: add a make packages makefile and nix flake command so that we can build pa
 User: the flake should provide a nice .desktop file too when it installs the binary
 === sex 23 jan 2026 08:52:01 WET ===
 User: when I tried to use this flake as an input on my system flake I got [hash mismatch error]
+[2026-01-27 09:08:00] User: in the gui version it is not possible to edit the start date and time, end date and time for a new entry like you can do in the tui version
+[2026-01-27 16:09:39] User: the stop timer dialog should use the same theming and general style as the start timer dialog and should allow the user to change project / task / activity / stop date & time / start date & time. The description should span the whole dialog width
+[2026-01-27 16:29:28] User: if I open multiple instances of the timesheet app on the same or different hosts, there should be no chance of incoherence, race conditions, corruption or inconsistency between the timesheets. The timesheet in the API is canonical
+[2026-01-27 16:37:25] User: look at the screenshot I shared - why all that whitespace around the popup
+
+## Session: 2026-01-27 16:46
+
+### Prompt: Minimize API calls - only call API for state changes or explicit user requests
+
+Actions taken:
+- Reverted cmd/status.go to cache-only reading (removed proactive API fetching every 30s)
+- Removed async background GetTimelogs() cache refresh goroutine from cmd/start.go
+- Added cache invalidation to BreakTimesheet() in internal/api/client.go
+- Updated CHANGELOG.md to reflect minimal API call policy
+- Principle: API calls only for state changes or explicit user requests; cache updated as side-effect
+
+### Prompt: Entry detail dialog should match create/stop dialog styling
+
+Actions taken:
+- Rewrote showEntryDetail() in internal/gui/screens/history.go to use gold-bordered dark themed modal popup
+- Entry detail now uses widget.NewModalPopUp with same styling as create/stop dialogs
+- Uses SearchableSelect for project, BoundedSelect for task/activity (same widgets)
+- Pre-populates all fields from the entry, editable for non-submitted entries
+- Added Save Changes button that calls UpdateTimesheet API
+- Added Fetch from Git button for description auto-population
+- Submitted entries show same layout but with all fields disabled
+- Added Disable/Enable methods to SearchableSelect and BoundedSelect widgets
+- Added helper methods: hasRepoAssociationForProject, fetchGitCommitsForEntry, fetchLocalGitCommitsForEntry, fetchGitHubCommitsForEntry
+- Updated CHANGELOG.md with GUI Entry Detail Dialog section
+
+### Prompt: ESC key navigation + history list descriptions
+
+Actions taken:
+- Added global ESC key handler in internal/gui/app.go using window.Canvas().SetOnTypedKey()
+- Added currentScreen field to App struct to track active screen
+- Added navigateBack() method mapping screens to their parent: timesheet/history/settings→dashboard, favourites/workspaces/coderepos→settings, office→dashboard
+- Updated all show* methods to set a.currentScreen
+- Added description row to history entry cards (truncated with ellipsis)
+- Updated createEntryCard() to include descLabel with italic style and fyne.TextTruncateEllipsis
+- Updated updateEntryCard() to populate description from entry.Description
+- User note: TUI and GUI should stay in lock step, share non-UI code (DRY)

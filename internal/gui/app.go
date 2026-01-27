@@ -31,6 +31,9 @@ type App struct {
 	codeReposScreen  *screens.CodeReposScreen
 	officeScreen     *screens.OfficeScreen
 
+	// Navigation
+	currentScreen string // Track current screen for ESC navigation
+
 	// Main container
 	content *fyne.Container
 
@@ -64,6 +67,13 @@ func (a *App) Run() error {
 	// Set up window close handler - hide instead of quit
 	a.window.SetCloseIntercept(func() {
 		a.hideWindow()
+	})
+
+	// Global ESC key handler - navigate back to previous screen
+	a.window.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
+		if ev.Name == fyne.KeyEscape {
+			a.navigateBack()
+		}
 	})
 
 	// Create system tray manager
@@ -130,7 +140,33 @@ func (a *App) quit() {
 	})
 }
 
+// navigateBack handles ESC key to go to the previous screen
+func (a *App) navigateBack() {
+	switch a.currentScreen {
+	case "timesheet":
+		a.showDashboard()
+	case "history":
+		a.showDashboard()
+	case "settings":
+		a.showDashboard()
+	case "favourites":
+		a.showSettings()
+	case "workspaces":
+		a.showSettings()
+	case "coderepos":
+		a.showSettings()
+	case "office":
+		if a.officeScreen != nil {
+			a.officeScreen.StopAnimation()
+		}
+		a.showDashboard()
+	// login and dashboard have no back navigation
+	}
+}
+
 func (a *App) showLogin() {
+	a.currentScreen = "login"
+
 	if a.loginScreen == nil {
 		a.loginScreen = screens.NewLoginScreen(a.window)
 		a.loginScreen.OnLogin = func(client *api.Client, username string) {
@@ -146,6 +182,8 @@ func (a *App) showLogin() {
 }
 
 func (a *App) showDashboard() {
+	a.currentScreen = "dashboard"
+
 	if a.dashboardScreen == nil {
 		a.dashboardScreen = screens.NewDashboardScreen(a.apiClient, a.window, a.powCapture)
 		a.dashboardScreen.OnSettings = a.showSettings
@@ -173,6 +211,8 @@ func (a *App) onTimerStatusChange(running bool, projectName, taskName, activityN
 }
 
 func (a *App) showTimesheet() {
+	a.currentScreen = "timesheet"
+
 	if a.timesheetScreen == nil {
 		a.timesheetScreen = screens.NewTimesheetScreen(a.apiClient, a.window)
 		a.timesheetScreen.OnBack = a.showDashboard
@@ -186,6 +226,8 @@ func (a *App) showTimesheet() {
 }
 
 func (a *App) showHistory() {
+	a.currentScreen = "history"
+
 	if a.historyScreen == nil {
 		a.historyScreen = screens.NewHistoryScreen(a.apiClient, a.window)
 		a.historyScreen.OnBack = a.showDashboard
@@ -196,6 +238,8 @@ func (a *App) showHistory() {
 }
 
 func (a *App) showSettings() {
+	a.currentScreen = "settings"
+
 	if a.settingsScreen == nil {
 		a.settingsScreen = screens.NewSettingsScreen(a.window)
 		a.settingsScreen.OnBack = a.showDashboard
@@ -209,6 +253,8 @@ func (a *App) showSettings() {
 }
 
 func (a *App) showFavourites() {
+	a.currentScreen = "favourites"
+
 	if a.favouritesScreen == nil {
 		a.favouritesScreen = screens.NewFavouritesScreen(a.apiClient, a.window)
 		a.favouritesScreen.OnBack = a.showSettings
@@ -219,6 +265,8 @@ func (a *App) showFavourites() {
 }
 
 func (a *App) showWorkspaces() {
+	a.currentScreen = "workspaces"
+
 	if a.workspacesScreen == nil {
 		a.workspacesScreen = screens.NewWorkspacesScreen(a.apiClient, a.window)
 		a.workspacesScreen.OnBack = a.showSettings
@@ -229,6 +277,8 @@ func (a *App) showWorkspaces() {
 }
 
 func (a *App) showCodeRepos() {
+	a.currentScreen = "coderepos"
+
 	if a.codeReposScreen == nil {
 		a.codeReposScreen = screens.NewCodeReposScreen(a.apiClient, a.window)
 		a.codeReposScreen.OnBack = a.showSettings
@@ -239,6 +289,8 @@ func (a *App) showCodeRepos() {
 }
 
 func (a *App) showOffice() {
+	a.currentScreen = "office"
+
 	if a.officeScreen == nil {
 		a.officeScreen = screens.NewOfficeScreen(a.window)
 		a.officeScreen.OnBack = func() {

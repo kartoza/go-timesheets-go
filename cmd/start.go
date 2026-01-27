@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/spf13/cobra"
 )
 
@@ -33,48 +36,49 @@ Examples:
 
 When --json is used, outputs detailed JSON with the started entry.
 This command is designed for automation and quick time tracking starts.
-It will refuse to start if there is already an active timer running.`,
+It will refuse to start if there is already an active timer running (checked via API).`,
 	Args: cobra.RangeArgs(2, 3),
 	Run: func(cmd *cobra.Command, args []string) {
-		service, err := getService()
+		client, err := getAPIClient()
 		if err != nil {
-			outputError(cmd, "Error initializing service", err)
+			outputError(cmd, "Error initializing API client", err)
 			os.Exit(1)
 		}
 
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 		noValidate, _ := cmd.Flags().GetBool("no-validate")
 
-		// Check if there's already an active timer
-		activeEntry, err := service.GetActiveTimeEntry()
+		// Check if there's already an active timer via API (canonical source)
+		activeEntry, err := client.GetActiveTimesheet()
 		if err != nil {
 			outputError(cmd, "Error checking active timer", err)
 			os.Exit(1)
 		}
 
 		if activeEntry != nil {
+			startTime, _ := activeEntry.GetFromTimeAsTime()
 			if jsonOutput {
 				result := map[string]interface{}{
 					"success": false,
 					"error":   "Timer already running",
 					"message": "Please stop the current timer before starting a new one",
 					"active_entry": map[string]interface{}{
-						"id":           activeEntry.ID,
-						"project_name": activeEntry.ProjectName,
-						"task_name":    activeEntry.TaskName,
-						"activity_name": activeEntry.ActivityName,
-						"start_time":   activeEntry.StartTime.Format(time.RFC3339),
+						"id":            activeEntry.ID,
+						"project_name":  activeEntry.ProjectName,
+						"task_name":     activeEntry.TaskName,
+						"activity_name": activeEntry.ActivityType,
+						"start_time":    startTime.Format(time.RFC3339),
 					},
 				}
 				jsonData, _ := json.MarshalIndent(result, "", "  ")
 				fmt.Println(string(jsonData))
 			} else {
-				fmt.Fprintf(os.Stderr, "❌ Error: Timer already running!\n")
-				fmt.Fprintf(os.Stderr, "📊 Project: %s\n", activeEntry.ProjectName)
+				fmt.Fprintf(os.Stderr, "Error: Timer already running!\n")
+				fmt.Fprintf(os.Stderr, "Project: %s\n", activeEntry.ProjectName)
 				if activeEntry.TaskName != "" {
-					fmt.Fprintf(os.Stderr, "📝 Task: %s\n", activeEntry.TaskName)
+					fmt.Fprintf(os.Stderr, "Task: %s\n", activeEntry.TaskName)
 				}
-				fmt.Fprintf(os.Stderr, "⚡ Activity: %s\n", activeEntry.ActivityName)
+				fmt.Fprintf(os.Stderr, "Activity: %s\n", activeEntry.ActivityType)
 				fmt.Fprintf(os.Stderr, "\nPlease stop the current timer first: kartoza-timesheet stop\n")
 			}
 			os.Exit(1)
@@ -88,6 +92,7 @@ It will refuse to start if there is already an active timer running.`,
 		}
 
 		var projectID, activityID string
+		var projectName, activityName, taskName string
 		var taskID *string
 
 		// When --no-validate is used, assume inputs are IDs
@@ -98,17 +103,31 @@ It will refuse to start if there is already an active timer running.`,
 				taskID = &taskInput
 			}
 		} else {
-			// Find project by name or ID
-			projects, err := service.GetProjects()
+			// Find project by name or ID via API
+			projects, err := client.GetProjects("")
 			if err != nil {
 				outputError(cmd, "Error loading projects", err)
 				os.Exit(1)
 			}
 
 			for _, project := range projects {
-				if project.Name == projectInput || project.ID == projectInput {
-					projectID = project.ID
+				if project.Label == projectInput || strconv.Itoa(project.ID) == projectInput {
+					projectID = strconv.Itoa(project.ID)
+					projectName = project.Label
 					break
+				}
+			}
+			if projectID == "" {
+				// Try fuzzy search
+				projects, err = client.GetProjects(projectInput)
+				if err == nil {
+					for _, project := range projects {
+						if strings.EqualFold(project.Label, projectInput) {
+							projectID = strconv.Itoa(project.ID)
+							projectName = project.Label
+							break
+						}
+					}
 				}
 			}
 			if projectID == "" {
@@ -116,25 +135,32 @@ It will refuse to start if there is already an active timer running.`,
 					outputError(cmd, "Project not found", fmt.Errorf("%s", projectInput))
 				} else {
 					fmt.Fprintf(os.Stderr, "Project not found: %s\n", projectInput)
-					fmt.Fprintf(os.Stderr, "Available projects:\n")
-					for _, project := range projects {
-						fmt.Fprintf(os.Stderr, "  - %s (ID: %s)\n", project.Name, project.ID)
-					}
 				}
 				os.Exit(1)
 			}
 
-			// Find activity by name or ID
-			activities, err := service.GetActivities()
+			// Find activity by name or ID via API
+			activities, err := client.GetActivities()
 			if err != nil {
 				outputError(cmd, "Error loading activities", err)
 				os.Exit(1)
 			}
 
 			for _, activity := range activities {
-				if activity.Name == activityInput || activity.ID == activityInput {
-					activityID = activity.ID
+				if activity.Label == activityInput || strconv.Itoa(activity.ID) == activityInput {
+					activityID = strconv.Itoa(activity.ID)
+					activityName = activity.Label
 					break
+				}
+			}
+			if activityID == "" {
+				// Try case-insensitive match
+				for _, activity := range activities {
+					if strings.EqualFold(activity.Label, activityInput) {
+						activityID = strconv.Itoa(activity.ID)
+						activityName = activity.Label
+						break
+					}
 				}
 			}
 			if activityID == "" {
@@ -144,23 +170,25 @@ It will refuse to start if there is already an active timer running.`,
 					fmt.Fprintf(os.Stderr, "Activity not found: %s\n", activityInput)
 					fmt.Fprintf(os.Stderr, "Available activities:\n")
 					for _, activity := range activities {
-						fmt.Fprintf(os.Stderr, "  - %s (ID: %s)\n", activity.Name, activity.ID)
+						fmt.Fprintf(os.Stderr, "  - %s (ID: %d)\n", activity.Label, activity.ID)
 					}
 				}
 				os.Exit(1)
 			}
 
-			// Find task by name or ID (optional)
+			// Find task by name or ID (optional) via API
 			if taskInput != "" {
-				tasks, err := service.GetTasks(projectID)
+				tasks, err := client.GetTasks(projectID)
 				if err != nil {
 					outputError(cmd, "Error loading tasks", err)
 					os.Exit(1)
 				}
 
 				for _, task := range tasks {
-					if task.Name == taskInput || task.ID == taskInput {
-						taskID = &task.ID
+					if task.Label == taskInput || task.Name == taskInput || strconv.Itoa(task.ID) == taskInput {
+						tid := strconv.Itoa(task.ID)
+						taskID = &tid
+						taskName = task.Label
 						break
 					}
 				}
@@ -169,19 +197,25 @@ It will refuse to start if there is already an active timer running.`,
 						outputError(cmd, "Task not found", fmt.Errorf("%s", taskInput))
 					} else {
 						fmt.Fprintf(os.Stderr, "Task not found: %s\n", taskInput)
-						fmt.Fprintf(os.Stderr, "Available tasks for project:\n")
-						for _, task := range tasks {
-							fmt.Fprintf(os.Stderr, "  - %s (ID: %s)\n", task.Name, task.ID)
-						}
 					}
 					os.Exit(1)
 				}
 			}
 		}
 
-		// Start time entry
+		// Create time entry via API (canonical source)
 		description, _ := cmd.Flags().GetString("description")
-		entry, err := service.StartTimeEntry(projectID, activityID, taskID, description)
+		entry := models.TimeEntry{
+			ProjectID:   projectID,
+			ActivityID:  activityID,
+			Description: description,
+			StartTime:   time.Now(),
+		}
+		if taskID != nil {
+			entry.TaskID = taskID
+		}
+
+		err = client.CreateTimesheet(entry)
 		if err != nil {
 			outputError(cmd, "Error starting time entry", err)
 			os.Exit(1)
@@ -193,40 +227,43 @@ It will refuse to start if there is already an active timer running.`,
 				"success": true,
 				"action":  "started",
 				"entry": map[string]interface{}{
-					"id": entry.ID,
 					"project": map[string]string{
-						"id":   entry.ProjectID,
-						"name": entry.ProjectName,
+						"id":   projectID,
+						"name": projectName,
 					},
 					"activity": map[string]string{
-						"id":   entry.ActivityID,
-						"name": entry.ActivityName,
+						"id":   activityID,
+						"name": activityName,
 					},
-					"description": entry.Description,
+					"description": description,
 					"start_time":  entry.StartTime.Format(time.RFC3339),
 				},
 			}
 
-			if entry.TaskID != nil && entry.TaskName != "" {
+			if taskID != nil {
 				result["entry"].(map[string]interface{})["task"] = map[string]string{
-					"id":   *entry.TaskID,
-					"name": entry.TaskName,
+					"id":   *taskID,
+					"name": taskName,
 				}
 			}
 
 			jsonData, _ := json.MarshalIndent(result, "", "  ")
 			fmt.Println(string(jsonData))
 		} else {
-			fmt.Printf("⏱️  Time tracking started!\n")
-			fmt.Printf("📊 Project: %s\n", entry.ProjectName)
-			if entry.TaskName != "" {
-				fmt.Printf("📝 Task: %s\n", entry.TaskName)
+			fmt.Printf("Time tracking started!\n")
+			if projectName != "" {
+				fmt.Printf("Project: %s\n", projectName)
 			}
-			fmt.Printf("⚡ Activity: %s\n", entry.ActivityName)
+			if taskName != "" {
+				fmt.Printf("Task: %s\n", taskName)
+			}
+			if activityName != "" {
+				fmt.Printf("Activity: %s\n", activityName)
+			}
 			if description != "" {
-				fmt.Printf("📄 Description: %s\n", description)
+				fmt.Printf("Description: %s\n", description)
 			}
-			fmt.Printf("🕐 Started: %s\n", entry.StartTime.Format("15:04:05"))
+			fmt.Printf("Started: %s\n", entry.StartTime.Format("15:04:05"))
 		}
 	},
 }

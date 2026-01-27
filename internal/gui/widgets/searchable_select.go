@@ -85,6 +85,20 @@ func (s *SearchableSelect) ClearSelection() {
 	}
 }
 
+// Disable disables the searchable select
+func (s *SearchableSelect) Disable() {
+	if s.entry != nil {
+		s.entry.Disable()
+	}
+}
+
+// Enable enables the searchable select
+func (s *SearchableSelect) Enable() {
+	if s.entry != nil {
+		s.entry.Enable()
+	}
+}
+
 // CreateRenderer creates the renderer for the searchable select
 func (s *SearchableSelect) CreateRenderer() fyne.WidgetRenderer {
 	s.entry = widget.NewEntry()

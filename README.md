@@ -224,7 +224,7 @@ The application supports full mouse interaction on all screens:
 | **History View** | Click entries to view details |
 | **Workspace Associations** | Click Name to edit, Edit to configure, Clear to remove |
 | **Code Repos** | Click rows to edit repository associations |
-| **Timesheet Creator** | Click fields to focus, click popovers to select, click Submit |
+| **Timesheet Creator** | Click fields to focus, click popovers to select, edit date/start time/end time, click Submit |
 | **Login Screen** | Click input fields to focus |
 | **Edit Favourites** | Click slots to configure in edit mode |
 

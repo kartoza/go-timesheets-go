@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"os/exec"
 	"runtime"
+	"sort"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -18,6 +19,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/gui/util"
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
+	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 )
 
@@ -133,7 +135,11 @@ func (s *HistoryScreen) createEntryCard() fyne.CanvasObject {
 	dateLabel := widget.NewLabel("Date")
 	hoursLabel := widget.NewLabel("Hours")
 	hoursLabel.TextStyle = fyne.TextStyle{Bold: true}
-	statusLabel := widget.NewLabel("Status") // Will contain icons + status text
+	statusLabel := widget.NewLabel("Status")
+
+	descLabel := widget.NewLabel("Description")
+	descLabel.TextStyle = fyne.TextStyle{Italic: true}
+	descLabel.Truncation = fyne.TextTruncateEllipsis
 
 	return container.NewVBox(
 		container.NewHBox(
@@ -147,6 +153,7 @@ func (s *HistoryScreen) createEntryCard() fyne.CanvasObject {
 			layout.NewSpacer(),
 			statusLabel,
 		),
+		descLabel,
 		widget.NewSeparator(),
 	)
 }
@@ -161,6 +168,7 @@ func (s *HistoryScreen) updateEntryCard(id widget.ListItemID, obj fyne.CanvasObj
 
 	row1 := vbox.Objects[0].(*fyne.Container)
 	row2 := vbox.Objects[1].(*fyne.Container)
+	descLabel := vbox.Objects[2].(*widget.Label)
 
 	// Row 1: Project, Date, Hours
 	row1.Objects[0].(*widget.Label).SetText(entry.ProjectName)
@@ -198,6 +206,13 @@ func (s *HistoryScreen) updateEntryCard(id widget.ListItemID, obj fyne.CanvasObj
 		statusText += "○ Pending"
 	}
 	row2.Objects[2].(*widget.Label).SetText(statusText)
+
+	// Row 3: Description
+	desc := "(No description)"
+	if entry.Description != nil && *entry.Description != "" {
+		desc = *entry.Description
+	}
+	descLabel.SetText(desc)
 }
 
 func (s *HistoryScreen) showEntryDetail(index int) {
@@ -206,136 +221,562 @@ func (s *HistoryScreen) showEntryDetail(index int) {
 	}
 
 	entry := s.entries[index]
+	isEditable := !entry.Submitted
 
-	// Colors - use dark colors that work on light dialog backgrounds
-	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
-	blueColor := color.NRGBA{R: 0x2B, G: 0x7A, B: 0xB0, A: 0xFF} // Darker blue for light bg
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}  // Dark gray for text
-	greenColor := color.NRGBA{R: 0x1E, G: 0x88, B: 0x4B, A: 0xFF} // Darker green
-
-	// Project name (title)
-	projectTitle := canvas.NewText(entry.ProjectName, goldColor)
-	projectTitle.TextSize = 18
-	projectTitle.TextStyle = fyne.TextStyle{Bold: true}
-
-	// Task and Activity - use canvas.NewText with dark color
-	taskText := entry.TaskName
-	if taskText == "" {
-		taskText = "(No task)"
-	}
-	taskLabel := canvas.NewText(fmt.Sprintf("📋 Task: %s", taskText), darkGray)
-	taskLabel.TextSize = 13
-
-	activityLabel := canvas.NewText(fmt.Sprintf("🎯 Activity: %s", entry.ActivityType), darkGray)
-	activityLabel.TextSize = 13
-
-	// Time info
-	fromTime, _ := entry.GetFromTimeAsTime()
-	dateStr := fromTime.Format("2006-01-22 15:04")
-	if entry.ToTime != "" {
-		toTime, _ := entry.GetToTimeAsTime()
-		dateStr = fmt.Sprintf("%s → %s", fromTime.Format("15:04"), toTime.Format("15:04"))
-	}
-
-	dateLabel := canvas.NewText(fmt.Sprintf("📅 %s  |  %s", fromTime.Format("2006-01-02"), dateStr), blueColor)
-	dateLabel.TextSize = 12
-
-	hoursLabel := canvas.NewText(fmt.Sprintf("⏱ %.2f hours", entry.Hours), goldColor)
-	hoursLabel.TextSize = 14
-	hoursLabel.TextStyle = fyne.TextStyle{Bold: true}
-
-	// Status
-	statusText := "○ Pending"
-	statusColor := goldColor
-	if entry.ToTime == "" {
-		statusText = "🟢 Running"
-		statusColor = greenColor
-	} else if entry.Submitted {
-		statusText = "✓ Submitted"
-		statusColor = blueColor
-	}
-	statusLabelText := canvas.NewText("Status: ", darkGray)
-	statusLabelText.TextSize = 13
-	statusLabel := canvas.NewText(statusText, statusColor)
-	statusLabel.TextSize = 14
-	statusLabel.TextStyle = fyne.TextStyle{Bold: true}
-
-	// Description
-	description := "(No description)"
-	if entry.Description != nil && *entry.Description != "" {
-		description = *entry.Description
-	}
-	descTitle := canvas.NewText("📝 Description:", darkGray)
-	descTitle.TextSize = 12
-
-	descEntry := widget.NewMultiLineEntry()
-	descEntry.SetText(description)
-	descEntry.Disable()
-	descEntry.SetMinRowsVisible(4)
-
-	// Build content
-	content := container.NewVBox(
-		container.NewCenter(projectTitle),
-		widget.NewSeparator(),
-		taskLabel,
-		activityLabel,
-		widget.NewSeparator(),
-		container.NewHBox(dateLabel, layout.NewSpacer(), hoursLabel),
-		container.NewHBox(statusLabelText, statusLabel),
-		widget.NewSeparator(),
-		descTitle,
-		descEntry,
+	// Local state for the dialog
+	var (
+		selectedProject  *api.ProjectListItem
+		selectedTask     *api.TaskListItem
+		selectedActivity *api.ActivityListItem
+		projects         []api.ProjectListItem
+		tasks            []api.TaskListItem
+		activities       []api.ActivityListItem
+		errorLabel       *canvas.Text
 	)
 
-	// POW Video section
+	// Pre-select from entry
+	selectedProject = &api.ProjectListItem{
+		ID:    entry.ProjectID,
+		Label: entry.ProjectName,
+	}
+	if entry.TaskID.Value > 0 {
+		selectedTask = &api.TaskListItem{
+			ID:    entry.TaskID.Value,
+			Label: entry.TaskName,
+		}
+	}
+	selectedActivity = &api.ActivityListItem{
+		ID:    entry.ActivityID,
+		Label: entry.ActivityType,
+	}
+
+	// Title
+	titleText := "Entry Details"
+	if entry.Submitted {
+		titleText = "Entry Details (Submitted)"
+	}
+	title := canvas.NewText(titleText, color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
+	title.TextSize = 24
+	title.TextStyle = fyne.TextStyle{Bold: true}
+	title.Alignment = fyne.TextAlignCenter
+
+	// Project select
+	projectSelect := widgets.NewSearchableSelect("Search projects...", s.window)
+	projectSelect.SetSelected(&widgets.SelectItem{
+		ID:    entry.ProjectID,
+		Label: entry.ProjectName,
+	})
+
+	// Task select
+	taskSelect := widgets.NewBoundedSelect("Select task...", []string{}, s.window)
+
+	// Activity select
+	activitySelect := widgets.NewBoundedSelect("Select activity...", []string{}, s.window)
+
+	// Wire up project select
+	projectSelect.OnChanged = func(item *widgets.SelectItem) {
+		if item != nil {
+			selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
+			util.RunAsync(
+				func() ([]api.TaskListItem, error) {
+					return s.apiClient.GetTasks(fmt.Sprintf("%d", item.ID))
+				},
+				func(result []api.TaskListItem, err error) {
+					if err != nil {
+						return
+					}
+					tasks = result
+					options := make([]string, len(tasks))
+					for i, t := range tasks {
+						options[i] = t.Label
+					}
+					taskSelect.SetOptions(options)
+				},
+			)
+		} else {
+			selectedProject = nil
+			taskSelect.SetOptions([]string{})
+		}
+	}
+	projectSelect.OnSearch = func(query string) {
+		util.RunAsync(
+			func() ([]api.ProjectListItem, error) {
+				return s.apiClient.GetProjects(query)
+			},
+			func(result []api.ProjectListItem, err error) {
+				if err != nil {
+					return
+				}
+				projects = result
+				items := make([]widgets.SelectItem, len(projects))
+				for i, p := range projects {
+					items[i] = widgets.SelectItem{ID: p.ID, Label: p.Label}
+				}
+				projectSelect.SetItems(items)
+			},
+		)
+	}
+
+	// Wire up task select
+	taskSelect.OnChanged = func(selected string) {
+		for _, t := range tasks {
+			if t.Label == selected {
+				selectedTask = &t
+				break
+			}
+		}
+	}
+
+	// Wire up activity select
+	activitySelect.OnChanged = func(selected string) {
+		for _, a := range activities {
+			if a.Label == selected {
+				selectedActivity = &a
+				break
+			}
+		}
+	}
+
+	// Description entry
+	descEntry := widget.NewMultiLineEntry()
+	descEntry.SetPlaceHolder("Description (optional)")
+	if entry.Description != nil && *entry.Description != "" {
+		descEntry.SetText(*entry.Description)
+	}
+	descEntry.SetMinRowsVisible(3)
+
+	// Fetch from Git button
+	hasRepoAssoc := s.hasRepoAssociationForProject(entry.ProjectID)
+	fetchButton := widget.NewButton("Fetch from Git", func() {
+		s.fetchGitCommitsForEntry(&entry, descEntry)
+	})
+	if !hasRepoAssoc || !isEditable {
+		fetchButton.Disable()
+	}
+
+	// Date/time fields
+	fromTime, _ := entry.GetFromTimeAsTime()
+
+	startDateEntry := widget.NewEntry()
+	startDateEntry.SetPlaceHolder("YYYY-MM-DD")
+	startDateEntry.SetText(fromTime.Format("2006-01-02"))
+
+	startTimeEntry := widget.NewEntry()
+	startTimeEntry.SetPlaceHolder("HH:MM")
+	startTimeEntry.SetText(fromTime.Format("15:04"))
+
+	endDateEntry := widget.NewEntry()
+	endDateEntry.SetPlaceHolder("YYYY-MM-DD")
+
+	endTimeEntry := widget.NewEntry()
+	endTimeEntry.SetPlaceHolder("HH:MM")
+
+	if entry.ToTime != "" {
+		toTime, _ := entry.GetToTimeAsTime()
+		endDateEntry.SetText(toTime.Format("2006-01-02"))
+		endTimeEntry.SetText(toTime.Format("15:04"))
+	}
+
+	// Disable fields if submitted
+	if !isEditable {
+		descEntry.Disable()
+		startDateEntry.Disable()
+		startTimeEntry.Disable()
+		endDateEntry.Disable()
+		endTimeEntry.Disable()
+	}
+
+	// Error label
+	errorLabel = canvas.NewText("", color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF})
+	errorLabel.TextSize = 12
+	errorLabel.Alignment = fyne.TextAlignCenter
+
+	// Status info row
+	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	statusText := "Pending"
+	statusColor := goldColor
+	if entry.ToTime == "" {
+		statusText = "Running"
+		statusColor = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF}
+	} else if entry.Submitted {
+		statusText = "Submitted"
+		statusColor = color.NRGBA{R: 0x3A, G: 0x9A, B: 0xD9, A: 0xFF}
+	}
+	statusDisplay := canvas.NewText(fmt.Sprintf("Status: %s  |  %.2f hours", statusText, entry.Hours), statusColor)
+	statusDisplay.TextSize = 12
+	statusDisplay.Alignment = fyne.TextAlignCenter
+
+	// POW video info
+	var powSection fyne.CanvasObject
 	powVideoPath, hasPOW := s.powVideoMap[entry.ID]
 	if hasPOW && powVideoPath != "" {
-		content.Add(widget.NewSeparator())
-
-		powTitle := canvas.NewText("🎬 Proof of Work Video", goldColor)
-		powTitle.TextSize = 14
-		powTitle.TextStyle = fyne.TextStyle{Bold: true}
-		content.Add(powTitle)
-
-		// Show video path (truncated) - use dark color
-		pathDisplay := powVideoPath
-		if len(pathDisplay) > 50 {
-			pathDisplay = "..." + pathDisplay[len(pathDisplay)-47:]
-		}
-		pathLabel := canvas.NewText(pathDisplay, darkGray)
-		pathLabel.TextSize = 11
-		content.Add(pathLabel)
-
-		// Play button
-		playBtn := widget.NewButton("▶ Play POW Video", func() {
+		playBtn := widget.NewButton("Play POW Video", func() {
 			s.playPOWVideo(powVideoPath)
 		})
 		playBtn.Importance = widget.HighImportance
-		content.Add(container.NewCenter(playBtn))
+		powSection = container.NewHBox(layout.NewSpacer(), playBtn)
 	}
 
-	// Buttons section
-	content.Add(widget.NewSeparator())
-	buttonBox := container.NewHBox(layout.NewSpacer())
+	// Date/time row: Start Date + Start Time | End Date + End Time
+	dateTimeRow := container.NewGridWithColumns(4,
+		container.NewVBox(widget.NewLabel("Start Date"), startDateEntry),
+		container.NewVBox(widget.NewLabel("Start Time"), startTimeEntry),
+		container.NewVBox(widget.NewLabel("End Date"), endDateEntry),
+		container.NewVBox(widget.NewLabel("End Time"), endTimeEntry),
+	)
 
-	// Delete button for non-submitted entries
-	if !entry.Submitted {
-		deleteBtn := widget.NewButton("🗑 Delete", func() {
+	// Buttons
+	var d *widget.PopUp
+
+	closeButton := widget.NewButton("Close", func() {
+		if d != nil {
+			d.Hide()
+		}
+	})
+
+	buttonRow := container.NewHBox(layout.NewSpacer(), closeButton)
+
+	if isEditable {
+		saveButton := widget.NewButton("Save Changes", func() {
+			// Validation
+			if selectedProject == nil {
+				errorLabel.Text = "Please select a project"
+				errorLabel.Refresh()
+				return
+			}
+			if selectedActivity == nil {
+				errorLabel.Text = "Please select an activity"
+				errorLabel.Refresh()
+				return
+			}
+
+			// Parse start date/time
+			startParsed, err := time.Parse("2006-01-02 15:04",
+				fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text))
+			if err != nil {
+				errorLabel.Text = "Invalid start date/time"
+				errorLabel.Refresh()
+				return
+			}
+
+			// Parse end date/time (optional for running entries)
+			var endTimePtr *time.Time
+			var duration float64
+			if endDateEntry.Text != "" && endTimeEntry.Text != "" {
+				endParsed, err := time.Parse("2006-01-02 15:04",
+					fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text))
+				if err != nil {
+					errorLabel.Text = "Invalid end date/time"
+					errorLabel.Refresh()
+					return
+				}
+				if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
+					errorLabel.Text = "End time must be after start time"
+					errorLabel.Refresh()
+					return
+				}
+				endTimePtr = &endParsed
+				duration = endParsed.Sub(startParsed).Hours()
+			}
+
+			errorLabel.Text = ""
+			errorLabel.Refresh()
+
+			// Build TimeEntry for UpdateTimesheet
+			updatedEntry := models.TimeEntry{
+				ProjectID:   fmt.Sprintf("%d", selectedProject.ID),
+				ActivityID:  fmt.Sprintf("%d", selectedActivity.ID),
+				Description: descEntry.Text,
+				StartTime:   startParsed,
+				EndTime:     endTimePtr,
+				Duration:    duration,
+			}
+			if selectedTask != nil {
+				taskID := fmt.Sprintf("%d", selectedTask.ID)
+				updatedEntry.TaskID = &taskID
+			}
+
+			if d != nil {
+				d.Hide()
+			}
+			s.setStatus("Saving changes...")
+
+			util.RunAsync(
+				func() (bool, error) {
+					return true, s.apiClient.UpdateTimesheet(
+						fmt.Sprintf("%d", entry.ID), updatedEntry)
+				},
+				func(_ bool, err error) {
+					if err != nil {
+						s.setStatus("Error: " + err.Error())
+						return
+					}
+					s.setStatus("Entry updated")
+					s.Refresh()
+				},
+			)
+		})
+		saveButton.Importance = widget.HighImportance
+
+		deleteBtn := widget.NewButton("Delete", func() {
+			if d != nil {
+				d.Hide()
+			}
 			s.confirmDelete(index)
 		})
 		deleteBtn.Importance = widget.DangerImportance
-		buttonBox.Add(deleteBtn)
+
+		buttonRow = container.NewHBox(
+			layout.NewSpacer(),
+			deleteBtn,
+			closeButton,
+			saveButton,
+		)
 	}
 
-	content.Add(buttonBox)
+	// Description container with fetch button
+	descContainer := container.NewBorder(
+		nil,
+		container.NewHBox(layout.NewSpacer(), fetchButton),
+		nil,
+		nil,
+		descEntry,
+	)
 
-	// Create scrollable container
-	scroll := container.NewVScroll(content)
-	scroll.SetMinSize(fyne.NewSize(450, 450))
+	// Form layout matching create/stop dialog style
+	form := container.NewVBox(
+		container.NewCenter(title),
+		widget.NewSeparator(),
+		widget.NewLabel("Project *"),
+		projectSelect,
+		widget.NewLabel("Task"),
+		taskSelect,
+		widget.NewLabel("Activity *"),
+		activitySelect,
+		widget.NewLabel("Description"),
+		descContainer,
+		dateTimeRow,
+		container.NewCenter(statusDisplay),
+	)
 
-	d := dialog.NewCustom("Entry Details", "Close", scroll, s.window)
-	d.Resize(fyne.NewSize(500, 550))
+	// Add POW section if present
+	if powSection != nil {
+		form.Add(powSection)
+	}
+
+	form.Add(layout.NewSpacer())
+	form.Add(errorLabel)
+	form.Add(widget.NewSeparator())
+	form.Add(buttonRow)
+
+	// Gold-bordered dark background (identical to create/stop dialogs)
+	formBorder := canvas.NewRectangle(color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
+	formBorder.StrokeColor = color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	formBorder.StrokeWidth = 2
+	formBorder.FillColor = color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 0xFF}
+	formBorder.CornerRadius = 10
+
+	formContainer := container.NewStack(
+		formBorder,
+		container.NewPadded(container.NewPadded(form)),
+	)
+
+	// Modal popup overlay (same as create/stop dialogs)
+	d = widget.NewModalPopUp(formContainer, s.window.Canvas())
+	d.Resize(fyne.NewSize(550, 650))
 	d.Show()
+
+	// Load tasks for current project
+	util.RunAsync(
+		func() ([]api.TaskListItem, error) {
+			return s.apiClient.GetTasks(fmt.Sprintf("%d", entry.ProjectID))
+		},
+		func(result []api.TaskListItem, err error) {
+			if err != nil {
+				return
+			}
+			tasks = result
+			options := make([]string, len(tasks))
+			for i, t := range tasks {
+				options[i] = t.Label
+			}
+			taskSelect.SetOptions(options)
+			if selectedTask != nil {
+				taskSelect.SetSelected(selectedTask.Label)
+			}
+			if !isEditable {
+				taskSelect.Disable()
+			}
+		},
+	)
+
+	// Load activities
+	util.RunAsync(
+		func() ([]api.ActivityListItem, error) {
+			return s.apiClient.GetActivities()
+		},
+		func(result []api.ActivityListItem, err error) {
+			if err != nil {
+				return
+			}
+			sort.Slice(result, func(i, j int) bool {
+				return result[i].Label < result[j].Label
+			})
+			activities = result
+			options := make([]string, len(activities))
+			for i, a := range activities {
+				options[i] = a.Label
+			}
+			activitySelect.SetOptions(options)
+			if selectedActivity != nil {
+				activitySelect.SetSelected(selectedActivity.Label)
+			}
+			if !isEditable {
+				activitySelect.Disable()
+			}
+		},
+	)
+
+	// Disable project select for submitted entries (after showing dialog)
+	if !isEditable {
+		projectSelect.Disable()
+	}
+}
+
+// hasRepoAssociationForProject checks if there's a code repo association for the given project
+func (s *HistoryScreen) hasRepoAssociationForProject(projectID int) bool {
+	if s.store == nil {
+		return false
+	}
+
+	associations, err := s.store.LoadCodeRepoAssociations()
+	if err != nil || associations == nil {
+		return false
+	}
+
+	assoc := associations.GetAssociationByProject(projectID)
+	return assoc != nil && assoc.HasAssociation()
+}
+
+// fetchGitCommitsForEntry fetches git commits for the entry's time range
+func (s *HistoryScreen) fetchGitCommitsForEntry(entry *api.TimelogEntry, descEntry *widget.Entry) {
+	if s.store == nil {
+		return
+	}
+
+	associations, err := s.store.LoadCodeRepoAssociations()
+	if err != nil {
+		dialog.ShowError(err, s.window)
+		return
+	}
+
+	assoc := associations.GetAssociationByProject(entry.ProjectID)
+	if assoc == nil || !assoc.HasAssociation() {
+		dialog.ShowInformation("No Repository",
+			"No repository is linked to this project.\n\nGo to Settings > Code Repositories to link a repository.",
+			s.window)
+		return
+	}
+
+	// Use entry's time range
+	startTime, _ := entry.GetFromTimeAsTime()
+	endTime := time.Now()
+	if entry.ToTime != "" {
+		endTime, _ = entry.GetToTimeAsTime()
+	}
+
+	if api.IsLocalPath(assoc.RepoURL) {
+		s.fetchLocalGitCommitsForEntry(assoc.RepoURL, startTime, endTime, descEntry)
+	} else {
+		s.fetchGitHubCommitsForEntry(assoc.RepoOwner, assoc.RepoName, startTime, endTime, descEntry)
+	}
+}
+
+// fetchLocalGitCommitsForEntry fetches commits from a local git repository
+func (s *HistoryScreen) fetchLocalGitCommitsForEntry(repoPath string, startTime, endTime time.Time, descEntry *widget.Entry) {
+	repoPath = api.ExpandPath(repoPath)
+
+	if !api.IsGitRepository(repoPath) {
+		dialog.ShowError(fmt.Errorf("not a git repository: %s", repoPath), s.window)
+		return
+	}
+
+	util.RunAsync(
+		func() (string, error) {
+			localGitClient := api.NewLocalGitClient()
+			commits, err := localGitClient.GetCommitsInTimeRange(repoPath, startTime, endTime, "")
+			if err != nil {
+				return "", err
+			}
+			if len(commits) == 0 {
+				return "", nil
+			}
+			return api.FormatLocalCommitsAsDescription(commits), nil
+		},
+		func(description string, err error) {
+			if err != nil {
+				dialog.ShowError(err, s.window)
+				return
+			}
+			if description == "" {
+				dialog.ShowInformation("No Commits", "No commits found in the entry time range.", s.window)
+				return
+			}
+			existing := descEntry.Text
+			if existing != "" {
+				descEntry.SetText(existing + "\n\n" + description)
+			} else {
+				descEntry.SetText(description)
+			}
+		},
+	)
+}
+
+// fetchGitHubCommitsForEntry fetches commits from a GitHub repository
+func (s *HistoryScreen) fetchGitHubCommitsForEntry(owner, repo string, startTime, endTime time.Time, descEntry *widget.Entry) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to load config: %w", err), s.window)
+		return
+	}
+
+	githubToken := cfg.GetGitHubToken()
+	if githubToken == "" {
+		dialog.ShowInformation("GitHub Token Required",
+			"A GitHub token is required to fetch commits.\n\nSet GITHUB_TOKEN environment variable or configure it in settings.",
+			s.window)
+		return
+	}
+
+	util.RunAsync(
+		func() (string, error) {
+			githubClient := api.NewGitHubClient(githubToken)
+			commits, err := githubClient.GetCommitsInTimeRange(owner, repo, startTime, endTime, "")
+			if err != nil {
+				return "", err
+			}
+			if len(commits) == 0 {
+				return "", nil
+			}
+			return api.FormatCommitsAsDescription(commits), nil
+		},
+		func(description string, err error) {
+			if err != nil {
+				dialog.ShowError(err, s.window)
+				return
+			}
+			if description == "" {
+				dialog.ShowInformation("No Commits", "No commits found in the entry time range.", s.window)
+				return
+			}
+			existing := descEntry.Text
+			if existing != "" {
+				descEntry.SetText(existing + "\n\n" + description)
+			} else {
+				descEntry.SetText(description)
+			}
+		},
+	)
 }
 
 // playPOWVideo opens the POW video in the system's default video player

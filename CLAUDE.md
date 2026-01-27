@@ -162,3 +162,4 @@ The project is in the **infrastructure setup phase**. The following components a
 ---
 
 *This file should be updated as the project evolves to maintain context for future Claude sessions.*
+- since we are maintaining parallel implementations of a tui and a gui, they should stay in lock step feature and functionality wise. They should use as much common code for non ui functions as possible to remain DRY whilst replicating the UI functionality in both environments.

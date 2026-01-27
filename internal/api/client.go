@@ -1187,6 +1187,8 @@ func (c *Client) BreakTimesheet(timelogID int) (*BreakTimesheetResponse, error) 
 		return nil, fmt.Errorf("failed to decode break timesheet response: %w", err)
 	}
 
+	// Invalidate timelog cache after breaking/stopping a timer
+	c.invalidateCache("GET:/api/timelog/")
 	return &breakResp, nil
 }
 

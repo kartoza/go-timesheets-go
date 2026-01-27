@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"image/color"
+	"sort"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -219,25 +220,260 @@ func (s *DashboardScreen) onStartStopClicked() {
 }
 
 func (s *DashboardScreen) showStopTimerDialog() {
+	// Local state for the dialog
+	var (
+		selectedProject  *api.ProjectListItem
+		selectedTask     *api.TaskListItem
+		selectedActivity *api.ActivityListItem
+		projects         []api.ProjectListItem
+		tasks            []api.TaskListItem
+		activities       []api.ActivityListItem
+		errorLabel       *canvas.Text
+	)
+
+	// Pre-select from active timer
+	selectedProject = &api.ProjectListItem{
+		ID:    s.activeTimer.ProjectID,
+		Label: s.activeTimer.ProjectName,
+	}
+	if s.activeTimer.TaskID.Value > 0 {
+		selectedTask = &api.TaskListItem{
+			ID:    s.activeTimer.TaskID.Value,
+			Label: s.activeTimer.TaskName,
+		}
+	}
+	selectedActivity = &api.ActivityListItem{
+		ID:    s.activeTimer.ActivityID,
+		Label: s.activeTimer.ActivityType,
+	}
+
+	// Title
+	title := canvas.NewText("Stop Timer", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
+	title.TextSize = 24
+	title.TextStyle = fyne.TextStyle{Bold: true}
+	title.Alignment = fyne.TextAlignCenter
+
+	// Project select
+	projectSelect := widgets.NewSearchableSelect("Search projects...", s.window)
+	projectSelect.SetSelected(&widgets.SelectItem{
+		ID:    s.activeTimer.ProjectID,
+		Label: s.activeTimer.ProjectName,
+	})
+
+	// Task select
+	taskSelect := widgets.NewBoundedSelect("Select task...", []string{}, s.window)
+
+	// Activity select
+	activitySelect := widgets.NewBoundedSelect("Select activity...", []string{}, s.window)
+
+	// Wire up project select
+	projectSelect.OnChanged = func(item *widgets.SelectItem) {
+		if item != nil {
+			selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
+			// Load tasks for the new project
+			util.RunAsync(
+				func() ([]api.TaskListItem, error) {
+					return s.apiClient.GetTasks(fmt.Sprintf("%d", item.ID))
+				},
+				func(result []api.TaskListItem, err error) {
+					if err != nil {
+						return
+					}
+					tasks = result
+					options := make([]string, len(tasks))
+					for i, t := range tasks {
+						options[i] = t.Label
+					}
+					taskSelect.SetOptions(options)
+				},
+			)
+		} else {
+			selectedProject = nil
+			taskSelect.SetOptions([]string{})
+		}
+	}
+	projectSelect.OnSearch = func(query string) {
+		util.RunAsync(
+			func() ([]api.ProjectListItem, error) {
+				return s.apiClient.GetProjects(query)
+			},
+			func(result []api.ProjectListItem, err error) {
+				if err != nil {
+					return
+				}
+				projects = result
+				items := make([]widgets.SelectItem, len(projects))
+				for i, p := range projects {
+					items[i] = widgets.SelectItem{ID: p.ID, Label: p.Label}
+				}
+				projectSelect.SetItems(items)
+			},
+		)
+	}
+
+	// Wire up task select
+	taskSelect.OnChanged = func(selected string) {
+		for _, t := range tasks {
+			if t.Label == selected {
+				selectedTask = &t
+				break
+			}
+		}
+	}
+
+	// Wire up activity select
+	activitySelect.OnChanged = func(selected string) {
+		for _, a := range activities {
+			if a.Label == selected {
+				selectedActivity = &a
+				break
+			}
+		}
+	}
+
+	// Description entry (full width)
 	descEntry := widget.NewMultiLineEntry()
 	descEntry.SetPlaceHolder("Description (optional)")
 	if s.activeTimer.Description != nil {
 		descEntry.SetText(*s.activeTimer.Description)
 	}
-	descEntry.SetMinRowsVisible(5)
+	descEntry.SetMinRowsVisible(3)
 
-	// Check if there's a repo association for this project
+	// Fetch from Git button
 	hasRepoAssoc := s.hasRepoAssociation(s.activeTimer.ProjectID)
-
-	// Create "Fetch from Git" button
-	fetchButton := widget.NewButton("📥 Fetch from Git", func() {
+	fetchButton := widget.NewButton("Fetch from Git", func() {
 		s.fetchGitCommitsForDescription(descEntry)
 	})
 	if !hasRepoAssoc {
 		fetchButton.Disable()
 	}
 
-	// Wrap the description entry with the fetch button
+	// Date/time fields - parse start time from active timer
+	startTime, _ := s.activeTimer.GetFromTimeAsTime()
+
+	startDateEntry := widget.NewEntry()
+	startDateEntry.SetPlaceHolder("YYYY-MM-DD")
+	startDateEntry.SetText(startTime.Format("2006-01-02"))
+
+	startTimeEntry := widget.NewEntry()
+	startTimeEntry.SetPlaceHolder("HH:MM")
+	startTimeEntry.SetText(startTime.Format("15:04"))
+
+	endDateEntry := widget.NewEntry()
+	endDateEntry.SetPlaceHolder("YYYY-MM-DD")
+	endDateEntry.SetText(time.Now().Format("2006-01-02"))
+
+	endTimeEntry := widget.NewEntry()
+	endTimeEntry.SetPlaceHolder("HH:MM")
+	endTimeEntry.SetText(time.Now().Format("15:04"))
+
+	// Error label
+	errorLabel = canvas.NewText("", color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF})
+	errorLabel.TextSize = 12
+	errorLabel.Alignment = fyne.TextAlignCenter
+
+	// Date/time row: Start Date + Start Time | End Date + End Time
+	dateTimeRow := container.NewGridWithColumns(4,
+		container.NewVBox(widget.NewLabel("Start Date"), startDateEntry),
+		container.NewVBox(widget.NewLabel("Start Time"), startTimeEntry),
+		container.NewVBox(widget.NewLabel("End Date"), endDateEntry),
+		container.NewVBox(widget.NewLabel("End Time"), endTimeEntry),
+	)
+
+	// Buttons - declare var so we can reference in closures
+	var d *widget.PopUp
+
+	stopButton := widget.NewButton("Stop Timer", func() {
+		// Validation
+		if selectedProject == nil {
+			errorLabel.Text = "Please select a project"
+			errorLabel.Refresh()
+			return
+		}
+		if selectedActivity == nil {
+			errorLabel.Text = "Please select an activity"
+			errorLabel.Refresh()
+			return
+		}
+
+		// Parse start date/time
+		startParsed, err := time.Parse("2006-01-02 15:04",
+			fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text))
+		if err != nil {
+			errorLabel.Text = "Invalid start date/time"
+			errorLabel.Refresh()
+			return
+		}
+
+		// Parse end date/time
+		endParsed, err := time.Parse("2006-01-02 15:04",
+			fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text))
+		if err != nil {
+			errorLabel.Text = "Invalid end date/time"
+			errorLabel.Refresh()
+			return
+		}
+
+		if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
+			errorLabel.Text = "End time must be after start time"
+			errorLabel.Refresh()
+			return
+		}
+
+		errorLabel.Text = ""
+		errorLabel.Refresh()
+
+		// Build the TimeEntry for UpdateTimesheet
+		entry := models.TimeEntry{
+			ProjectID:   fmt.Sprintf("%d", selectedProject.ID),
+			ActivityID:  fmt.Sprintf("%d", selectedActivity.ID),
+			Description: descEntry.Text,
+			StartTime:   startParsed,
+			EndTime:     &endParsed,
+			Duration:    endParsed.Sub(startParsed).Hours(),
+		}
+		if selectedTask != nil {
+			taskID := fmt.Sprintf("%d", selectedTask.ID)
+			entry.TaskID = &taskID
+		}
+
+		if d != nil {
+			d.Hide()
+		}
+		s.setStatus("Stopping timer...")
+
+		util.RunAsync(
+			func() (bool, error) {
+				return true, s.apiClient.UpdateTimesheet(
+					fmt.Sprintf("%d", s.activeTimer.ID), entry)
+			},
+			func(_ bool, err error) {
+				if err != nil {
+					s.setStatus("Error: " + err.Error())
+					return
+				}
+				s.activeTimer = nil
+				s.updateTimerDisplay()
+				s.setStatus("Timer stopped")
+				s.Refresh()
+			},
+		)
+	})
+	stopButton.Importance = widget.HighImportance
+
+	cancelButton := widget.NewButton("Cancel", func() {
+		if d != nil {
+			d.Hide()
+		}
+	})
+
+	buttonRow := container.NewHBox(
+		layout.NewSpacer(),
+		cancelButton,
+		stopButton,
+	)
+
+	// Description container with fetch button
 	descContainer := container.NewBorder(
 		nil,
 		container.NewHBox(layout.NewSpacer(), fetchButton),
@@ -246,22 +482,87 @@ func (s *DashboardScreen) showStopTimerDialog() {
 		descEntry,
 	)
 
-	form := dialog.NewForm(
-		"Stop Timer",
-		"Stop",
-		"Cancel",
-		[]*widget.FormItem{
-			widget.NewFormItem("Description", descContainer),
+	// Form layout matching timesheet creator style
+	form := container.NewVBox(
+		container.NewCenter(title),
+		widget.NewSeparator(),
+		widget.NewLabel("Project *"),
+		projectSelect,
+		widget.NewLabel("Task"),
+		taskSelect,
+		widget.NewLabel("Activity *"),
+		activitySelect,
+		widget.NewLabel("Description"),
+		descContainer,
+		dateTimeRow,
+		layout.NewSpacer(),
+		errorLabel,
+		widget.NewSeparator(),
+		buttonRow,
+	)
+
+	// Container with border (same style as timesheet creator)
+	formBorder := canvas.NewRectangle(color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
+	formBorder.StrokeColor = color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	formBorder.StrokeWidth = 2
+	formBorder.FillColor = color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 0xFF}
+	formBorder.CornerRadius = 10
+
+	formContainer := container.NewStack(
+		formBorder,
+		container.NewPadded(container.NewPadded(form)),
+	)
+
+	// Show as a popup overlay - pass formContainer directly so the dark
+	// background fills the entire popup with no white space around it
+	d = widget.NewModalPopUp(formContainer, s.window.Canvas())
+	d.Resize(fyne.NewSize(550, 600))
+	d.Show()
+
+	// Load tasks for current project
+	util.RunAsync(
+		func() ([]api.TaskListItem, error) {
+			return s.apiClient.GetTasks(fmt.Sprintf("%d", s.activeTimer.ProjectID))
 		},
-		func(confirmed bool) {
-			if confirmed {
-				s.stopTimer(descEntry.Text)
+		func(result []api.TaskListItem, err error) {
+			if err != nil {
+				return
+			}
+			tasks = result
+			options := make([]string, len(tasks))
+			for i, t := range tasks {
+				options[i] = t.Label
+			}
+			taskSelect.SetOptions(options)
+			if selectedTask != nil {
+				taskSelect.SetSelected(selectedTask.Label)
 			}
 		},
-		s.window,
 	)
-	form.Resize(fyne.NewSize(500, 300))
-	form.Show()
+
+	// Load activities
+	util.RunAsync(
+		func() ([]api.ActivityListItem, error) {
+			return s.apiClient.GetActivities()
+		},
+		func(result []api.ActivityListItem, err error) {
+			if err != nil {
+				return
+			}
+			sort.Slice(result, func(i, j int) bool {
+				return result[i].Label < result[j].Label
+			})
+			activities = result
+			options := make([]string, len(activities))
+			for i, a := range activities {
+				options[i] = a.Label
+			}
+			activitySelect.SetOptions(options)
+			if selectedActivity != nil {
+				activitySelect.SetSelected(selectedActivity.Label)
+			}
+		},
+	)
 }
 
 // hasRepoAssociation checks if there's a code repo association for the given project

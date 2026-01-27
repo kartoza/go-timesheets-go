@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+
+#### GUI Timesheet Creator
+- **Date and time editing** - GUI timesheet form now includes editable Date, Start Time, and End Time fields matching TUI functionality
+- **Completed entry support** - Provide an end time to submit a completed entry with calculated duration, or leave it blank to start a running timer
+- **Context-aware submit button** - Button label changes between "Start Timer" and "Submit Entry" based on whether an end time is provided
+
+#### GUI Stop Timer Dialog
+- **Themed stop dialog** - Stop timer dialog now uses the same gold-bordered dark themed style as the timesheet creator
+- **Editable fields** - Project, Task, Activity, Start Date/Time, and End Date/Time are all editable when stopping a timer
+- **Pre-populated values** - All fields pre-populate from the active timer with end time defaulting to now
+- **Full-width description** - Description field spans the full dialog width with Fetch from Git support
+- **Validation** - Start/end time parsing and ordering validation with inline error messages
+
+#### GUI Entry Detail Dialog
+- **Consistent themed dialog** - History entry detail view now uses the same gold-bordered dark themed modal popup as the create and stop dialogs
+- **Editable entry fields** - Non-submitted entries can be edited: Project, Task, Activity, Description, Start/End Date and Time
+- **Pre-populated values** - All fields pre-populate from the selected entry's current data
+- **Fetch from Git** - Description can be auto-populated with git commits from the entry's time range
+- **Save Changes** - Save edits back to the API via UpdateTimesheet
+- **Read-only for submitted** - Submitted entries display the same form layout with all fields disabled
+- **Status display** - Status (Running/Pending/Submitted) and hours shown inline
+- **POW video playback** - Play POW video button shown for entries with proof-of-work videos
+- **Delete support** - Non-submitted entries can be deleted from the detail dialog
+
+#### GUI Navigation
+- **ESC key navigation** - Pressing ESC returns to the previous screen from any page (History→Dashboard, Settings→Dashboard, Favourites→Settings, etc.)
+- **History list descriptions** - Entry cards in the history list now show the description text (truncated with ellipsis) below the task name
+
+#### Multi-Instance Consistency (API-Canonical Architecture)
+- **API is canonical** - All timesheet data operations now treat the remote API as the single source of truth
+- **CLI start uses API** - The `start` command now checks for active timers and creates entries via the API instead of local files, preventing duplicate timers across instances
+- **CLI status is cache-only** - The `status` command reads exclusively from the local timelog cache, generating zero API traffic even when polled frequently by waybar
+- **CLI stop updates cache** - The `stop` command now updates the local timelog cache after stopping, keeping waybar status in sync
+- **Atomic file writes** - All local storage writes (cache, favourites, associations, etc.) now use write-to-temp-then-rename to prevent corruption from concurrent access or crashes
+- **Minimal API calls** - API is only called for state changes (start, stop, edit, delete) or explicit user requests (e.g. viewing history); cache is updated as a side-effect of these mutations
+- **BreakTimesheet cache invalidation** - The `BreakTimesheet` API method now properly invalidates the in-memory timelog cache so subsequent reads get fresh data
+
+---
+
 ## [0.9.1] - 2026-01-23
 
 ### Added

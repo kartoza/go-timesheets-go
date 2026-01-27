@@ -19,8 +19,10 @@ var statusCmd = &cobra.Command{
 	Short: "Get current timesheet status for waybar integration",
 	Long: `Returns JSON formatted status information suitable for waybar custom modules.
 
-This command uses LOCAL CACHE ONLY and does not make API calls, making it safe
-to call frequently from waybar without overloading the server.
+This command reads exclusively from the local timelog cache to avoid unnecessary
+API calls. The cache is kept up to date by state-changing operations (start, stop,
+edit) which refresh it as a side-effect. This ensures waybar polling (every few
+seconds) never generates API traffic.
 
 The status includes:
 - Current tracking state (idle/recording)
@@ -85,48 +87,48 @@ func runStatusCommand() {
 		return
 	}
 
-	info := StatusInfo{}
+	// Read exclusively from local cache. The cache is updated by state-changing
+	// operations (start, stop, edit) so it stays current without polling the API.
+	var entries []api.TimelogEntry
 
-	// Load timelog cache for today's entries and task totals
-	cache, err := store.LoadTimelogCache()
-	if err != nil {
-		printErrorStatus(fmt.Sprintf("Cache error: %v", err))
-		return
+	cache, _ := store.LoadTimelogCache()
+	if cache != nil {
+		entries = cache.Entries
 	}
 
-	// Find active entry and calculate totals from cache
+	info := StatusInfo{}
+
+	// Find active entry and calculate totals
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	if cache != nil {
-		for _, entry := range cache.Entries {
-			// Check if this is an active entry (to_time is empty or matches from_time)
-			if isActiveEntry(&entry) {
-				info.IsRecording = true
-				info.ProjectID = entry.ProjectID
-				info.ProjectName = entry.ProjectName
-				info.TaskID = entry.TaskID.Value
-				info.TaskName = entry.TaskName
-				info.ActivityName = entry.ActivityType
+	for _, entry := range entries {
+		// Check if this is an active entry (to_time is empty or matches from_time)
+		if isActiveEntry(&entry) {
+			info.IsRecording = true
+			info.ProjectID = entry.ProjectID
+			info.ProjectName = entry.ProjectName
+			info.TaskID = entry.TaskID.Value
+			info.TaskName = entry.TaskName
+			info.ActivityName = entry.ActivityType
 
-				startTime, err := entry.GetFromTimeAsTime()
-				if err == nil {
-					info.StartTime = startTime
-					info.CurrentDuration = time.Since(startTime)
-				}
-			}
-
-			// Calculate task hours (entries with same task ID)
-			if info.TaskID > 0 && entry.TaskID.Value == info.TaskID {
-				info.TaskHours += entry.Duration()
-			}
-
-			// Calculate today's total hours
-			entryStart, err := entry.GetFromTimeAsTime()
+			startTime, err := entry.GetFromTimeAsTime()
 			if err == nil {
-				if entryStart.After(todayStart) || entryStart.Equal(todayStart) {
-					info.DailyHours += entry.Duration()
-				}
+				info.StartTime = startTime
+				info.CurrentDuration = time.Since(startTime)
+			}
+		}
+
+		// Calculate task hours (entries with same task ID)
+		if info.TaskID > 0 && entry.TaskID.Value == info.TaskID {
+			info.TaskHours += entry.Duration()
+		}
+
+		// Calculate today's total hours
+		entryStart, err := entry.GetFromTimeAsTime()
+		if err == nil {
+			if entryStart.After(todayStart) || entryStart.Equal(todayStart) {
+				info.DailyHours += entry.Duration()
 			}
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/kartoza/go-timesheets-go/internal/config"
+	"github.com/kartoza/go-timesheets-go/internal/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -119,10 +121,17 @@ Example JSON output:
 			os.Exit(1)
 		}
 
-		// Get today's total for summary from API
+		// Get today's total for summary from API and update local cache
 		var totalHours float64
 		timelogs, err := client.GetTimelogs()
 		if err == nil {
+			// Update local timelog cache for waybar status consistency
+			if cfg, cfgErr := config.LoadConfig(); cfgErr == nil {
+				if store, storeErr := storage.New(cfg.GetStorageDir()); storeErr == nil {
+					_ = store.SaveTimelogCache(timelogs)
+				}
+			}
+
 			now := time.Now()
 			todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 			for _, entry := range timelogs {

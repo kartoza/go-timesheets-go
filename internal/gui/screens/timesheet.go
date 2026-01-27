@@ -30,6 +30,9 @@ type TimesheetScreen struct {
 	taskSelect     *widgets.BoundedSelect
 	activitySelect *widgets.BoundedSelect
 	descEntry      *widget.Entry
+	dateEntry      *widget.Entry
+	startTimeEntry *widget.Entry
+	endTimeEntry   *widget.Entry
 	submitButton   *widget.Button
 	cancelButton   *widget.Button
 	errorLabel     *canvas.Text
@@ -62,7 +65,7 @@ func NewTimesheetScreen(apiClient *api.Client, window fyne.Window) *TimesheetScr
 
 func (s *TimesheetScreen) build() {
 	// Title
-	title := canvas.NewText("Start New Timer", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
+	title := canvas.NewText("New Timesheet Entry", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
 	title.TextSize = 24
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignCenter
@@ -109,6 +112,27 @@ func (s *TimesheetScreen) build() {
 	s.descEntry.SetPlaceHolder("Description (optional)")
 	s.descEntry.SetMinRowsVisible(3)
 
+	// Date entry
+	s.dateEntry = widget.NewEntry()
+	s.dateEntry.SetPlaceHolder("YYYY-MM-DD")
+	s.dateEntry.SetText(time.Now().Format("2006-01-02"))
+
+	// Start time entry
+	s.startTimeEntry = widget.NewEntry()
+	s.startTimeEntry.SetPlaceHolder("HH:MM")
+	s.startTimeEntry.SetText(time.Now().Format("15:04"))
+
+	// End time entry (optional - leave empty for running timer)
+	s.endTimeEntry = widget.NewEntry()
+	s.endTimeEntry.SetPlaceHolder("HH:MM (optional)")
+	s.endTimeEntry.OnChanged = func(text string) {
+		if text != "" {
+			s.submitButton.SetText("Submit Entry")
+		} else {
+			s.submitButton.SetText("Start Timer")
+		}
+	}
+
 	// Error label
 	s.errorLabel = canvas.NewText("", color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF})
 	s.errorLabel.TextSize = 12
@@ -134,6 +158,13 @@ func (s *TimesheetScreen) build() {
 		s.submitButton,
 	)
 
+	// Date/time row
+	dateTimeRow := container.NewGridWithColumns(3,
+		container.NewVBox(widget.NewLabel("Date"), s.dateEntry),
+		container.NewVBox(widget.NewLabel("Start Time"), s.startTimeEntry),
+		container.NewVBox(widget.NewLabel("End Time"), s.endTimeEntry),
+	)
+
 	// Form layout
 	form := container.NewVBox(
 		container.NewCenter(title),
@@ -146,6 +177,7 @@ func (s *TimesheetScreen) build() {
 		s.activitySelect,
 		widget.NewLabel("Description"),
 		s.descEntry,
+		dateTimeRow,
 		layout.NewSpacer(),
 		s.errorLabel,
 		s.loadingBar,
@@ -219,6 +251,39 @@ func (s *TimesheetScreen) onSubmit() {
 		return
 	}
 
+	// Parse date and times
+	dateStr := s.dateEntry.Text
+	startTimeStr := s.startTimeEntry.Text
+	endTimeStr := s.endTimeEntry.Text
+
+	var startTime time.Time
+	if startTimeStr == "" {
+		startTime = time.Now()
+	} else {
+		parsed, err := time.Parse("2006-01-02 15:04", fmt.Sprintf("%s %s", dateStr, startTimeStr))
+		if err != nil {
+			s.showError("Invalid start time (use HH:MM format)")
+			return
+		}
+		startTime = parsed
+	}
+
+	var endTimePtr *time.Time
+	var duration float64
+	if endTimeStr != "" {
+		endTime, err := time.Parse("2006-01-02 15:04", fmt.Sprintf("%s %s", dateStr, endTimeStr))
+		if err != nil {
+			s.showError("Invalid end time (use HH:MM format)")
+			return
+		}
+		duration = endTime.Sub(startTime).Hours()
+		if duration <= 0 {
+			s.showError("End time must be after start time")
+			return
+		}
+		endTimePtr = &endTime
+	}
+
 	s.setLoading(true)
 	s.clearError()
 
@@ -228,7 +293,9 @@ func (s *TimesheetScreen) onSubmit() {
 				ProjectID:   fmt.Sprintf("%d", s.selectedProject.ID),
 				ActivityID:  fmt.Sprintf("%d", s.selectedActivity.ID),
 				Description: s.descEntry.Text,
-				StartTime:   time.Now(),
+				StartTime:   startTime,
+				EndTime:     endTimePtr,
+				Duration:    duration,
 			}
 			if s.selectedTask != nil {
 				taskID := fmt.Sprintf("%d", s.selectedTask.ID)
@@ -239,7 +306,7 @@ func (s *TimesheetScreen) onSubmit() {
 		func(_ bool, err error) {
 			s.setLoading(false)
 			if err != nil {
-				s.showError("Error creating timer: " + err.Error())
+				s.showError("Error creating entry: " + err.Error())
 				return
 			}
 			if s.OnTimerStarted != nil {
@@ -307,5 +374,8 @@ func (s *TimesheetScreen) Reset() {
 	s.taskSelect.ClearSelected()
 	s.activitySelect.ClearSelected()
 	s.descEntry.SetText("")
+	s.dateEntry.SetText(time.Now().Format("2006-01-02"))
+	s.startTimeEntry.SetText(time.Now().Format("15:04"))
+	s.endTimeEntry.SetText("")
 	s.clearError()
 }

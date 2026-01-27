@@ -11,6 +11,42 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/models"
 )
 
+// atomicWriteFile writes data to a file atomically by writing to a temporary
+// file first, then renaming. This prevents corruption from concurrent writes
+// or crashes mid-write.
+func atomicWriteFile(filePath string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(filePath)
+	tmp, err := os.CreateTemp(dir, filepath.Base(filePath)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to sync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to chmod temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, filePath); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
+	return nil
+}
+
 // Storage provides persistent storage for timesheet data
 type Storage struct {
 	dataDir string
@@ -56,7 +92,7 @@ func (s *Storage) SaveTimeEntry(entry *models.TimeEntry) error {
 		return fmt.Errorf("failed to marshal entries: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadTimeEntries loads all time entries from storage
@@ -126,7 +162,7 @@ func (s *Storage) SaveProject(project *models.Project) error {
 		return fmt.Errorf("failed to marshal projects: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadProjects loads all projects from storage
@@ -178,7 +214,7 @@ func (s *Storage) SaveTask(task *models.Task) error {
 		return fmt.Errorf("failed to marshal tasks: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadTasks loads all tasks from storage
@@ -227,7 +263,7 @@ func (s *Storage) SaveActivities(activities []models.Activity) error {
 		return fmt.Errorf("failed to marshal activities: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadActivities loads all activities from storage
@@ -277,7 +313,7 @@ func (s *Storage) SaveActiveTimeEntry(entry *models.ActiveTimeEntry) error {
 		return fmt.Errorf("failed to marshal active entry: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadActiveTimeEntry loads the currently active time entry
@@ -324,7 +360,7 @@ func (s *Storage) DeleteTimeEntry(entryID string) error {
 		return fmt.Errorf("failed to marshal entries: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // SaveWorkspaceAssociations saves workspace associations to persistent storage
@@ -336,7 +372,7 @@ func (s *Storage) SaveWorkspaceAssociations(associations *models.WorkspaceAssoci
 		return fmt.Errorf("failed to marshal workspace associations: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadWorkspaceAssociations loads workspace associations from storage
@@ -377,7 +413,7 @@ func (s *Storage) SaveCodeRepoAssociations(associations *models.CodeRepoAssociat
 		return fmt.Errorf("failed to marshal code repo associations: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadCodeRepoAssociations loads code repo associations from storage
@@ -421,7 +457,7 @@ func (s *Storage) SaveTimelogCache(entries []api.TimelogEntry) error {
 		return fmt.Errorf("failed to marshal timelog cache: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadTimelogCache loads timelog entries from the cache file
@@ -511,7 +547,7 @@ func (s *Storage) SavePowVideoPath(entryID int, videoPath string) error {
 		return fmt.Errorf("failed to marshal POW video mapping: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // GetPowVideoPath retrieves the POW video path for a specific timesheet entry ID
@@ -564,7 +600,7 @@ func (s *Storage) SaveFavouriteAssociations(associations *models.FavouriteAssoci
 		return fmt.Errorf("failed to marshal favourite associations: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return atomicWriteFile(filePath, data, 0644)
 }
 
 // LoadFavouriteAssociations loads favourite associations from storage
