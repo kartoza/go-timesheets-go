@@ -280,7 +280,7 @@ func (s *SystrayManager) updateTooltip() {
 	if s.timerInfo.ActivityName != "" {
 		tooltip += fmt.Sprintf("\nActivity: %s", s.timerInfo.ActivityName)
 	}
-	tooltip += fmt.Sprintf("\nStarted: %s", s.timerInfo.StartTime.Format("15:04"))
+	tooltip += fmt.Sprintf("\nStarted: %s", s.timerInfo.StartTime.Local().Format("15:04"))
 	tooltip += fmt.Sprintf("\nElapsed: %dh %02dm", hours, minutes)
 
 	systray.SetTooltip(tooltip)

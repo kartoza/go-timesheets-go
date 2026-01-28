@@ -219,7 +219,7 @@ func (ts *TimesheetService) SubmitTimeEntries(entryIDs []string) (*models.Timesh
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 		TotalHours:  totalHours,
-		SubmittedAt: time.Now(),
+		SubmittedAt: time.Now().UTC(),
 		Status:      "pending",
 	}
 

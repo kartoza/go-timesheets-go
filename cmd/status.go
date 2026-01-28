@@ -258,7 +258,7 @@ func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {
 		tooltipLines = append(tooltipLines, "")
 
 		// Timer start time
-		tooltipLines = append(tooltipLines, fmt.Sprintf("%s Started: %s", nfClock, info.StartTime.Format("15:04")))
+		tooltipLines = append(tooltipLines, fmt.Sprintf("%s Started: %s", nfClock, info.StartTime.Local().Format("15:04")))
 
 		// Current session duration
 		tooltipLines = append(tooltipLines, fmt.Sprintf("%s Session: %s", nfTimer, elapsed))

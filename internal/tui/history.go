@@ -521,20 +521,22 @@ func (h *HistoryView) saveEntry() tea.Cmd {
 		endTimeStr := h.editFields.endTime.Value()
 
 		startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-		startTime, err := time.Parse("2006-01-02 15:04", startStr)
+		startTime, err := time.ParseInLocation("2006-01-02 15:04", startStr, time.Local)
 		if err != nil {
 			return historyUpdateErrorMsg{err: fmt.Errorf("invalid start time: %w", err)}
 		}
+		startTime = startTime.UTC()
 
 		var endTimePtr *time.Time
 		var duration float64
 
 		if endTimeStr != "" {
 			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-			endTime, err := time.Parse("2006-01-02 15:04", endStr)
+			endTime, err := time.ParseInLocation("2006-01-02 15:04", endStr, time.Local)
 			if err != nil {
 				return historyUpdateErrorMsg{err: fmt.Errorf("invalid end time: %w", err)}
 			}
+			endTime = endTime.UTC()
 			if endTime.Before(startTime) {
 				return historyUpdateErrorMsg{err: fmt.Errorf("end time must be after start time")}
 			}
@@ -1709,7 +1711,7 @@ func formatAllTimeField(rfc3339Time string) string {
 	if err != nil {
 		return rfc3339Time // Return as-is if parsing fails
 	}
-	return t.Format("2006-01-02 15:04:05")
+	return t.Local().Format("2006-01-02 15:04:05")
 }
 
 func renderHistoryDescription(html string, width int) string {
@@ -1821,7 +1823,7 @@ func (h *HistoryView) fetchCommitsForEntry() tea.Cmd {
 		startTime := h.selectedEntry.StartTime()
 		endTime := h.selectedEntry.EndTime()
 		if endTime.IsZero() {
-			endTime = time.Now()
+			endTime = time.Now().UTC()
 		}
 
 		// If we're in edit mode, use the times from the edit fields
@@ -1832,18 +1834,18 @@ func (h *HistoryView) fetchCommitsForEntry() tea.Cmd {
 
 			if startTimeStr != "" {
 				startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-				if parsed, err := time.Parse("2006-01-02 15:04", startStr); err == nil {
-					startTime = parsed
+				if parsed, err := time.ParseInLocation("2006-01-02 15:04", startStr, time.Local); err == nil {
+					startTime = parsed.UTC()
 				}
 			}
 
 			if endTimeStr != "" {
 				endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-				if parsed, err := time.Parse("2006-01-02 15:04", endStr); err == nil {
-					endTime = parsed
+				if parsed, err := time.ParseInLocation("2006-01-02 15:04", endStr, time.Local); err == nil {
+					endTime = parsed.UTC()
 				}
 			} else {
-				endTime = time.Now()
+				endTime = time.Now().UTC()
 			}
 		}
 

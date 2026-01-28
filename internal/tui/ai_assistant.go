@@ -61,6 +61,12 @@ func NewAIAssistantModel(apiClient *api.Client) *AIAssistantModel {
 			"Which projects did I work on last week?",
 			"How consistent was my timekeeping?",
 			"Which project did I spend the most time on?",
+			"What's my utilization rate?",
+			"Am I on track this week?",
+			"Do I have any gaps in my timesheet?",
+			"How much context switching am I doing?",
+			"Compare my hours across projects this month",
+			"What's my overtime this week?",
 		},
 		showExamples:   true,
 		maxVisibleRows: 10,
@@ -629,7 +635,7 @@ func (m *AIAssistantModel) startTimerFromMatch(match ai.TimesheetMatch) tea.Cmd 
 			ProjectID:   fmt.Sprintf("%d", match.ProjectID),
 			ActivityID:  fmt.Sprintf("%d", match.ActivityID),
 			Description: fmt.Sprintf("AI suggested: %s", match.ProjectName),
-			StartTime:   time.Now(),
+			StartTime:   time.Now().UTC(),
 		}
 
 		if match.TaskID > 0 {

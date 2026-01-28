@@ -853,7 +853,7 @@ func (m *MainMenuModel) fetchGitHubCommitsForTimer() string {
 	}
 
 	// End time is now
-	endTime := time.Now()
+	endTime := time.Now().UTC()
 
 	// Check if this is a local path or a GitHub URL
 	repoURL := assoc.RepoURL
@@ -1328,7 +1328,7 @@ func (m *MainMenuModel) startFavouriteTimer(slotIndex int) tea.Cmd {
 			ProjectID:   fmt.Sprintf("%d", assoc.ProjectID),
 			ActivityID:  fmt.Sprintf("%d", assoc.ActivityID),
 			Description: description,
-			StartTime:   time.Now(),
+			StartTime:   time.Now().UTC(),
 		}
 
 		// Set TaskID if configured

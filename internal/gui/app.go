@@ -331,7 +331,7 @@ func (a *App) startTimerFromAI(projectID, taskID, activityID int, projectName st
 		ProjectID:   fmt.Sprintf("%d", projectID),
 		ActivityID:  fmt.Sprintf("%d", activityID),
 		Description: fmt.Sprintf("AI suggested: %s", projectName),
-		StartTime:   time.Now(),
+		StartTime:   time.Now().UTC(),
 	}
 	if taskID > 0 {
 		taskIDStr := fmt.Sprintf("%d", taskID)

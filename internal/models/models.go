@@ -97,7 +97,7 @@ type ActiveTimeEntry struct {
 
 // NewProject creates a new project with generated ID and timestamps
 func NewProject(name, description string) *Project {
-	now := time.Now()
+	now := time.Now().UTC()
 	return &Project{
 		ID:          uuid.New().String(),
 		Name:        name,
@@ -110,7 +110,7 @@ func NewProject(name, description string) *Project {
 
 // NewTask creates a new task with generated ID and timestamps
 func NewTask(projectID, name, description string, expectedTime float64) *Task {
-	now := time.Now()
+	now := time.Now().UTC()
 	return &Task{
 		ID:           uuid.New().String(),
 		ProjectID:    projectID,
@@ -126,7 +126,7 @@ func NewTask(projectID, name, description string, expectedTime float64) *Task {
 
 // NewTimeEntry creates a new time entry with generated ID and timestamps
 func NewTimeEntry(userID, projectID, activityID string, taskID *string, description string) *TimeEntry {
-	now := time.Now()
+	now := time.Now().UTC()
 	return &TimeEntry{
 		ID:          uuid.New().String(),
 		UserID:      userID,
@@ -146,7 +146,7 @@ func NewTimeEntry(userID, projectID, activityID string, taskID *string, descript
 // Stop stops the time entry by setting the end time and calculating duration
 func (te *TimeEntry) Stop() {
 	if te.EndTime == nil {
-		now := time.Now()
+		now := time.Now().UTC()
 		te.EndTime = &now
 		te.Duration = now.Sub(te.StartTime).Hours()
 		te.UpdatedAt = now
@@ -163,7 +163,7 @@ func (te *TimeEntry) GetDuration() time.Duration {
 	if te.EndTime != nil {
 		return te.EndTime.Sub(te.StartTime)
 	}
-	return time.Since(te.StartTime)
+	return time.Since(te.StartTime.UTC())
 }
 
 // GetFormattedDuration returns a formatted duration string (HH:MM:SS)

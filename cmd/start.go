@@ -209,7 +209,7 @@ It will refuse to start if there is already an active timer running (checked via
 			ProjectID:   projectID,
 			ActivityID:  activityID,
 			Description: description,
-			StartTime:   time.Now(),
+			StartTime:   time.Now().UTC(),
 		}
 		if taskID != nil {
 			entry.TaskID = taskID
@@ -263,7 +263,7 @@ It will refuse to start if there is already an active timer running (checked via
 			if description != "" {
 				fmt.Printf("Description: %s\n", description)
 			}
-			fmt.Printf("Started: %s\n", entry.StartTime.Format("15:04:05"))
+			fmt.Printf("Started: %s\n", entry.StartTime.Local().Format("15:04:05"))
 		}
 	},
 }

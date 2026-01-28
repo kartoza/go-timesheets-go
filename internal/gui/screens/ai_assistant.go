@@ -65,10 +65,9 @@ func (s *AIAssistantScreen) build() {
 
 	header := container.NewVBox(titleText, subtitleText)
 
-	// Query input
-	s.queryEntry = widget.NewMultiLineEntry()
-	s.queryEntry.SetPlaceHolder("e.g., Which project should I log GeoServer Docker work to?\nor: How consistent was my timekeeping?")
-	s.queryEntry.SetMinRowsVisible(3)
+	// Query input - single line entry so Enter submits
+	s.queryEntry = widget.NewEntry()
+	s.queryEntry.SetPlaceHolder("Ask about projects, timesheets, analysis...")
 	s.queryEntry.OnSubmitted = func(_ string) {
 		s.executeQuery()
 	}
@@ -90,7 +89,7 @@ func (s *AIAssistantScreen) build() {
 	s.resultsScroll.SetMinSize(fyne.NewSize(400, 300))
 
 	// Example queries
-	examplesLabel := canvas.NewText("Example queries:", color.NRGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xFF})
+	examplesLabel := canvas.NewText("Try an example:", color.NRGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xFF})
 	examplesLabel.TextSize = 11
 
 	examples := []string{
@@ -98,9 +97,11 @@ func (s *AIAssistantScreen) build() {
 		"Which projects did I work on last week?",
 		"How consistent was my timekeeping?",
 		"Which project did I spend the most time on?",
+		"Compare my hours across projects this month",
+		"How many hours did I work today?",
 	}
 
-	exampleButtons := container.NewGridWrap(fyne.NewSize(220, 30))
+	exampleButtons := container.NewGridWithColumns(2)
 	for _, ex := range examples {
 		exText := ex
 		btn := widget.NewButton(exText, func() {
@@ -111,18 +112,19 @@ func (s *AIAssistantScreen) build() {
 		exampleButtons.Add(btn)
 	}
 
-	// Build layout
-	content := container.NewVBox(
+	// Build layout - examples at top for discoverability, results fill remaining space
+	topSection := container.NewVBox(
 		header,
 		widget.NewSeparator(),
 		queryBox,
 		s.statusLabel,
 		widget.NewSeparator(),
-		s.resultsScroll,
-		layout.NewSpacer(),
 		examplesLabel,
 		exampleButtons,
+		widget.NewSeparator(),
 	)
+
+	content := container.NewBorder(topSection, nil, nil, nil, s.resultsScroll)
 
 	s.Container = container.NewPadded(content)
 }

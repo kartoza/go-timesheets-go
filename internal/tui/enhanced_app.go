@@ -526,7 +526,7 @@ func (m *EnhancedModel) timesheetListView() string {
 	for _, entry := range m.timelogs {
 		fromTime, err := entry.GetFromTimeAsTime()
 		if err == nil {
-			date := fromTime.Format("2006-01-02")
+			date := fromTime.Local().Format("2006-01-02")
 			groupedLogs[date] = append(groupedLogs[date], entry)
 		}
 	}

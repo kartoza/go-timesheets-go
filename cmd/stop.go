@@ -101,7 +101,7 @@ Example JSON output:
 			}
 			os.Exit(1)
 		}
-		endTime := time.Now()
+		endTime := time.Now().UTC()
 		duration := endTime.Sub(startTime).Hours()
 
 		// Stop the active entry via API
@@ -185,8 +185,8 @@ Example JSON output:
 				fmt.Printf("📝 Task: %s\n", activeEntry.TaskName)
 			}
 			fmt.Printf("⚡ Activity: %s\n", activeEntry.ActivityType)
-			fmt.Printf("🕐 Started: %s\n", startTime.Format("15:04:05"))
-			fmt.Printf("🕐 Stopped: %s\n", endTime.Format("15:04:05"))
+			fmt.Printf("🕐 Started: %s\n", startTime.Local().Format("15:04:05"))
+			fmt.Printf("🕐 Stopped: %s\n", endTime.Local().Format("15:04:05"))
 			fmt.Printf("⏱️  Duration: %.2f hours\n", duration)
 			fmt.Printf("📈 Today's total: %.2f hours\n", totalHours)
 		}

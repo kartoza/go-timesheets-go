@@ -258,24 +258,25 @@ func (s *TimesheetScreen) onSubmit() {
 
 	var startTime time.Time
 	if startTimeStr == "" {
-		startTime = time.Now()
+		startTime = time.Now().UTC()
 	} else {
-		parsed, err := time.Parse("2006-01-02 15:04", fmt.Sprintf("%s %s", dateStr, startTimeStr))
+		parsed, err := time.ParseInLocation("2006-01-02 15:04", fmt.Sprintf("%s %s", dateStr, startTimeStr), time.Local)
 		if err != nil {
 			s.showError("Invalid start time (use HH:MM format)")
 			return
 		}
-		startTime = parsed
+		startTime = parsed.UTC()
 	}
 
 	var endTimePtr *time.Time
 	var duration float64
 	if endTimeStr != "" {
-		endTime, err := time.Parse("2006-01-02 15:04", fmt.Sprintf("%s %s", dateStr, endTimeStr))
+		endTime, err := time.ParseInLocation("2006-01-02 15:04", fmt.Sprintf("%s %s", dateStr, endTimeStr), time.Local)
 		if err != nil {
 			s.showError("Invalid end time (use HH:MM format)")
 			return
 		}
+		endTime = endTime.UTC()
 		duration = endTime.Sub(startTime).Hours()
 		if duration <= 0 {
 			s.showError("End time must be after start time")

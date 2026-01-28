@@ -175,7 +175,7 @@ func (s *HistoryScreen) updateEntryCard(id widget.ListItemID, obj fyne.CanvasObj
 
 	fromTime, err := entry.GetFromTimeAsTime()
 	if err == nil {
-		row1.Objects[2].(*widget.Label).SetText(fromTime.Format("2006-01-02"))
+		row1.Objects[2].(*widget.Label).SetText(fromTime.Local().Format("2006-01-02"))
 	} else {
 		row1.Objects[2].(*widget.Label).SetText(entry.FromTime)
 	}
@@ -359,11 +359,11 @@ func (s *HistoryScreen) showEntryDetail(index int) {
 
 	startDateEntry := widget.NewEntry()
 	startDateEntry.SetPlaceHolder("YYYY-MM-DD")
-	startDateEntry.SetText(fromTime.Format("2006-01-02"))
+	startDateEntry.SetText(fromTime.Local().Format("2006-01-02"))
 
 	startTimeEntry := widget.NewEntry()
 	startTimeEntry.SetPlaceHolder("HH:MM")
-	startTimeEntry.SetText(fromTime.Format("15:04"))
+	startTimeEntry.SetText(fromTime.Local().Format("15:04"))
 
 	endDateEntry := widget.NewEntry()
 	endDateEntry.SetPlaceHolder("YYYY-MM-DD")
@@ -373,8 +373,8 @@ func (s *HistoryScreen) showEntryDetail(index int) {
 
 	if entry.ToTime != "" {
 		toTime, _ := entry.GetToTimeAsTime()
-		endDateEntry.SetText(toTime.Format("2006-01-02"))
-		endTimeEntry.SetText(toTime.Format("15:04"))
+		endDateEntry.SetText(toTime.Local().Format("2006-01-02"))
+		endTimeEntry.SetText(toTime.Local().Format("15:04"))
 	}
 
 	// Disable fields if submitted
@@ -451,25 +451,27 @@ func (s *HistoryScreen) showEntryDetail(index int) {
 			}
 
 			// Parse start date/time
-			startParsed, err := time.Parse("2006-01-02 15:04",
-				fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text))
+			startParsed, err := time.ParseInLocation("2006-01-02 15:04",
+				fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text), time.Local)
 			if err != nil {
 				errorLabel.Text = "Invalid start date/time"
 				errorLabel.Refresh()
 				return
 			}
+			startParsed = startParsed.UTC()
 
 			// Parse end date/time (optional for running entries)
 			var endTimePtr *time.Time
 			var duration float64
 			if endDateEntry.Text != "" && endTimeEntry.Text != "" {
-				endParsed, err := time.Parse("2006-01-02 15:04",
-					fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text))
+				endParsed, err := time.ParseInLocation("2006-01-02 15:04",
+					fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text), time.Local)
 				if err != nil {
 					errorLabel.Text = "Invalid end date/time"
 					errorLabel.Refresh()
 					return
 				}
+				endParsed = endParsed.UTC()
 				if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
 					errorLabel.Text = "End time must be after start time"
 					errorLabel.Refresh()
@@ -680,7 +682,7 @@ func (s *HistoryScreen) fetchGitCommitsForEntry(entry *api.TimelogEntry, descEnt
 
 	// Use entry's time range
 	startTime, _ := entry.GetFromTimeAsTime()
-	endTime := time.Now()
+	endTime := time.Now().UTC()
 	if entry.ToTime != "" {
 		endTime, _ = entry.GetToTimeAsTime()
 	}

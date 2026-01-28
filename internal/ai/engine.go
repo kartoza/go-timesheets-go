@@ -2,8 +2,11 @@ package ai
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // TimesheetAssistant is the main AI engine for the timesheet app.
@@ -29,17 +32,28 @@ type TimesheetAssistant struct {
 	useOllama   bool
 	useNN       bool
 
+	// Query log path
+	queryLogPath string
+
 	mu sync.RWMutex
 }
 
 // NewTimesheetAssistant creates a new AI assistant with the full fallback chain
 func NewTimesheetAssistant() *TimesheetAssistant {
+	// Default query log location
+	homeDir, _ := os.UserHomeDir()
+	logPath := ""
+	if homeDir != "" {
+		logPath = filepath.Join(homeDir, ".config", "kartoza-timesheets", "ai-query.log")
+	}
+
 	a := &TimesheetAssistant{
-		matcher:     NewFuzzyMatcher(),
-		analyzer:    NewTimesheetAnalyzer(),
-		useEmbedded: true,
-		useOllama:   true,
-		useNN:       true,
+		matcher:      NewFuzzyMatcher(),
+		analyzer:     NewTimesheetAnalyzer(),
+		useEmbedded:  true,
+		useOllama:    true,
+		useNN:        true,
+		queryLogPath: logPath,
 	}
 
 	// Initialize neural network trainer
@@ -92,6 +106,37 @@ func (a *TimesheetAssistant) GetContext() *TimesheetContext {
 	return a.context
 }
 
+// SetQueryLogPath sets the file path for logging user queries
+func (a *TimesheetAssistant) SetQueryLogPath(path string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.queryLogPath = path
+}
+
+// logQuery appends a timestamped query to the query log file
+func (a *TimesheetAssistant) logQuery(query string) {
+	a.mu.RLock()
+	logPath := a.queryLogPath
+	a.mu.RUnlock()
+
+	if logPath == "" {
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return
+	}
+
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Fprintf(f, "%s\t%s\n", timestamp, query)
+}
+
 // Query processes a natural language query and returns the result.
 // This is the main entry point for the AI assistant.
 func (a *TimesheetAssistant) Query(query string) (*QueryResult, error) {
@@ -107,6 +152,9 @@ func (a *TimesheetAssistant) Query(query string) (*QueryResult, error) {
 	if query == "" {
 		return nil, fmt.Errorf("empty query")
 	}
+
+	// Log every user query
+	a.logQuery(query)
 
 	// Step 1: Check if this is an analytical query - handle locally without LLM
 	if a.analyzer.IsAnalyticalQuery(query) {
@@ -210,13 +258,22 @@ func buildLLMPrompt(query string, ctx *TimesheetContext) string {
 
 	sb.WriteString("You are a timesheet assistant for Kartoza, a geospatial open source company. ")
 	sb.WriteString("Help users find the right project/task/activity combination for logging time, ")
-	sb.WriteString("or answer questions about their timesheet data.\n\n")
+	sb.WriteString("answer questions about their timesheet data, provide time tracking advice, ")
+	sb.WriteString("and analyze productivity patterns.\n\n")
+
+	sb.WriteString(DomainKnowledge)
+	sb.WriteString("\n")
+
+	sb.WriteString("SUPPORTED QUERY TYPES (you can answer all of these):\n")
+	sb.WriteString(GetQueryReference())
+	sb.WriteString("\n")
 
 	sb.WriteString("RULES:\n")
 	sb.WriteString("1. For project/task/activity matching questions, respond with a JSON array of matches:\n")
 	sb.WriteString("   [{\"project\":\"Name\",\"task\":\"Name\",\"activity\":\"Name\",\"reason\":\"why\"}]\n")
-	sb.WriteString("2. For analytical questions, respond with plain text analysis.\n")
-	sb.WriteString("3. Be concise and direct.\n\n")
+	sb.WriteString("2. For analytical questions about the user's data, respond with plain text analysis using the data provided below.\n")
+	sb.WriteString("3. For general time tracking questions, use your domain expertise to give practical advice.\n")
+	sb.WriteString("4. Be concise and direct.\n\n")
 
 	if ctx != nil && len(ctx.Projects) > 0 {
 		sb.WriteString("AVAILABLE PROJECTS AND TASKS:\n")

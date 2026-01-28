@@ -362,11 +362,11 @@ func (s *DashboardScreen) showStopTimerDialog() {
 
 	startDateEntry := widget.NewEntry()
 	startDateEntry.SetPlaceHolder("YYYY-MM-DD")
-	startDateEntry.SetText(startTime.Format("2006-01-02"))
+	startDateEntry.SetText(startTime.Local().Format("2006-01-02"))
 
 	startTimeEntry := widget.NewEntry()
 	startTimeEntry.SetPlaceHolder("HH:MM")
-	startTimeEntry.SetText(startTime.Format("15:04"))
+	startTimeEntry.SetText(startTime.Local().Format("15:04"))
 
 	endDateEntry := widget.NewEntry()
 	endDateEntry.SetPlaceHolder("YYYY-MM-DD")
@@ -406,22 +406,24 @@ func (s *DashboardScreen) showStopTimerDialog() {
 		}
 
 		// Parse start date/time
-		startParsed, err := time.Parse("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text))
+		startParsed, err := time.ParseInLocation("2006-01-02 15:04",
+			fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text), time.Local)
 		if err != nil {
 			errorLabel.Text = "Invalid start date/time"
 			errorLabel.Refresh()
 			return
 		}
+		startParsed = startParsed.UTC()
 
 		// Parse end date/time
-		endParsed, err := time.Parse("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text))
+		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
+			fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text), time.Local)
 		if err != nil {
 			errorLabel.Text = "Invalid end date/time"
 			errorLabel.Refresh()
 			return
 		}
+		endParsed = endParsed.UTC()
 
 		if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
 			errorLabel.Text = "End time must be after start time"
@@ -628,7 +630,7 @@ func (s *DashboardScreen) fetchGitCommitsForDescription(descEntry *widget.Entry)
 
 	// Get timer time range
 	startTime := s.timerStartTime
-	endTime := time.Now()
+	endTime := time.Now().UTC()
 
 	// Determine if local or GitHub repo
 	if api.IsLocalPath(assoc.RepoURL) {
@@ -798,7 +800,7 @@ func (s *DashboardScreen) startFavouriteTimer(fav *models.FavouriteAssociation) 
 			entry := models.TimeEntry{
 				ProjectID:  fmt.Sprintf("%d", fav.ProjectID),
 				ActivityID: fmt.Sprintf("%d", fav.ActivityID),
-				StartTime:  time.Now(),
+				StartTime:  time.Now().UTC(),
 			}
 			if fav.TaskID > 0 {
 				taskID := fmt.Sprintf("%d", fav.TaskID)

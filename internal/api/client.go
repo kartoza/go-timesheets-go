@@ -574,19 +574,19 @@ func (t *TimelogEntry) GetHoursAsFloat() float64 {
 
 // Compatibility properties for backward compatibility with existing TUI code
 
-// StartTime returns the parsed from_time as time.Time (for backward compatibility)
+// StartTime returns the parsed from_time as local time.Time (for display)
 func (t *TimelogEntry) StartTime() time.Time {
 	parsed, _ := t.GetFromTimeAsTime()
-	return parsed
+	return parsed.Local()
 }
 
-// EndTime returns the parsed to_time as time.Time (for backward compatibility)
+// EndTime returns the parsed to_time as local time.Time (for display)
 func (t *TimelogEntry) EndTime() time.Time {
 	if t.ToTime == "" {
 		return time.Time{} // Zero time if not set
 	}
 	parsed, _ := t.GetToTimeAsTime()
-	return parsed
+	return parsed.Local()
 }
 
 // Duration returns hours as float64 (for backward compatibility)
@@ -770,7 +770,7 @@ func (c *Client) CreateTimesheet(entry models.TimeEntry) error {
 		"project":     map[string]interface{}{"id": entry.ProjectID},
 		"activity":    map[string]interface{}{"id": entry.ActivityID},
 		"description": entry.Description,
-		"start_time":  entry.StartTime.Format(time.RFC3339),
+		"start_time":  entry.StartTime.UTC().Format(time.RFC3339),
 		"timezone":    "UTC",
 	}
 
@@ -781,7 +781,7 @@ func (c *Client) CreateTimesheet(entry models.TimeEntry) error {
 	}
 
 	if entry.EndTime != nil {
-		apiEntry["end_time"] = entry.EndTime.Format(time.RFC3339)
+		apiEntry["end_time"] = entry.EndTime.UTC().Format(time.RFC3339)
 	}
 
 	jsonBytes, _ := json.MarshalIndent(apiEntry, "", "  ")
@@ -841,7 +841,7 @@ func (c *Client) UpdateTimesheet(entryID string, entry models.TimeEntry) error {
 		"project":     map[string]interface{}{"id": projectID},
 		"activity":    map[string]interface{}{"id": activityID},
 		"description": entry.Description,
-		"start_time":  entry.StartTime.Format(time.RFC3339),
+		"start_time":  entry.StartTime.UTC().Format(time.RFC3339),
 		"timezone":    "UTC",
 		"editing":     true,
 	}
@@ -854,7 +854,7 @@ func (c *Client) UpdateTimesheet(entryID string, entry models.TimeEntry) error {
 	}
 
 	if entry.EndTime != nil {
-		apiEntry["end_time"] = entry.EndTime.Format(time.RFC3339)
+		apiEntry["end_time"] = entry.EndTime.UTC().Format(time.RFC3339)
 	}
 
 	endpoint := fmt.Sprintf("/api/timesheet/%s/", entryID)
@@ -1108,8 +1108,8 @@ func (c *Client) DeleteActivity(activityID string) error {
 func (c *Client) SubmitTimesheet(submission models.TimesheetSubmission) error {
 	apiSubmission := map[string]interface{}{
 		"entries":      submission.Entries,
-		"period_start": submission.PeriodStart.Format(time.RFC3339),
-		"period_end":   submission.PeriodEnd.Format(time.RFC3339),
+		"period_start": submission.PeriodStart.UTC().Format(time.RFC3339),
+		"period_end":   submission.PeriodEnd.UTC().Format(time.RFC3339),
 		"total_hours":  submission.TotalHours,
 	}
 
@@ -1218,8 +1218,8 @@ func (c *Client) StopTimesheetWithDescription(entry *TimelogEntry, newDescriptio
 	apiEntry := map[string]interface{}{
 		"project":    map[string]interface{}{"id": entry.ProjectID},
 		"activity":   map[string]interface{}{"id": entry.ActivityID},
-		"start_time": startTime.Format(time.RFC3339),
-		"end_time":   endTime.Format(time.RFC3339),
+		"start_time": startTime.UTC().Format(time.RFC3339),
+		"end_time":   endTime.UTC().Format(time.RFC3339),
 		"timezone":   "UTC",
 	}
 

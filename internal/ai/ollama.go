@@ -136,13 +136,22 @@ func (c *OllamaClient) buildTimesheetPrompt(query string, ctx *TimesheetContext)
 
 	sb.WriteString("You are a timesheet assistant for Kartoza, a geospatial open source company. ")
 	sb.WriteString("Help users find the right project/task/activity combination for logging time, ")
-	sb.WriteString("or answer questions about their timesheet data.\n\n")
+	sb.WriteString("answer questions about their timesheet data, provide time tracking advice, ")
+	sb.WriteString("and analyze productivity patterns.\n\n")
+
+	sb.WriteString(DomainKnowledge)
+	sb.WriteString("\n")
+
+	sb.WriteString("SUPPORTED QUERY TYPES (you can answer all of these):\n")
+	sb.WriteString(GetQueryReference())
+	sb.WriteString("\n")
 
 	sb.WriteString("RULES:\n")
 	sb.WriteString("1. For project/task/activity matching questions, respond with a JSON array of matches:\n")
 	sb.WriteString("   [{\"project\":\"Name\",\"task\":\"Name\",\"activity\":\"Name\",\"reason\":\"why\"}]\n")
-	sb.WriteString("2. For analytical questions, respond with plain text analysis.\n")
-	sb.WriteString("3. Be concise and direct.\n\n")
+	sb.WriteString("2. For analytical questions about the user's data, respond with plain text analysis using the data provided below.\n")
+	sb.WriteString("3. For general time tracking questions, use your domain expertise to give practical advice.\n")
+	sb.WriteString("4. Be concise and direct.\n\n")
 
 	// Add available projects/tasks/activities
 	if ctx != nil && len(ctx.Projects) > 0 {

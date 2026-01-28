@@ -1103,15 +1103,16 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 		var err error
 
 		if startTimeStr == "" {
-			startTime = time.Now()
+			startTime = time.Now().UTC()
 			tuiDebugLog.Printf("  Using current time as start time: %s", startTime.Format(time.RFC3339))
 		} else {
 			startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-			startTime, err = time.Parse("2006-01-02 15:04", startStr)
+			startTime, err = time.ParseInLocation("2006-01-02 15:04", startStr, time.Local)
 			if err != nil {
 				tuiDebugLog.Printf("  Invalid start time: %v", err)
 				return timesheetSubmitErrorMsg{err: fmt.Errorf("invalid start time: %w", err)}
 			}
+			startTime = startTime.UTC()
 			tuiDebugLog.Printf("  Parsed start time: %s", startTime.Format(time.RFC3339))
 		}
 
@@ -1120,11 +1121,12 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 
 		if endTimeStr != "" {
 			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-			endTime, err := time.Parse("2006-01-02 15:04", endStr)
+			endTime, err := time.ParseInLocation("2006-01-02 15:04", endStr, time.Local)
 			if err != nil {
 				tuiDebugLog.Printf("  Invalid end time: %v", err)
 				return timesheetSubmitErrorMsg{err: fmt.Errorf("invalid end time: %w", err)}
 			}
+			endTime = endTime.UTC()
 			duration = endTime.Sub(startTime).Hours()
 			if duration <= 0 {
 				tuiDebugLog.Printf("  End time must be after start time")
@@ -1220,22 +1222,25 @@ func (t *TimesheetCreator) fetchCommitsForDescription() tea.Cmd {
 
 		if startTimeStr != "" {
 			startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-			startTime, err = time.Parse("2006-01-02 15:04", startStr)
+			startTime, err = time.ParseInLocation("2006-01-02 15:04", startStr, time.Local)
 			if err != nil {
 				return timesheetCommitsLoadedMsg{noCommitsFound: true}
 			}
+			startTime = startTime.UTC()
 		} else {
 			return timesheetCommitsLoadedMsg{noCommitsFound: true}
 		}
 
 		if endTimeStr != "" {
 			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-			endTime, err = time.Parse("2006-01-02 15:04", endStr)
+			endTime, err = time.ParseInLocation("2006-01-02 15:04", endStr, time.Local)
 			if err != nil {
-				endTime = time.Now()
+				endTime = time.Now().UTC()
+			} else {
+				endTime = endTime.UTC()
 			}
 		} else {
-			endTime = time.Now()
+			endTime = time.Now().UTC()
 		}
 
 		// Load code repo associations

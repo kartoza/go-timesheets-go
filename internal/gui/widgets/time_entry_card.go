@@ -149,7 +149,7 @@ func (r *timeEntryCardRenderer) Refresh() {
 
 	r.projectLabel.Text = d.ProjectName
 	r.taskLabel.Text = "📋 " + d.TaskName
-	r.dateLabel.Text = d.StartTime.Format("2006-01-02")
+	r.dateLabel.Text = d.StartTime.Local().Format("2006-01-02")
 	r.hoursLabel.Text = fmt.Sprintf("%.1fh", d.Hours)
 
 	// Status
