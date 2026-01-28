@@ -30,7 +30,6 @@ type App struct {
 	historyScreen     *screens.HistoryScreen
 	settingsScreen    *screens.SettingsScreen
 	favouritesScreen  *screens.FavouritesScreen
-	workspacesScreen  *screens.WorkspacesScreen
 	codeReposScreen   *screens.CodeReposScreen
 	officeScreen      *screens.OfficeScreen
 	aiAssistantScreen *screens.AIAssistantScreen
@@ -155,8 +154,6 @@ func (a *App) navigateBack() {
 		a.showDashboard()
 	case "favourites":
 		a.showSettings()
-	case "workspaces":
-		a.showSettings()
 	case "coderepos":
 		a.showSettings()
 	case "office":
@@ -251,7 +248,6 @@ func (a *App) showSettings() {
 		a.settingsScreen = screens.NewSettingsScreen(a.window)
 		a.settingsScreen.OnBack = a.showDashboard
 		a.settingsScreen.OnEditFavourites = a.showFavourites
-		a.settingsScreen.OnWorkspaces = a.showWorkspaces
 		a.settingsScreen.OnCodeRepos = a.showCodeRepos
 		a.settingsScreen.OnLogout = a.handleLogout
 	}
@@ -269,18 +265,6 @@ func (a *App) showFavourites() {
 
 	a.setContent(a.favouritesScreen.Container)
 	a.favouritesScreen.Refresh()
-}
-
-func (a *App) showWorkspaces() {
-	a.currentScreen = "workspaces"
-
-	if a.workspacesScreen == nil {
-		a.workspacesScreen = screens.NewWorkspacesScreen(a.apiClient, a.window)
-		a.workspacesScreen.OnBack = a.showSettings
-	}
-
-	a.setContent(a.workspacesScreen.Container)
-	a.workspacesScreen.Refresh()
 }
 
 func (a *App) showCodeRepos() {
@@ -363,7 +347,6 @@ func (a *App) handleLogout() {
 	a.historyScreen = nil
 	a.settingsScreen = nil
 	a.favouritesScreen = nil
-	a.workspacesScreen = nil
 	a.codeReposScreen = nil
 	a.officeScreen = nil
 	a.aiAssistantScreen = nil

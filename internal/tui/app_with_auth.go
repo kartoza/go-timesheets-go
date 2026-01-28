@@ -26,7 +26,6 @@ const (
 	StateMainMenu
 	StateTimesheetCreation
 	StateHistoryView
-	StateWorkspaceAssociations
 	StateCodeRepos
 	StateFavourites
 	StateSettings
@@ -40,7 +39,6 @@ type AppWithAuth struct {
 	mainMenu           *MainMenuModel
 	timesheetCreator   *TimesheetCreator
 	historyView        *HistoryView
-	workspaceView      *WorkspaceAssociationsModel
 	codeReposView      *CodeReposModel
 	favouritesView     *FavouritesModel
 	settingsView       *SettingsModel
@@ -155,11 +153,6 @@ func (a *AppWithAuth) Init() tea.Cmd {
 			cmds = append(cmds, a.historyView.Init())
 		}
 
-	case StateWorkspaceAssociations:
-		if a.workspaceView != nil {
-			cmds = append(cmds, a.workspaceView.Init())
-		}
-
 	case StateCodeRepos:
 		if a.codeReposView != nil {
 			cmds = append(cmds, a.codeReposView.Init())
@@ -219,12 +212,6 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.historyView != nil {
 				a.historyView, _ = a.historyView.Update(msg)
 			}
-		case StateWorkspaceAssociations:
-			if a.workspaceView != nil {
-				model, c := a.workspaceView.Update(msg)
-				a.workspaceView = model
-				cmds = append(cmds, c)
-			}
 		case StateCodeRepos:
 			if a.codeReposView != nil {
 				model, c := a.codeReposView.Update(msg)
@@ -279,12 +266,6 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.historyView != nil {
 				var c tea.Cmd
 				a.historyView, c = a.historyView.Update(msg)
-				cmds = append(cmds, c)
-			}
-		case StateWorkspaceAssociations:
-			if a.workspaceView != nil {
-				model, c := a.workspaceView.Update(msg)
-				a.workspaceView = model
 				cmds = append(cmds, c)
 			}
 		case StateCodeRepos:
@@ -377,7 +358,6 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// If coming from favourites/workspace/coderepos launched from settings, go back to settings
 		// Otherwise go back to main menu
-		a.workspaceView = nil
 		a.codeReposView = nil
 		a.favouritesView = nil
 		a.settingsView = nil
@@ -410,16 +390,6 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.historyView = historyView
 		a.state = StateHistoryView
 		return a, a.historyView.Init()
-
-	case launchWorkspaceAssociationsMsg:
-		// Transition to workspace associations view
-		workspaceView := NewWorkspaceAssociationsModel(a.apiClient)
-		workspaceView.width = a.width
-		workspaceView.height = a.height
-		workspaceView.SetHeaderState(a.getHeaderState())
-		a.workspaceView = workspaceView
-		a.state = StateWorkspaceAssociations
-		return a, a.workspaceView.Init()
 
 	case launchCodeReposMsg:
 		// Transition to code repos view
@@ -505,12 +475,6 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.historyView, c = a.historyView.Update(msg)
 				cmds = append(cmds, c)
 			}
-		case StateWorkspaceAssociations:
-			if a.workspaceView != nil {
-				model, c := a.workspaceView.Update(msg)
-				a.workspaceView = model
-				cmds = append(cmds, c)
-			}
 		case StateCodeRepos:
 			if a.codeReposView != nil {
 				model, c := a.codeReposView.Update(msg)
@@ -544,7 +508,6 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Message types for state transitions
 type launchTimerCreationMsg struct{}
 type launchHistoryViewMsg struct{}
-type launchWorkspaceAssociationsMsg struct{}
 type launchCodeReposMsg struct{}
 type launchFavouritesMsg struct{}
 type launchSettingsMsg struct{}
@@ -590,12 +553,6 @@ func (a *AppWithAuth) View() string {
 			return a.historyView.View()
 		}
 		return a.renderLoadingScreen("Loading history")
-
-	case StateWorkspaceAssociations:
-		if a.workspaceView != nil {
-			return a.workspaceView.View()
-		}
-		return a.renderLoadingScreen("Loading workspace associations")
 
 	case StateCodeRepos:
 		if a.codeReposView != nil {

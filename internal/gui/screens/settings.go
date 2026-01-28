@@ -20,11 +20,10 @@ type SettingsScreen struct {
 	window fyne.Window
 
 	// Callbacks
-	OnBack            func()
-	OnEditFavourites  func()
-	OnWorkspaces      func()
-	OnCodeRepos       func()
-	OnLogout          func()
+	OnBack           func()
+	OnEditFavourites func()
+	OnCodeRepos      func()
+	OnLogout         func()
 }
 
 // NewSettingsScreen creates a new settings screen
@@ -51,12 +50,6 @@ func (s *SettingsScreen) build() {
 	})
 	favBtn.Importance = widget.MediumImportance
 
-	workspacesBtn := widget.NewButton("Workspace Associations", func() {
-		if s.OnWorkspaces != nil {
-			s.OnWorkspaces()
-		}
-	})
-
 	codeReposBtn := widget.NewButton("Code Repositories", func() {
 		if s.OnCodeRepos != nil {
 			s.OnCodeRepos()
@@ -78,8 +71,6 @@ func (s *SettingsScreen) build() {
 		widget.NewSeparator(),
 		layout.NewSpacer(),
 		container.NewCenter(favBtn),
-		layout.NewSpacer(),
-		container.NewCenter(workspacesBtn),
 		layout.NewSpacer(),
 		container.NewCenter(codeReposBtn),
 		layout.NewSpacer(),

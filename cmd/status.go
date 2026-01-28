@@ -8,7 +8,6 @@ import (
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
-	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -28,7 +27,6 @@ The status includes:
 - Current tracking state (idle/recording)
 - Active project, task, and activity information
 - Associated repository (if configured)
-- Associated workspace/desktop (if configured)
 - Timer start time
 - Hours logged against current task
 - Today's total hours
@@ -68,8 +66,6 @@ type StatusInfo struct {
 	TaskHours       float64 // Total hours logged against this task
 	DailyHours      float64 // Total hours logged today
 	RepoName        string  // Associated repository (if any)
-	WorkspaceName   string  // Associated workspace/desktop name (if any)
-	WorkspaceNumber int     // Associated workspace number
 }
 
 func runStatusCommand() {
@@ -153,12 +149,6 @@ func runStatusCommand() {
 		}
 	}
 
-	// Load workspace associations to find associated desktop
-	wsAssocs, err := store.LoadWorkspaceAssociations()
-	if err == nil && wsAssocs != nil {
-		info.WorkspaceName, info.WorkspaceNumber = findMatchingWorkspace(wsAssocs, info.ProjectID, info.TaskID)
-	}
-
 	status := createWaybarStatusFromInfo(info)
 
 	jsonData, err := json.Marshal(status)
@@ -180,29 +170,6 @@ func isActiveEntry(entry *api.TimelogEntry) bool {
 	return entry.ToTime == entry.FromTime
 }
 
-// findMatchingWorkspace finds a workspace that matches the current project/task
-func findMatchingWorkspace(assocs *models.WorkspaceAssociations, projectID, taskID int) (string, int) {
-	if assocs == nil {
-		return "", 0
-	}
-
-	for _, assoc := range assocs.Associations {
-		if assoc.ProjectID == projectID {
-			// If we have a task, try to match that too
-			if taskID > 0 && assoc.TaskID > 0 {
-				if assoc.TaskID == taskID {
-					return assoc.WorkspaceName, assoc.WorkspaceNumber
-				}
-			} else if assoc.TaskID == 0 {
-				// Project-only match
-				return assoc.WorkspaceName, assoc.WorkspaceNumber
-			}
-		}
-	}
-
-	return "", 0
-}
-
 // Nerd Font icons for waybar display
 const (
 	nfTimer     = "󰔛" // nf-md-timer - for recording state
@@ -212,7 +179,6 @@ const (
 	nfTask      = "󰄬" // nf-md-checkbox-marked - for task
 	nfActivity  = "󰒓" // nf-md-cog - for activity
 	nfRepo      = "󰊢" // nf-md-git - for repository
-	nfDesktop   = "󰍹" // nf-md-monitor - for desktop
 	nfClock     = "󰥔" // nf-md-clock - for start time
 	nfChart     = "󰄧" // nf-md-chart-bar - for task total
 	nfCalendar  = "󰃭" // nf-md-calendar - for today's total
@@ -246,13 +212,6 @@ func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {
 		// Repository information (optional)
 		if info.RepoName != "" {
 			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Repo: %s", nfRepo, info.RepoName))
-		}
-
-		// Workspace/desktop information (optional)
-		if info.WorkspaceName != "" {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Desktop: %s (#%d)", nfDesktop, info.WorkspaceName, info.WorkspaceNumber))
-		} else if info.WorkspaceNumber > 0 {
-			tooltipLines = append(tooltipLines, fmt.Sprintf("%s Desktop: #%d", nfDesktop, info.WorkspaceNumber))
 		}
 
 		tooltipLines = append(tooltipLines, "")

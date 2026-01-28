@@ -26,6 +26,11 @@ var (
 	favGreen    = ColorGreen
 )
 
+// parseHexToLipgloss converts a hex color string (e.g. "#E95420") to a lipgloss.Color
+func parseHexToLipgloss(hex string) lipgloss.Color {
+	return lipgloss.Color(hex)
+}
+
 // FavEditMode represents what mode the favourites screen is in
 type FavEditMode int
 
@@ -42,6 +47,7 @@ const (
 	FavEditFieldProject
 	FavEditFieldTask
 	FavEditFieldActivity
+	FavEditFieldColor
 )
 
 // FavouritesModel represents the favourites screen with 3x3 grid
@@ -72,6 +78,7 @@ type FavouritesModel struct {
 
 	// Edit popup - selected items (working copy)
 	editName     string
+	editColor    string
 	editProject  *api.ProjectListItem
 	editTask     *api.TaskListItem
 	editActivity *api.ActivityListItem
@@ -79,6 +86,7 @@ type FavouritesModel struct {
 	// Edit popup - text inputs
 	nameInput          textinput.Model
 	projectSearchInput textinput.Model
+	colorInput         textinput.Model
 
 	// Edit popup - popovers
 	showProjectPopover  bool
@@ -126,6 +134,12 @@ func NewFavouritesModel(apiClient *api.Client, powCapturer *pow.Capturer) *Favou
 	nameInput.CharLimit = 20
 	nameInput.Width = 30
 
+	// Color input for popup
+	colorInput := textinput.New()
+	colorInput.Placeholder = "#569FC6"
+	colorInput.CharLimit = 7
+	colorInput.Width = 10
+
 	// Project search input for popup
 	projectSearch := textinput.New()
 	projectSearch.Placeholder = "Type to search projects..."
@@ -139,6 +153,7 @@ func NewFavouritesModel(apiClient *api.Client, powCapturer *pow.Capturer) *Favou
 		selectedSlot:          0,
 		mode:                  FavModeSelect,
 		nameInput:             nameInput,
+		colorInput:            colorInput,
 		projectSearchInput:    projectSearch,
 		projectCache:          make(map[string][]api.ProjectListItem),
 		projectSearchInFlight: make(map[string]bool),
@@ -336,7 +351,9 @@ func (m *FavouritesModel) handleSelect() (*FavouritesModel, tea.Cmd) {
 		// Pre-populate with existing values
 		assoc := m.associations.Associations[m.selectedSlot]
 		m.editName = assoc.Name
+		m.editColor = assoc.Color
 		m.nameInput.SetValue(assoc.Name)
+		m.colorInput.SetValue(assoc.Color)
 		m.nameInput.Focus()
 
 		if assoc.ProjectID > 0 {
@@ -450,6 +467,12 @@ func (m *FavouritesModel) handleEditPopupKeys(msg tea.KeyMsg) (*FavouritesModel,
 			m.editName = m.nameInput.Value()
 			return m, cmd
 		}
+		if m.editField == FavEditFieldColor {
+			var cmd tea.Cmd
+			m.colorInput, cmd = m.colorInput.Update(msg)
+			m.editColor = m.colorInput.Value()
+			return m, cmd
+		}
 		if m.editField == FavEditFieldProject && m.showProjectPopover {
 			var cmd tea.Cmd
 			m.projectSearchInput, cmd = m.projectSearchInput.Update(msg)
@@ -530,6 +553,7 @@ func (m *FavouritesModel) handleEditPopupEnter() (*FavouritesModel, tea.Cmd) {
 func (m *FavouritesModel) moveToNextEditField() {
 	m.closeAllPopovers()
 	m.nameInput.Blur()
+	m.colorInput.Blur()
 
 	switch m.editField {
 	case FavEditFieldName:
@@ -551,6 +575,9 @@ func (m *FavouritesModel) moveToNextEditField() {
 			m.popoverCursor = 0
 		}
 	case FavEditFieldActivity:
+		m.editField = FavEditFieldColor
+		m.colorInput.Focus()
+	case FavEditFieldColor:
 		m.editField = FavEditFieldName
 		m.nameInput.Focus()
 	}
@@ -560,14 +587,12 @@ func (m *FavouritesModel) moveToNextEditField() {
 func (m *FavouritesModel) moveToPreviousEditField() {
 	m.closeAllPopovers()
 	m.nameInput.Blur()
+	m.colorInput.Blur()
 
 	switch m.editField {
 	case FavEditFieldName:
-		m.editField = FavEditFieldActivity
-		if m.editActivity == nil {
-			m.showActivityPopover = true
-			m.popoverCursor = 0
-		}
+		m.editField = FavEditFieldColor
+		m.colorInput.Focus()
 	case FavEditFieldProject:
 		m.editField = FavEditFieldName
 		m.nameInput.Focus()
@@ -581,6 +606,12 @@ func (m *FavouritesModel) moveToPreviousEditField() {
 		m.editField = FavEditFieldTask
 		if m.editProject != nil && m.editTask == nil {
 			m.showTaskPopover = true
+			m.popoverCursor = 0
+		}
+	case FavEditFieldColor:
+		m.editField = FavEditFieldActivity
+		if m.editActivity == nil {
+			m.showActivityPopover = true
 			m.popoverCursor = 0
 		}
 	}
@@ -597,6 +628,7 @@ func (m *FavouritesModel) closeAllPopovers() {
 // resetEditState resets the edit popup state
 func (m *FavouritesModel) resetEditState() {
 	m.editName = ""
+	m.editColor = ""
 	m.editProject = nil
 	m.editTask = nil
 	m.editActivity = nil
@@ -607,6 +639,7 @@ func (m *FavouritesModel) resetEditState() {
 	m.closeAllPopovers()
 	m.projectSearchInput.SetValue("")
 	m.nameInput.SetValue("")
+	m.colorInput.SetValue("")
 }
 
 // saveEditPopup saves the current edit popup selections to the favourite
@@ -618,6 +651,7 @@ func (m *FavouritesModel) saveEditPopup() (*FavouritesModel, tea.Cmd) {
 
 	assoc := &m.associations.Associations[m.editingSlot]
 	assoc.Name = m.editName
+	assoc.Color = m.editColor
 	assoc.ProjectID = m.editProject.ID
 	assoc.ProjectName = m.editProject.Label
 
@@ -781,9 +815,16 @@ func (m *FavouritesModel) renderButton(slotIndex, width, height int) string {
 				Bold(true)
 		}
 	} else if assoc.HasAssociation() {
-		style = style.
-			BorderForeground(favGray).
-			Foreground(favWhite)
+		if assoc.Color != "" {
+			c := parseHexToLipgloss(assoc.Color)
+			style = style.
+				BorderForeground(c).
+				Foreground(favWhite)
+		} else {
+			style = style.
+				BorderForeground(favGray).
+				Foreground(favWhite)
+		}
 	} else {
 		style = style.
 			BorderForeground(favDarkGray).
@@ -981,6 +1022,21 @@ func (m *FavouritesModel) renderEditModal() string {
 		popover := m.renderPopover(m.activities, func(i int) string { return m.activities[i].Label })
 		rows = append(rows, popover)
 	}
+
+	// Colour field
+	colorLabel := labelStyle.Render("Colour:")
+	if m.editField == FavEditFieldColor {
+		colorLabel = focusedLabelStyle.Render("Colour:")
+	}
+	colorValue := m.colorInput.View()
+	// Show a swatch preview next to the input
+	colorPreview := ""
+	if m.editColor != "" && len(m.editColor) == 7 && m.editColor[0] == '#' {
+		previewStyle := lipgloss.NewStyle().Background(lipgloss.Color(m.editColor)).Render("  ")
+		colorPreview = " " + previewStyle
+	}
+	colorRow := lipgloss.JoinHorizontal(lipgloss.Top, colorLabel, "  ", inputStyle.Render(colorValue), colorPreview)
+	rows = append(rows, colorRow)
 
 	// Help text for popup
 	helpStyle := lipgloss.NewStyle().

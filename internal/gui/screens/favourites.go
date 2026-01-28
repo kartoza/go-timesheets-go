@@ -94,8 +94,12 @@ func (s *FavouritesScreen) build() {
 			projectName = fav.ProjectName
 			isEmpty = false
 		}
+		colorHex := ""
+		if fav != nil {
+			colorHex = fav.Color
+		}
 		idx := i
-		s.favButtons[i] = widgets.NewFavouriteButton(slotNum, name, projectName, false, isEmpty, func() {
+		s.favButtons[i] = widgets.NewFavouriteButton(slotNum, name, projectName, false, isEmpty, colorHex, func() {
 			s.editFavourite(idx)
 		})
 	}
@@ -114,18 +118,18 @@ func (s *FavouritesScreen) build() {
 		}
 	})
 
-	// Main layout
-	s.Container = container.NewVBox(
+	// Main layout - use Border so the grid expands to fill available space
+	header := container.NewVBox(
 		container.NewCenter(title),
 		container.NewCenter(subtitle),
 		widget.NewSeparator(),
-		layout.NewSpacer(),
-		container.NewCenter(favGrid),
-		layout.NewSpacer(),
+	)
+	footer := container.NewVBox(
 		widget.NewSeparator(),
 		container.NewCenter(s.statusLabel),
 		container.NewCenter(s.backButton),
 	)
+	s.Container = container.NewBorder(header, footer, nil, nil, favGrid)
 }
 
 func (s *FavouritesScreen) editFavourite(index int) {
@@ -286,6 +290,14 @@ func (s *FavouritesScreen) editFavourite(index int) {
 	// Load activities
 	loadActivities()
 
+	// Colour picker
+	selectedColor := fav.Color
+	colorLabel := canvas.NewText("Button Colour", labelGray)
+	colorLabel.TextSize = 12
+	colorPicker := widgets.NewColorPicker(fav.Color, func(hex string) {
+		selectedColor = hex
+	})
+
 	// Labels with consistent styling
 	nameLabel := canvas.NewText("Name", labelGray)
 	nameLabel.TextSize = 12
@@ -317,7 +329,7 @@ func (s *FavouritesScreen) editFavourite(index int) {
 			s.setStatus("Please select an activity")
 			return
 		}
-		s.saveFavouriteSlot(index, nameEntry.Text, selectedProject, selectedTask, selectedActivity)
+		s.saveFavouriteSlot(index, nameEntry.Text, selectedColor, selectedProject, selectedTask, selectedActivity)
 		if customDialog != nil {
 			customDialog.Hide()
 		}
@@ -351,6 +363,9 @@ func (s *FavouritesScreen) editFavourite(index int) {
 		taskSelect,
 		activityLabel,
 		activitySelect,
+		widget.NewSeparator(),
+		colorLabel,
+		colorPicker,
 		layout.NewSpacer(),
 		widget.NewSeparator(),
 		buttonRow,
@@ -370,11 +385,11 @@ func (s *FavouritesScreen) editFavourite(index int) {
 
 	// Wrap in scroll for safety
 	scrollContent := container.NewVScroll(formContainer)
-	scrollContent.SetMinSize(fyne.NewSize(380, 450))
+	scrollContent.SetMinSize(fyne.NewSize(380, 560))
 
 	// Create custom popup with dark background
 	popupBg := canvas.NewRectangle(darkGray)
-	popupBg.SetMinSize(fyne.NewSize(400, 480))
+	popupBg.SetMinSize(fyne.NewSize(400, 590))
 
 	popupContent := container.NewStack(
 		popupBg,
@@ -402,11 +417,12 @@ func (s *FavouritesScreen) searchProjects(query string, selectWidget *widgets.Se
 	)
 }
 
-func (s *FavouritesScreen) saveFavouriteSlot(index int, name string, project *api.ProjectListItem, task *api.TaskListItem, activity *api.ActivityListItem) {
+func (s *FavouritesScreen) saveFavouriteSlot(index int, name, colorHex string, project *api.ProjectListItem, task *api.TaskListItem, activity *api.ActivityListItem) {
 	slotNum := index + 1
 	fav := models.FavouriteAssociation{
 		SlotNumber: slotNum,
 		Name:       name,
+		Color:      colorHex,
 	}
 
 	if project != nil {
@@ -459,7 +475,11 @@ func (s *FavouritesScreen) refreshButtons() {
 			projectName = fav.ProjectName
 			isEmpty = false
 		}
-		btn.Update(name, projectName, false, isEmpty)
+		colorHex := ""
+		if fav != nil {
+			colorHex = fav.Color
+		}
+		btn.Update(name, projectName, false, isEmpty, colorHex)
 	}
 }
 

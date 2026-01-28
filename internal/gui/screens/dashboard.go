@@ -141,8 +141,12 @@ func (s *DashboardScreen) build() {
 			projectName = fav.ProjectName
 			isEmpty = false
 		}
+		colorHex := ""
+		if fav != nil {
+			colorHex = fav.Color
+		}
 		idx := i
-		s.favButtons[i] = widgets.NewFavouriteButton(slotNum, name, projectName, false, isEmpty, func() {
+		s.favButtons[i] = widgets.NewFavouriteButton(slotNum, name, projectName, false, isEmpty, colorHex, func() {
 			s.onFavouriteClicked(idx)
 		})
 	}
@@ -862,7 +866,11 @@ func (s *DashboardScreen) updateTimerDisplay() {
 			projectName = fav.ProjectName
 			isEmpty = false
 		}
-		btn.Update(name, projectName, isRunning, isEmpty)
+		colorHex := ""
+		if fav != nil {
+			colorHex = fav.Color
+		}
+		btn.Update(name, projectName, isRunning, isEmpty, colorHex)
 	}
 }
 

@@ -18,6 +18,7 @@ type FavouriteButton struct {
 	ProjectName string
 	IsRunning   bool
 	IsEmpty     bool
+	ColorHex    string // Custom color hex (e.g. "#E95420")
 	OnTapped    func()
 
 	bg          *canvas.Rectangle
@@ -27,13 +28,14 @@ type FavouriteButton struct {
 }
 
 // NewFavouriteButton creates a new favourite button widget
-func NewFavouriteButton(slotNumber int, name, projectName string, isRunning, isEmpty bool, onTapped func()) *FavouriteButton {
+func NewFavouriteButton(slotNumber int, name, projectName string, isRunning, isEmpty bool, colorHex string, onTapped func()) *FavouriteButton {
 	f := &FavouriteButton{
 		SlotNumber:  slotNumber,
 		Name:        name,
 		ProjectName: projectName,
 		IsRunning:   isRunning,
 		IsEmpty:     isEmpty,
+		ColorHex:    colorHex,
 		OnTapped:    onTapped,
 	}
 	f.ExtendBaseWidget(f)
@@ -41,11 +43,12 @@ func NewFavouriteButton(slotNumber int, name, projectName string, isRunning, isE
 }
 
 // Update updates the button state
-func (f *FavouriteButton) Update(name, projectName string, isRunning, isEmpty bool) {
+func (f *FavouriteButton) Update(name, projectName string, isRunning, isEmpty bool, colorHex string) {
 	f.Name = name
 	f.ProjectName = projectName
 	f.IsRunning = isRunning
 	f.IsEmpty = isEmpty
+	f.ColorHex = colorHex
 	f.Refresh()
 }
 
@@ -142,8 +145,15 @@ func (r *favouriteButtonRenderer) Refresh() {
 		r.nameLabel.Color = color.White
 		r.statusLabel.Text = f.ProjectName
 		r.statusLabel.Color = color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
-		r.bg.FillColor = color.NRGBA{R: 0x3D, G: 0x3E, B: 0x40, A: 0xFF}
-		r.bg.StrokeColor = color.NRGBA{R: 0x56, G: 0x9F, B: 0xC6, A: 0xFF}
+		if f.ColorHex != "" {
+			c := ParseHexColor(f.ColorHex)
+			// Use a darkened version as fill, bright as stroke
+			r.bg.FillColor = color.NRGBA{R: c.R / 3, G: c.G / 3, B: c.B / 3, A: 0xFF}
+			r.bg.StrokeColor = c
+		} else {
+			r.bg.FillColor = color.NRGBA{R: 0x3D, G: 0x3E, B: 0x40, A: 0xFF}
+			r.bg.StrokeColor = color.NRGBA{R: 0x56, G: 0x9F, B: 0xC6, A: 0xFF}
+		}
 	}
 
 	r.bg.Refresh()

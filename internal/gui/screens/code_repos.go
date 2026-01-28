@@ -128,24 +128,31 @@ func (s *CodeReposScreen) build() {
 	)
 }
 
+// repoRow holds references to the widgets in a repository list row
+type repoRow struct {
+	projectLabel *widget.Label
+	repoLabel    *widget.Label
+	editBtn      *widget.Button
+	deleteBtn    *widget.Button
+	container    fyne.CanvasObject
+}
+
 func (s *CodeReposScreen) createRepoRow() fyne.CanvasObject {
-	projectLabel := widget.NewLabel("Project")
-	projectLabel.TextStyle = fyne.TextStyle{Bold: true}
+	r := &repoRow{}
+	r.projectLabel = widget.NewLabel("Project")
+	r.projectLabel.TextStyle = fyne.TextStyle{Bold: true}
+	r.projectLabel.Truncation = fyne.TextTruncateEllipsis
 
-	repoLabel := widget.NewLabel("Repository")
-	repoLabel.Wrapping = fyne.TextWrapWord
+	r.repoLabel = widget.NewLabel("Repository")
+	r.repoLabel.Truncation = fyne.TextTruncateEllipsis
 
-	editBtn := widget.NewButton("Edit", nil)
-	deleteBtn := widget.NewButton("Delete", nil)
-	deleteBtn.Importance = widget.DangerImportance
+	r.editBtn = widget.NewButton("Edit", nil)
+	r.deleteBtn = widget.NewButton("Delete", nil)
+	r.deleteBtn.Importance = widget.DangerImportance
 
-	return container.NewHBox(
-		projectLabel,
-		layout.NewSpacer(),
-		repoLabel,
-		editBtn,
-		deleteBtn,
-	)
+	buttons := container.NewHBox(r.editBtn, r.deleteBtn)
+	r.container = container.NewBorder(nil, nil, r.projectLabel, buttons, r.repoLabel)
+	return r.container
 }
 
 func (s *CodeReposScreen) updateRepoRow(index int, obj fyne.CanvasObject) {
@@ -153,21 +160,62 @@ func (s *CodeReposScreen) updateRepoRow(index int, obj fyne.CanvasObject) {
 		return
 	}
 
-	row := obj.(*fyne.Container)
 	assoc := s.associations.Associations[index]
 
-	row.Objects[0].(*widget.Label).SetText(assoc.ProjectName)
-	row.Objects[2].(*widget.Label).SetText(assoc.RepoURL)
+	// Walk the object tree to find our widgets by type
+	projectLabel, repoLabel, editBtn, deleteBtn := s.findRepoRowWidgets(obj)
+	if projectLabel == nil {
+		return
+	}
 
-	// Edit button
-	row.Objects[3].(*widget.Button).OnTapped = func() {
+	projectLabel.SetText(assoc.ProjectName)
+	repoLabel.SetText(assoc.RepoURL)
+
+	editBtn.OnTapped = func() {
 		s.editRepo(index)
 	}
-
-	// Delete button
-	row.Objects[4].(*widget.Button).OnTapped = func() {
+	deleteBtn.OnTapped = func() {
 		s.confirmDelete(index)
 	}
+}
+
+// findRepoRowWidgets extracts the widgets from a repo row container
+func (s *CodeReposScreen) findRepoRowWidgets(obj fyne.CanvasObject) (projectLabel, repoLabel *widget.Label, editBtn, deleteBtn *widget.Button) {
+	c, ok := obj.(*fyne.Container)
+	if !ok {
+		return
+	}
+
+	var labels []*widget.Label
+	var buttons []*widget.Button
+
+	var walk func(o fyne.CanvasObject)
+	walk = func(o fyne.CanvasObject) {
+		if l, ok := o.(*widget.Label); ok {
+			labels = append(labels, l)
+			return
+		}
+		if b, ok := o.(*widget.Button); ok {
+			buttons = append(buttons, b)
+			return
+		}
+		if cc, ok := o.(*fyne.Container); ok {
+			for _, child := range cc.Objects {
+				walk(child)
+			}
+		}
+	}
+	for _, child := range c.Objects {
+		walk(child)
+	}
+
+	if len(labels) >= 2 && len(buttons) >= 2 {
+		projectLabel = labels[0]
+		repoLabel = labels[1]
+		editBtn = buttons[0]
+		deleteBtn = buttons[1]
+	}
+	return
 }
 
 func (s *CodeReposScreen) addRepo() {
@@ -185,10 +233,21 @@ func (s *CodeReposScreen) editRepo(index int) {
 func (s *CodeReposScreen) showRepoDialog(index int, existing *models.CodeRepoAssociation) {
 	isNew := index < 0
 
-	titleText := "Add Repository"
+	// Colors matching timesheet dialog
+	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+	labelGray := color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
+	bgColor := color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 0xFF}
+
+	titleStr := "Add Repository"
 	if !isNew {
-		titleText = "Edit Repository"
+		titleStr = "Edit Repository"
 	}
+
+	titleText := canvas.NewText(titleStr, goldColor)
+	titleText.TextSize = 20
+	titleText.TextStyle = fyne.TextStyle{Bold: true}
+	titleText.Alignment = fyne.TextAlignCenter
 
 	projectSelect := widgets.NewSearchableSelect("Search projects...", s.window)
 	if existing != nil && existing.ProjectID > 0 {
@@ -215,35 +274,81 @@ func (s *CodeReposScreen) showRepoDialog(index int, existing *models.CodeRepoAss
 		selectedProject = &api.ProjectListItem{ID: existing.ProjectID, Label: existing.ProjectName}
 	}
 
-	formContent := container.NewVBox(
-		widget.NewLabel("Project"),
-		projectSelect,
-		widget.NewLabel("Repository URL"),
-		repoEntry,
+	// Labels
+	projectLabel := canvas.NewText("Project *", labelGray)
+	projectLabel.TextSize = 12
+	repoLabel := canvas.NewText("Repository URL *", labelGray)
+	repoLabel.TextSize = 12
+
+	// Buttons
+	var customDialog *widget.PopUp
+
+	saveBtn := widget.NewButton("Save", func() {
+		if selectedProject == nil {
+			s.setStatus("Please select a project")
+			return
+		}
+		if repoEntry.Text == "" {
+			s.setStatus("Please enter a repository URL")
+			return
+		}
+		s.saveRepo(index, selectedProject, repoEntry.Text)
+		if customDialog != nil {
+			customDialog.Hide()
+		}
+	})
+	saveBtn.Importance = widget.HighImportance
+
+	cancelBtn := widget.NewButton("Cancel", func() {
+		if customDialog != nil {
+			customDialog.Hide()
+		}
+	})
+
+	buttonRow := container.NewHBox(
+		layout.NewSpacer(),
+		cancelBtn,
+		saveBtn,
 	)
 
-	d := dialog.NewCustomConfirm(
-		titleText,
-		"Save",
-		"Cancel",
-		formContent,
-		func(confirmed bool) {
-			if confirmed {
-				if selectedProject == nil {
-					s.setStatus("Please select a project")
-					return
-				}
-				if repoEntry.Text == "" {
-					s.setStatus("Please enter a repository URL")
-					return
-				}
-				s.saveRepo(index, selectedProject, repoEntry.Text)
-			}
-		},
-		s.window,
+	// Form layout
+	formContent := container.NewVBox(
+		container.NewCenter(titleText),
+		widget.NewSeparator(),
+		projectLabel,
+		projectSelect,
+		repoLabel,
+		repoEntry,
+		layout.NewSpacer(),
+		widget.NewSeparator(),
+		buttonRow,
 	)
-	d.Resize(fyne.NewSize(400, 250))
-	d.Show()
+
+	// Styled container with border
+	formBorder := canvas.NewRectangle(goldColor)
+	formBorder.StrokeColor = goldColor
+	formBorder.StrokeWidth = 2
+	formBorder.FillColor = bgColor
+	formBorder.CornerRadius = 10
+
+	formContainer := container.NewStack(
+		formBorder,
+		container.NewPadded(container.NewPadded(formContent)),
+	)
+
+	scrollContent := container.NewVScroll(formContainer)
+	scrollContent.SetMinSize(fyne.NewSize(380, 320))
+
+	popupBg := canvas.NewRectangle(darkGray)
+	popupBg.SetMinSize(fyne.NewSize(400, 350))
+
+	popupContent := container.NewStack(
+		popupBg,
+		container.NewPadded(scrollContent),
+	)
+
+	customDialog = widget.NewModalPopUp(popupContent, s.window.Canvas())
+	customDialog.Show()
 }
 
 func (s *CodeReposScreen) searchProjects(query string, selectWidget *widgets.SearchableSelect) {

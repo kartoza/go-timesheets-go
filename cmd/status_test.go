@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
-	"github.com/kartoza/go-timesheets-go/internal/models"
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -76,75 +75,6 @@ func TestIsActiveEntry(t *testing.T) {
 	}
 }
 
-func TestFindMatchingWorkspace(t *testing.T) {
-	assocs := models.NewWorkspaceAssociations()
-	// Put task-specific match first to test priority
-	assocs.Associations[0] = models.WorkspaceAssociation{
-		WorkspaceNumber: 1,
-		WorkspaceName:   "Testing",
-		ProjectID:       100,
-		TaskID:          200,
-	}
-	assocs.Associations[1] = models.WorkspaceAssociation{
-		WorkspaceNumber: 2,
-		WorkspaceName:   "Dev",
-		ProjectID:       100,
-	}
-	assocs.Associations[2] = models.WorkspaceAssociation{
-		WorkspaceNumber: 3,
-		WorkspaceName:   "Other",
-		ProjectID:       300,
-	}
-
-	tests := []struct {
-		name               string
-		projectID          int
-		taskID             int
-		expectedName       string
-		expectedNumber     int
-	}{
-		{
-			name:           "match project and task",
-			projectID:      100,
-			taskID:         200,
-			expectedName:   "Testing",
-			expectedNumber: 1,
-		},
-		{
-			name:           "match project only (no task specified)",
-			projectID:      100,
-			taskID:         0,
-			expectedName:   "Dev",
-			expectedNumber: 2,
-		},
-		{
-			name:           "no match",
-			projectID:      999,
-			taskID:         0,
-			expectedName:   "",
-			expectedNumber: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			name, number := findMatchingWorkspace(assocs, tt.projectID, tt.taskID)
-			if name != tt.expectedName {
-				t.Errorf("findMatchingWorkspace() name = %s, want %s", name, tt.expectedName)
-			}
-			if number != tt.expectedNumber {
-				t.Errorf("findMatchingWorkspace() number = %d, want %d", number, tt.expectedNumber)
-			}
-		})
-	}
-
-	// Test nil assocs
-	name, number := findMatchingWorkspace(nil, 100, 0)
-	if name != "" || number != 0 {
-		t.Error("findMatchingWorkspace with nil should return empty values")
-	}
-}
-
 func TestCreateWaybarStatusFromInfo(t *testing.T) {
 	// Test idle state
 	t.Run("idle state", func(t *testing.T) {
@@ -179,8 +109,6 @@ func TestCreateWaybarStatusFromInfo(t *testing.T) {
 			TaskHours:       5.5,
 			DailyHours:      8.0,
 			RepoName:        "kartoza/test",
-			WorkspaceName:   "Development",
-			WorkspaceNumber: 1,
 		}
 
 		status := createWaybarStatusFromInfo(info)

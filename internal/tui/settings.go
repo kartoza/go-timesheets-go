@@ -11,7 +11,6 @@ type SettingsMenuItem int
 
 const (
 	SettingsEditFavourites SettingsMenuItem = iota
-	SettingsWorkspaceAssociations
 	SettingsCodeRepos
 	SettingsLogOut
 	SettingsBack
@@ -335,7 +334,6 @@ func (m *SettingsModel) getMenuItemFromMousePosition(x, y int) int {
 func (m *SettingsModel) updateMenuItems() {
 	m.menuItems = []settingsMenuItem{
 		{label: "Edit Favourites", action: SettingsEditFavourites},
-		{label: "Manage Workspace Associations", action: SettingsWorkspaceAssociations},
 		{label: "Manage Code Repos", action: SettingsCodeRepos},
 		{label: "Log Out", action: SettingsLogOut},
 		{label: "← Back to Main Menu", action: SettingsBack},
@@ -353,9 +351,6 @@ func (m *SettingsModel) handleMenuSelection() (*SettingsModel, tea.Cmd) {
 	switch action {
 	case SettingsEditFavourites:
 		return m, func() tea.Msg { return launchFavouritesMsg{} }
-
-	case SettingsWorkspaceAssociations:
-		return m, func() tea.Msg { return launchWorkspaceAssociationsMsg{} }
 
 	case SettingsCodeRepos:
 		return m, func() tea.Msg { return launchCodeReposMsg{} }

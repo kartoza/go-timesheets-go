@@ -333,37 +333,6 @@ func TestClearActiveTimeEntry(t *testing.T) {
 	}
 }
 
-func TestSaveAndLoadWorkspaceAssociations(t *testing.T) {
-	storage, cleanup := setupTestStorage(t)
-	defer cleanup()
-
-	assocs := models.NewWorkspaceAssociations()
-	assocs.Associations[0] = models.WorkspaceAssociation{
-		WorkspaceNumber: 1,
-		WorkspaceName:   "Development",
-		ProjectID:       1,
-		ProjectName:     "Test Project",
-	}
-
-	err := storage.SaveWorkspaceAssociations(assocs)
-	if err != nil {
-		t.Fatalf("Failed to save workspace associations: %v", err)
-	}
-
-	loaded, err := storage.LoadWorkspaceAssociations()
-	if err != nil {
-		t.Fatalf("Failed to load workspace associations: %v", err)
-	}
-
-	if len(loaded.Associations) != 10 {
-		t.Errorf("Expected 10 workspace slots, got %d", len(loaded.Associations))
-	}
-
-	if loaded.Associations[0].WorkspaceName != "Development" {
-		t.Errorf("Workspace name mismatch: got %s", loaded.Associations[0].WorkspaceName)
-	}
-}
-
 func TestSaveAndLoadCodeRepoAssociations(t *testing.T) {
 	storage, cleanup := setupTestStorage(t)
 	defer cleanup()

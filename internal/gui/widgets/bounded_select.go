@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"image/color"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -9,7 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// BoundedSelect is a select widget with a bounded dropdown height
+// BoundedSelect is a select widget with a bounded dropdown height and keyboard navigation
 type BoundedSelect struct {
 	widget.BaseWidget
 
@@ -18,10 +19,14 @@ type BoundedSelect struct {
 	Selected    string
 	OnChanged   func(string)
 
-	button    *widget.Button
-	list      *widget.List
-	popup     *widget.PopUp
-	parentWin fyne.Window
+	entry       *widget.Entry
+	navEntryObj *navigableEntry // the actual canvas object for positioning
+	list        *widget.List
+	popup       *widget.PopUp
+	parentWin   fyne.Window
+	filtered    []string
+	highlighted int  // keyboard cursor (-1 = none)
+	isTyping    bool
 }
 
 // NewBoundedSelect creates a new bounded select widget
@@ -29,7 +34,9 @@ func NewBoundedSelect(placeholder string, options []string, parentWin fyne.Windo
 	s := &BoundedSelect{
 		PlaceHolder: placeholder,
 		Options:     options,
+		filtered:    options,
 		parentWin:   parentWin,
+		highlighted: -1,
 	}
 	s.ExtendBaseWidget(s)
 	return s
@@ -38,6 +45,7 @@ func NewBoundedSelect(placeholder string, options []string, parentWin fyne.Windo
 // SetOptions updates the options list
 func (s *BoundedSelect) SetOptions(options []string) {
 	s.Options = options
+	s.filterItems("")
 	if s.list != nil {
 		s.list.Refresh()
 	}
@@ -46,78 +54,149 @@ func (s *BoundedSelect) SetOptions(options []string) {
 // SetSelected sets the selected value
 func (s *BoundedSelect) SetSelected(value string) {
 	s.Selected = value
-	s.updateButtonText()
+	if s.entry != nil {
+		s.entry.SetText(value)
+	}
 }
 
 // ClearSelected clears the selection
 func (s *BoundedSelect) ClearSelected() {
 	s.Selected = ""
-	s.updateButtonText()
+	if s.entry != nil {
+		s.entry.SetText("")
+	}
 }
 
 // Disable disables the bounded select
 func (s *BoundedSelect) Disable() {
-	if s.button != nil {
-		s.button.Disable()
+	if s.entry != nil {
+		s.entry.Disable()
 	}
 }
 
 // Enable enables the bounded select
 func (s *BoundedSelect) Enable() {
-	if s.button != nil {
-		s.button.Enable()
+	if s.entry != nil {
+		s.entry.Enable()
 	}
 }
 
-func (s *BoundedSelect) updateButtonText() {
-	if s.button == nil {
-		return
-	}
-	if s.Selected != "" {
-		s.button.SetText(s.Selected)
+func (s *BoundedSelect) filterItems(query string) {
+	if query == "" {
+		s.filtered = s.Options
 	} else {
-		s.button.SetText(s.PlaceHolder)
+		q := strings.ToLower(query)
+		s.filtered = nil
+		for _, opt := range s.Options {
+			if strings.Contains(strings.ToLower(opt), q) {
+				s.filtered = append(s.filtered, opt)
+			}
+		}
 	}
 }
 
 // CreateRenderer creates the renderer for the bounded select
 func (s *BoundedSelect) CreateRenderer() fyne.WidgetRenderer {
-	text := s.PlaceHolder
+	s.highlighted = -1
+
+	navEntry := newNavigableEntry(func(ev *fyne.KeyEvent) bool {
+		if s.popup == nil || !s.popup.Visible() {
+			// Open popup on Down arrow even when closed
+			if ev.Name == fyne.KeyDown && len(s.filtered) > 0 {
+				s.highlighted = 0
+				s.showPopup()
+				s.refreshHighlight()
+				return true
+			}
+			return false
+		}
+		switch ev.Name {
+		case fyne.KeyDown:
+			if s.highlighted < len(s.filtered)-1 {
+				s.highlighted++
+			}
+			s.refreshHighlight()
+			return true
+		case fyne.KeyUp:
+			if s.highlighted > 0 {
+				s.highlighted--
+			}
+			s.refreshHighlight()
+			return true
+		case fyne.KeyReturn:
+			if s.highlighted >= 0 && s.highlighted < len(s.filtered) {
+				s.Selected = s.filtered[s.highlighted]
+				s.isTyping = false
+				s.entry.SetText(s.Selected)
+				if s.OnChanged != nil {
+					s.OnChanged(s.Selected)
+				}
+				s.hidePopup()
+			}
+			return true
+		case fyne.KeyEscape:
+			s.hidePopup()
+			return true
+		}
+		return false
+	})
+	navEntry.PlaceHolder = s.PlaceHolder
+	s.entry = &navEntry.Entry
+	s.navEntryObj = navEntry
+
 	if s.Selected != "" {
-		text = s.Selected
+		navEntry.SetText(s.Selected)
 	}
 
-	s.button = widget.NewButton(text+" ▾", func() {
-		s.togglePopup()
-	})
+	navEntry.OnChanged = func(text string) {
+		s.isTyping = true
+		s.highlighted = -1
+		s.filterItems(text)
+		if s.list != nil {
+			s.list.Refresh()
+		}
+		if len(s.filtered) > 0 {
+			s.showPopup()
+		} else {
+			s.hidePopup()
+		}
+	}
 
-	// Dark text color for light popup background
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+	// Light text for dark popup background
+	normalColor := color.NRGBA{R: 0xCC, G: 0xCC, B: 0xCC, A: 0xFF}
+	highlightColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
 
 	s.list = widget.NewList(
 		func() int {
-			return len(s.Options)
+			return len(s.filtered)
 		},
 		func() fyne.CanvasObject {
-			label := canvas.NewText("Template option text", darkGray)
+			label := canvas.NewText("Template option text", normalColor)
 			label.TextSize = 14
 			return container.NewPadded(label)
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			if id < len(s.Options) {
+			if id < len(s.filtered) {
 				padded := obj.(*fyne.Container)
 				label := padded.Objects[0].(*canvas.Text)
-				label.Text = s.Options[id]
+				label.Text = s.filtered[id]
+				if id == s.highlighted {
+					label.Color = highlightColor
+					label.TextStyle = fyne.TextStyle{Bold: true}
+				} else {
+					label.Color = normalColor
+					label.TextStyle = fyne.TextStyle{}
+				}
 				label.Refresh()
 			}
 		},
 	)
 
 	s.list.OnSelected = func(id widget.ListItemID) {
-		if id < len(s.Options) {
-			s.Selected = s.Options[id]
-			s.updateButtonText()
-
+		if id < len(s.filtered) {
+			s.Selected = s.filtered[id]
+			s.isTyping = false
+			s.entry.SetText(s.Selected)
 			if s.OnChanged != nil {
 				s.OnChanged(s.Selected)
 			}
@@ -126,37 +205,41 @@ func (s *BoundedSelect) CreateRenderer() fyne.WidgetRenderer {
 	}
 
 	return &boundedSelectRenderer{
-		sel:    s,
-		button: s.button,
+		sel:      s,
+		navEntry: navEntry,
 	}
 }
 
-func (s *BoundedSelect) togglePopup() {
-	if s.popup != nil && s.popup.Visible() {
-		s.hidePopup()
-	} else {
-		s.showPopup()
+func (s *BoundedSelect) refreshHighlight() {
+	if s.list != nil {
+		s.list.Refresh()
+		if s.highlighted >= 0 {
+			s.list.ScrollTo(s.highlighted)
+		}
 	}
 }
 
 func (s *BoundedSelect) showPopup() {
-	if s.parentWin == nil || s.button == nil {
+	if s.parentWin == nil || s.entry == nil {
 		return
 	}
 
-	if len(s.Options) == 0 {
+	if len(s.filtered) == 0 {
+		s.hidePopup()
 		return
 	}
 
-	if s.popup != nil {
-		s.popup.Show()
-		return
-	}
+	// Always recreate popup so position is recalculated
+	s.hidePopup()
+
+	// Dark themed background
+	bgColor := color.NRGBA{R: 0x2A, G: 0x2A, B: 0x2A, A: 0xFF}
+	borderColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
 
 	// Calculate height based on number of items (max 8 items visible)
 	itemHeight := float32(36)
 	maxItems := 8
-	numItems := len(s.Options)
+	numItems := len(s.filtered)
 	if numItems > maxItems {
 		numItems = maxItems
 	}
@@ -165,16 +248,23 @@ func (s *BoundedSelect) showPopup() {
 	listContainer := container.NewVScroll(s.list)
 	listContainer.SetMinSize(fyne.NewSize(250, listHeight))
 
-	s.popup = widget.NewPopUp(listContainer, s.parentWin.Canvas())
+	bg := canvas.NewRectangle(bgColor)
+	bg.StrokeColor = borderColor
+	bg.StrokeWidth = 1
+	bg.CornerRadius = 4
 
-	// Get button position
-	var btnPos fyne.Position
+	popupContent := container.NewStack(bg, listContainer)
+
+	s.popup = widget.NewPopUp(popupContent, s.parentWin.Canvas())
+
+	// Position below the BoundedSelect widget itself
+	var entryPos fyne.Position
 	if driver := fyne.CurrentApp().Driver(); driver != nil {
-		btnPos = driver.AbsolutePositionForObject(s.button)
+		entryPos = driver.AbsolutePositionForObject(s)
 	}
-	btnPos.Y += s.button.Size().Height + 2 // Position below button
+	entryPos.Y += s.Size().Height + 2
 
-	s.popup.ShowAtPosition(btnPos)
+	s.popup.ShowAtPosition(entryPos)
 }
 
 func (s *BoundedSelect) hidePopup() {
@@ -184,13 +274,13 @@ func (s *BoundedSelect) hidePopup() {
 }
 
 type boundedSelectRenderer struct {
-	sel    *BoundedSelect
-	button *widget.Button
+	sel      *BoundedSelect
+	navEntry *navigableEntry
 }
 
 func (r *boundedSelectRenderer) Layout(size fyne.Size) {
-	r.button.Resize(size)
-	r.button.Move(fyne.NewPos(0, 0))
+	r.navEntry.Resize(size)
+	r.navEntry.Move(fyne.NewPos(0, 0))
 }
 
 func (r *boundedSelectRenderer) MinSize() fyne.Size {
@@ -198,11 +288,11 @@ func (r *boundedSelectRenderer) MinSize() fyne.Size {
 }
 
 func (r *boundedSelectRenderer) Refresh() {
-	r.button.Refresh()
+	r.navEntry.Refresh()
 }
 
 func (r *boundedSelectRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.button}
+	return []fyne.CanvasObject{r.navEntry}
 }
 
 func (r *boundedSelectRenderer) Destroy() {

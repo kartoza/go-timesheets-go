@@ -10,6 +10,7 @@ type FavouriteAssociation struct {
 	TaskName     string `json:"task_name,omitempty"`
 	ActivityID   int    `json:"activity_id,omitempty"`
 	ActivityName string `json:"activity_name,omitempty"`
+	Color        string `json:"color,omitempty"` // Hex color for the button (e.g. "#E95420")
 }
 
 // FavouriteAssociations holds all 9 favourite slots (3x3 grid)
