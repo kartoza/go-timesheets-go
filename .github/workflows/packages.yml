@@ -5,7 +5,63 @@ on:
     types: [created]
   workflow_dispatch:  # Allow manual trigger for testing
 
+env:
+  GO_VERSION: '1.24'
+
 jobs:
+  build-linux-binary:
+    name: Build Linux Binary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install GL/X11 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME:-$(git describe --tags --always)}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build Linux AMD64
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          mkdir -p release/linux
+          CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o release/linux/kartoza-timesheet-linux-amd64 .
+          cd release/linux
+          tar -czf kartoza-timesheet-${VERSION}-linux-amd64.tar.gz kartoza-timesheet-linux-amd64
+          sha256sum *.tar.gz > checksums-linux.txt
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} release/linux/*.tar.gz release/linux/checksums-linux.txt --clobber
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: release/linux/*
+          retention-days: 7
+
   build-deb:
     name: Build Debian Package
     runs-on: ubuntu-latest
@@ -21,34 +77,64 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev debhelper devscripts
+          sudo apt-get install -y dpkg-dev debhelper devscripts libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
 
       - name: Get version
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+        run: |
+          VERSION="${GITHUB_REF_NAME:-$(git describe --tags --always)}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build Debian package
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          VERSION=${VERSION#v}  # Remove 'v' prefix if present
           mkdir -p release/deb
-          # Create source tarball
-          tar --exclude='.git' --exclude='release' --exclude='build' \
-            -czf release/deb/kartoza-timesheet_${VERSION}.orig.tar.gz \
-            --transform "s,^,kartoza-timesheet-${VERSION}/," .
-          # Extract and build
-          cd release/deb
-          tar -xzf kartoza-timesheet_${VERSION}.orig.tar.gz
-          cp -r ../../packaging/debian kartoza-timesheet-${VERSION}/
-          cd kartoza-timesheet-${VERSION}
-          # Update changelog version
-          sed -i "s/0.3.1-1/${VERSION}-1/g" debian/changelog
-          dpkg-buildpackage -us -uc -b
+
+          # Build the binary directly (simpler than dpkg-buildpackage with CGO deps)
+          CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o kartoza-timesheet .
+
+          # Create deb package structure
+          PKG_DIR="release/deb/kartoza-timesheet-${VERSION}"
+          mkdir -p "${PKG_DIR}/usr/bin"
+          mkdir -p "${PKG_DIR}/usr/share/applications"
+          mkdir -p "${PKG_DIR}/DEBIAN"
+
+          cp kartoza-timesheet "${PKG_DIR}/usr/bin/"
+
+          # Desktop file
+          cat > "${PKG_DIR}/usr/share/applications/kartoza-timesheet.desktop" << 'DESKTOP'
+          [Desktop Entry]
+          Name=Kartoza Timesheet
+          Comment=Time tracking application for Kartoza
+          Exec=kartoza-timesheet
+          Terminal=false
+          Type=Application
+          Categories=Office;ProjectManagement;
+          DESKTOP
+
+          # Control file
+          cat > "${PKG_DIR}/DEBIAN/control" << CONTROL
+          Package: kartoza-timesheet
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libgl1, libx11-6, libxcursor1, libxrandr2, libxinerama1, libxi6
+          Maintainer: Tim Sutton <tim@kartoza.com>
+          Description: Kartoza Timesheet Application
+           A time tracking application with both TUI and GUI modes.
+           Features include project/task tracking, favourites, POW mode,
+           and integration with ERPNext timesheets.
+          CONTROL
+
+          dpkg-deb --build "${PKG_DIR}"
+          mv "${PKG_DIR}.deb" "release/deb/kartoza-timesheet_${VERSION}_amd64.deb"
 
       - name: Upload to release
         if: github.event_name == 'release'
@@ -73,94 +159,94 @@ jobs:
       contents: write
 
     steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y golang rpm-build git mesa-libGL-devel libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel libXi-devel libXxf86vm-devel gcc
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install build dependencies
-        run: |
-          dnf install -y golang rpm-build git
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Get version
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+        run: |
+          VERSION="${GITHUB_REF_NAME:-$(git describe --tags --always)}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build RPM package
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          VERSION=${VERSION#v}  # Remove 'v' prefix if present
-          mkdir -p release/rpm/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          # Create source tarball
-          tar --exclude='.git' --exclude='release' --exclude='build' \
-            -czf release/rpm/SOURCES/kartoza-timesheet-${VERSION}.tar.gz \
-            --transform "s,^,kartoza-timesheet-${VERSION}/," .
-          # Update spec file version
-          sed "s/Version:        0.3.1/Version:        ${VERSION}/" \
-            packaging/rpm/kartoza-timesheet.spec > release/rpm/SPECS/kartoza-timesheet.spec
-          # Build
-          rpmbuild --define "_topdir $(pwd)/release/rpm" \
-            -bb release/rpm/SPECS/kartoza-timesheet.spec
+
+          # Build binary
+          CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o kartoza-timesheet .
+
+          # Set up RPM build dirs
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+          # Copy binary to SOURCES
+          cp kartoza-timesheet ~/rpmbuild/SOURCES/
+
+          # Create spec file
+          cat > ~/rpmbuild/SPECS/kartoza-timesheet.spec << SPEC
+          Name:           kartoza-timesheet
+          Version:        ${VERSION}
+          Release:        1%{?dist}
+          Summary:        Kartoza Timesheet Application
+          License:        MIT
+          URL:            https://github.com/kartoza/go-timesheets-go
+          BuildArch:      x86_64
+
+          Requires:       mesa-libGL, libX11, libXcursor, libXrandr, libXinerama, libXi
+
+          %description
+          A time tracking application with both TUI and GUI modes.
+          Features include project/task tracking, favourites, POW mode,
+          and integration with ERPNext timesheets.
+
+          %install
+          mkdir -p %{buildroot}/usr/bin
+          mkdir -p %{buildroot}/usr/share/applications
+          cp %{_sourcedir}/kartoza-timesheet %{buildroot}/usr/bin/
+          cat > %{buildroot}/usr/share/applications/kartoza-timesheet.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=Kartoza Timesheet
+          Comment=Time tracking application for Kartoza
+          Exec=kartoza-timesheet
+          Terminal=false
+          Type=Application
+          Categories=Office;ProjectManagement;
+          DESKTOP
+
+          %files
+          /usr/bin/kartoza-timesheet
+          /usr/share/applications/kartoza-timesheet.desktop
+          SPEC
+
+          rpmbuild -bb ~/rpmbuild/SPECS/kartoza-timesheet.spec
+
+          mkdir -p release/rpm
+          cp ~/rpmbuild/RPMS/x86_64/*.rpm release/rpm/
 
       - name: Upload to release
         if: github.event_name == 'release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          find release/rpm/RPMS -name "*.rpm" -exec gh release upload ${{ github.event.release.tag_name }} {} --clobber \;
+          gh release upload ${{ github.event.release.tag_name }} release/rpm/*.rpm --clobber
 
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: rpm-package
-          path: release/rpm/RPMS/**/*.rpm
-          retention-days: 7
-
-  build-snap:
-    name: Build Snap Package
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get version
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
-
-      - name: Set up snapcraft
-        run: |
-          sudo snap install snapcraft --classic
-
-      - name: Build Snap
-        run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          VERSION=${VERSION#v}  # Remove 'v' prefix if present
-          cp packaging/snap/snapcraft.yaml .
-          # Update version in snapcraft.yaml
-          sed -i "s/version: '0.3.1'/version: '${VERSION}'/" snapcraft.yaml
-          mkdir -p release/snap
-          snapcraft --destructive-mode
-          mv *.snap release/snap/
-
-      - name: Upload to release
-        if: github.event_name == 'release'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload ${{ github.event.release.tag_name }} release/snap/*.snap --clobber
-
-      - name: Upload artifact
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: snap-package
-          path: release/snap/*.snap
+          path: release/rpm/*.rpm
           retention-days: 7
 
   build-flatpak:
@@ -175,31 +261,84 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install GL/X11 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
 
       - name: Install Flatpak dependencies
         run: |
-          sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08
-          flatpak install --user -y flathub org.freedesktop.Sdk.Extension.golang//23.08
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME:-$(git describe --tags --always)}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build Flatpak
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          VERSION=${VERSION#v}  # Remove 'v' prefix if present
+
+          # Build the binary first (outside flatpak, with CGO)
+          CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o kartoza-timesheet .
+
           mkdir -p release/flatpak
-          # Update version in manifest
-          sed -i "s/version=0.3.1/version=${VERSION}/" packaging/flatpak/com.kartoza.Timesheet.yml
-          # Build
-          cd packaging/flatpak
-          flatpak-builder --user --force-clean --repo=../../release/flatpak/repo \
-            ../../release/flatpak/build com.kartoza.Timesheet.yml
-          flatpak build-bundle ../../release/flatpak/repo \
-            ../../release/flatpak/kartoza-timesheet-${VERSION}.flatpak com.kartoza.Timesheet
+
+          # Create a simple flatpak manifest that bundles the pre-built binary
+          cat > /tmp/com.kartoza.Timesheet.yml << 'MANIFEST'
+          app-id: com.kartoza.Timesheet
+          runtime: org.freedesktop.Platform
+          runtime-version: '23.08'
+          sdk: org.freedesktop.Sdk
+          command: kartoza-timesheet
+
+          finish-args:
+            - --share=network
+            - --filesystem=home
+            - --socket=x11
+            - --socket=wayland
+            - --device=dri
+
+          modules:
+            - name: kartoza-timesheet
+              buildsystem: simple
+              build-commands:
+                - install -D -m 0755 kartoza-timesheet ${FLATPAK_DEST}/bin/kartoza-timesheet
+                - install -D -m 0644 com.kartoza.Timesheet.desktop ${FLATPAK_DEST}/share/applications/com.kartoza.Timesheet.desktop
+              sources:
+                - type: file
+                  path: kartoza-timesheet
+                - type: file
+                  path: com.kartoza.Timesheet.desktop
+          MANIFEST
+
+          # Create desktop file
+          cat > /tmp/com.kartoza.Timesheet.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=Kartoza Timesheet
+          Comment=Time tracking application for Kartoza
+          Exec=kartoza-timesheet
+          Terminal=false
+          Type=Application
+          Categories=Office;ProjectManagement;
+          DESKTOP
+
+          # Copy files to build dir
+          cp kartoza-timesheet /tmp/
+          cp /tmp/com.kartoza.Timesheet.desktop /tmp/
+
+          cd /tmp
+          flatpak-builder --user --force-clean --repo=repo build com.kartoza.Timesheet.yml
+          flatpak build-bundle repo "${GITHUB_WORKSPACE}/release/flatpak/kartoza-timesheet-${VERSION}.flatpak" com.kartoza.Timesheet
 
       - name: Upload to release
         if: github.event_name == 'release'
@@ -214,56 +353,6 @@ jobs:
         with:
           name: flatpak-package
           path: release/flatpak/*.flatpak
-          retention-days: 7
-
-  build-windows:
-    name: Build Windows Package
-    runs-on: windows-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
-      - name: Get version
-        id: version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
-
-      - name: Build Windows executable
-        shell: bash
-        run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          VERSION=${VERSION#v}
-          mkdir -p release/windows
-          # Build GUI version (no console window)
-          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui -X main.version=${VERSION}" -o release/windows/kartoza-timesheet.exe .
-          # Create ZIP archive
-          cd release/windows
-          7z a kartoza-timesheet-${VERSION}-windows-amd64.zip kartoza-timesheet.exe
-
-      - name: Upload to release
-        if: github.event_name == 'release'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload ${{ github.event.release.tag_name }} release/windows/*.zip --clobber
-
-      - name: Upload artifact
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-package
-          path: release/windows/*.zip
           retention-days: 7
 
   build-macos:
@@ -281,34 +370,36 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Get version
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+        run: |
+          VERSION="${GITHUB_REF_NAME:-$(git describe --tags --always)}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build macOS executables
+      - name: Build macOS binaries
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          VERSION=${VERSION#v}
           mkdir -p release/macos
 
-          # Build for Intel Macs (amd64)
-          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags="-X main.version=${VERSION}" -o release/macos/kartoza-timesheet-amd64 .
+          # Build for Apple Silicon (arm64) - native on macos-latest
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${VERSION}" -o release/macos/kartoza-timesheet-arm64 .
 
-          # Build for Apple Silicon (arm64)
-          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags="-X main.version=${VERSION}" -o release/macos/kartoza-timesheet-arm64 .
+          # Build for Intel (amd64)
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o release/macos/kartoza-timesheet-amd64 .
 
           # Create universal binary
           lipo -create -output release/macos/kartoza-timesheet release/macos/kartoza-timesheet-amd64 release/macos/kartoza-timesheet-arm64
 
-          # Create app bundle
-          mkdir -p "release/macos/Kartoza Timesheet.app/Contents/MacOS"
-          mkdir -p "release/macos/Kartoza Timesheet.app/Contents/Resources"
-          cp release/macos/kartoza-timesheet "release/macos/Kartoza Timesheet.app/Contents/MacOS/"
+          # Create .app bundle
+          APP_DIR="release/macos/Kartoza Timesheet.app/Contents"
+          mkdir -p "${APP_DIR}/MacOS"
+          mkdir -p "${APP_DIR}/Resources"
+          cp release/macos/kartoza-timesheet "${APP_DIR}/MacOS/"
 
-          # Create Info.plist
-          cat > "release/macos/Kartoza Timesheet.app/Contents/Info.plist" << 'PLIST'
+          cat > "${APP_DIR}/Info.plist" << PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -324,29 +415,27 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleVersion</key>
-              <string>VERSION_PLACEHOLDER</string>
+              <string>${VERSION}</string>
               <key>CFBundleShortVersionString</key>
-              <string>VERSION_PLACEHOLDER</string>
+              <string>${VERSION}</string>
               <key>LSMinimumSystemVersion</key>
-              <string>10.15</string>
+              <string>11.0</string>
               <key>NSHighResolutionCapable</key>
               <true/>
-              <key>LSUIElement</key>
-              <false/>
           </dict>
           </plist>
           PLIST
 
-          # Update version in plist
-          sed -i '' "s/VERSION_PLACEHOLDER/${VERSION}/g" "release/macos/Kartoza Timesheet.app/Contents/Info.plist"
-
           # Create DMG
-          hdiutil create -volname "Kartoza Timesheet" -srcfolder "release/macos/Kartoza Timesheet.app" -ov -format UDZO "release/macos/kartoza-timesheet-${VERSION}-macos-universal.dmg"
+          hdiutil create -volname "Kartoza Timesheet" \
+            -srcfolder "release/macos/Kartoza Timesheet.app" \
+            -ov -format UDZO \
+            "release/macos/kartoza-timesheet-${VERSION}-macos-universal.dmg"
 
-          # Also create tar.gz for Intel and ARM separately
+          # Also create tarballs
           cd release/macos
-          tar -czf kartoza-timesheet-${VERSION}-macos-amd64.tar.gz kartoza-timesheet-amd64
           tar -czf kartoza-timesheet-${VERSION}-macos-arm64.tar.gz kartoza-timesheet-arm64
+          tar -czf kartoza-timesheet-${VERSION}-macos-amd64.tar.gz kartoza-timesheet-amd64
 
       - name: Upload to release
         if: github.event_name == 'release'
@@ -365,9 +454,9 @@ jobs:
             release/macos/*.tar.gz
           retention-days: 7
 
-  build-linux-binary:
-    name: Build Linux Binary
-    runs-on: ubuntu-latest
+  build-windows:
+    name: Build Windows Package
+    runs-on: windows-latest
     permissions:
       contents: write
 
@@ -380,41 +469,37 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Get version
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME:-$(git describe --tags --always)}" >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME:-$(git describe --tags --always)}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build Linux executables
+      - name: Build Windows executable
+        shell: bash
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          VERSION=${VERSION#v}
-          mkdir -p release/linux
-
-          # Build for amd64
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-X main.version=${VERSION}" -o release/linux/kartoza-timesheet-linux-amd64 .
-
-          # Create tar.gz
-          cd release/linux
-          tar -czf kartoza-timesheet-${VERSION}-linux-amd64.tar.gz kartoza-timesheet-linux-amd64
+          mkdir -p release/windows
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui -X main.version=${VERSION}" -o release/windows/kartoza-timesheet.exe .
+          cd release/windows
+          7z a kartoza-timesheet-${VERSION}-windows-amd64.zip kartoza-timesheet.exe
 
       - name: Upload to release
         if: github.event_name == 'release'
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.event.release.tag_name }} release/linux/*.tar.gz --clobber
+          gh release upload ${{ github.event.release.tag_name }} release/windows/*.zip --clobber
 
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: linux-binary
-          path: release/linux/*.tar.gz
+          name: windows-package
+          path: release/windows/*.zip
           retention-days: 7
