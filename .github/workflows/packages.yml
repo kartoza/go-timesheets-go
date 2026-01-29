@@ -94,12 +94,14 @@ jobs:
       - name: Build Debian package
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
+          # For deb, version must be numeric - fallback to 0.0.0 if not
+          if ! echo "$VERSION" | grep -qE '^[0-9]'; then
+            VERSION="0.0.0~${VERSION}"
+          fi
           mkdir -p release/deb
 
-          # Build the binary directly (simpler than dpkg-buildpackage with CGO deps)
           CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o kartoza-timesheet .
 
-          # Create deb package structure
           PKG_DIR="release/deb/kartoza-timesheet-${VERSION}"
           mkdir -p "${PKG_DIR}/usr/bin"
           mkdir -p "${PKG_DIR}/usr/share/applications"
@@ -107,8 +109,7 @@ jobs:
 
           cp kartoza-timesheet "${PKG_DIR}/usr/bin/"
 
-          # Desktop file
-          cat > "${PKG_DIR}/usr/share/applications/kartoza-timesheet.desktop" << 'DESKTOP'
+          cat > "${PKG_DIR}/usr/share/applications/kartoza-timesheet.desktop" << 'EOF'
           [Desktop Entry]
           Name=Kartoza Timesheet
           Comment=Time tracking application for Kartoza
@@ -116,22 +117,10 @@ jobs:
           Terminal=false
           Type=Application
           Categories=Office;ProjectManagement;
-          DESKTOP
+          EOF
 
-          # Control file
-          cat > "${PKG_DIR}/DEBIAN/control" << CONTROL
-          Package: kartoza-timesheet
-          Version: ${VERSION}
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Depends: libgl1, libx11-6, libxcursor1, libxrandr2, libxinerama1, libxi6
-          Maintainer: Tim Sutton <tim@kartoza.com>
-          Description: Kartoza Timesheet Application
-           A time tracking application with both TUI and GUI modes.
-           Features include project/task tracking, favourites, POW mode,
-           and integration with ERPNext timesheets.
-          CONTROL
+          # Control file - no leading whitespace allowed
+          printf 'Package: kartoza-timesheet\nVersion: %s\nSection: utils\nPriority: optional\nArchitecture: amd64\nDepends: libgl1, libx11-6, libxcursor1, libxrandr2, libxinerama1, libxi6\nMaintainer: Tim Sutton <tim@kartoza.com>\nDescription: Kartoza Timesheet Application\n A time tracking application with both TUI and GUI modes.\n Features include project/task tracking, favourites, POW mode,\n and integration with ERPNext timesheets.\n' "$VERSION" > "${PKG_DIR}/DEBIAN/control"
 
           dpkg-deb --build "${PKG_DIR}"
           mv "${PKG_DIR}.deb" "release/deb/kartoza-timesheet_${VERSION}_amd64.deb"
@@ -183,32 +172,31 @@ jobs:
       - name: Build RPM package
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
+          # RPM version must be numeric
+          RPM_VERSION="$VERSION"
+          if ! echo "$RPM_VERSION" | grep -qE '^[0-9]'; then
+            RPM_VERSION="0.0.0"
+          fi
 
-          # Build binary
-          CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${VERSION}" -o kartoza-timesheet .
+          # Build binary (disable VCS stamping - not available in container)
+          CGO_ENABLED=1 GOFLAGS=-buildvcs=false go build -ldflags="-s -w -X main.version=${VERSION}" -o kartoza-timesheet .
 
-          # Set up RPM build dirs
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-
-          # Copy binary to SOURCES
           cp kartoza-timesheet ~/rpmbuild/SOURCES/
 
-          # Create spec file
+          # Create spec file with no leading whitespace
           cat > ~/rpmbuild/SPECS/kartoza-timesheet.spec << SPEC
           Name:           kartoza-timesheet
-          Version:        ${VERSION}
+          Version:        ${RPM_VERSION}
           Release:        1%{?dist}
           Summary:        Kartoza Timesheet Application
           License:        MIT
           URL:            https://github.com/kartoza/go-timesheets-go
           BuildArch:      x86_64
-
           Requires:       mesa-libGL, libX11, libXcursor, libXrandr, libXinerama, libXi
 
           %description
           A time tracking application with both TUI and GUI modes.
-          Features include project/task tracking, favourites, POW mode,
-          and integration with ERPNext timesheets.
 
           %install
           mkdir -p %{buildroot}/usr/bin
@@ -332,9 +320,8 @@ jobs:
           Categories=Office;ProjectManagement;
           DESKTOP
 
-          # Copy files to build dir
+          # Copy binary to build dir (desktop file already in /tmp)
           cp kartoza-timesheet /tmp/
-          cp /tmp/com.kartoza.Timesheet.desktop /tmp/
 
           cd /tmp
           flatpak-builder --user --force-clean --repo=repo build com.kartoza.Timesheet.yml
