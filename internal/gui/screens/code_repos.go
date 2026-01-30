@@ -316,7 +316,7 @@ func (s *CodeReposScreen) showRepoDialog(index int, existing *models.CodeRepoAss
 		container.NewCenter(titleText),
 		widget.NewSeparator(),
 		projectLabel,
-		projectSelect,
+		projectSelect.Entry,
 		repoLabel,
 		repoEntry,
 		layout.NewSpacer(),

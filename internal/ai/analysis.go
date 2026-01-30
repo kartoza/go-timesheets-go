@@ -71,6 +71,9 @@ func (a *TimesheetAnalyzer) Analyze(query string, entries []EntryInfo) *QueryRes
 	if result := a.analyzeSessionLength(q, entries); result != nil {
 		return result
 	}
+	if result := a.analyzeOldestNewestProject(q, entries); result != nil {
+		return result
+	}
 
 	return nil
 }
@@ -96,6 +99,8 @@ func (a *TimesheetAnalyzer) IsAnalyticalQuery(query string) bool {
 		"most productive", "productive day",
 		"session length", "average session", "avg session",
 		"never have time", "never logged", "no time logged",
+		"oldest project", "first project", "earliest project", "earliest entry",
+		"newest project", "latest project", "most recent project",
 	}
 	for _, kw := range analyticalKeywords {
 		if strings.Contains(q, kw) {
@@ -1364,6 +1369,104 @@ func (a *TimesheetAnalyzer) analyzeSessionLength(query string, entries []EntryIn
 		Analysis: &AnalysisResult{
 			Title:   "Session Length Analysis",
 			Summary: fmt.Sprintf("Average session is %.1fh (median %.1fh) across %d entries.", avg, median, len(durations)),
+			Details: details,
+		},
+	}
+}
+
+// analyzeOldestNewestProject handles "oldest/first/earliest project" and "newest/latest/most recent project" queries
+func (a *TimesheetAnalyzer) analyzeOldestNewestProject(query string, entries []EntryInfo) *QueryResult {
+	isOldest := strings.Contains(query, "oldest") || strings.Contains(query, "first project") ||
+		strings.Contains(query, "earliest")
+	isNewest := strings.Contains(query, "newest") || strings.Contains(query, "latest project") ||
+		strings.Contains(query, "most recent project")
+
+	if !isOldest && !isNewest {
+		return nil
+	}
+
+	if len(entries) == 0 {
+		return &QueryResult{
+			Type:     ResultAnalysis,
+			Analysis: &AnalysisResult{Title: "Project Timeline", Summary: "No entries to analyze."},
+		}
+	}
+
+	// Find first and last entry per project
+	type projectTimeline struct {
+		name       string
+		firstEntry time.Time
+		lastEntry  time.Time
+		totalHours float64
+		entryCount int
+	}
+	projects := make(map[string]*projectTimeline)
+	for _, e := range entries {
+		pt, ok := projects[e.ProjectName]
+		if !ok {
+			pt = &projectTimeline{
+				name:       e.ProjectName,
+				firstEntry: e.StartTime,
+				lastEntry:  e.StartTime,
+			}
+			projects[e.ProjectName] = pt
+		}
+		if e.StartTime.Before(pt.firstEntry) {
+			pt.firstEntry = e.StartTime
+		}
+		if e.StartTime.After(pt.lastEntry) {
+			pt.lastEntry = e.StartTime
+		}
+		pt.totalHours += e.Hours
+		pt.entryCount++
+	}
+
+	var sorted []*projectTimeline
+	for _, pt := range projects {
+		sorted = append(sorted, pt)
+	}
+
+	if isOldest {
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].firstEntry.Before(sorted[j].firstEntry)
+		})
+	} else {
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].lastEntry.After(sorted[j].lastEntry)
+		})
+	}
+
+	var details []AnalysisDetail
+	limit := 10
+	if len(sorted) < limit {
+		limit = len(sorted)
+	}
+	for _, pt := range sorted[:limit] {
+		dateLabel := pt.firstEntry.Format("2006-01-02")
+		if isNewest {
+			dateLabel = pt.lastEntry.Format("2006-01-02")
+		}
+		details = append(details, AnalysisDetail{
+			Label: pt.name,
+			Value: fmt.Sprintf("%s, %.1fh total, %d entries", dateLabel, pt.totalHours, pt.entryCount),
+		})
+	}
+
+	title := "Oldest Projects"
+	top := sorted[0]
+	summary := fmt.Sprintf("Oldest project is \"%s\" with first entry on %s (%.1fh total across %d entries).",
+		top.name, top.firstEntry.Format("2006-01-02"), top.totalHours, top.entryCount)
+	if isNewest {
+		title = "Most Recent Projects"
+		summary = fmt.Sprintf("Most recent project is \"%s\" with latest entry on %s (%.1fh total across %d entries).",
+			top.name, top.lastEntry.Format("2006-01-02"), top.totalHours, top.entryCount)
+	}
+
+	return &QueryResult{
+		Type: ResultAnalysis,
+		Analysis: &AnalysisResult{
+			Title:   title,
+			Summary: summary,
 			Details: details,
 		},
 	}

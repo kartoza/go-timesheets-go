@@ -35,6 +35,10 @@ type TimesheetAssistant struct {
 	// Query log path
 	queryLogPath string
 
+	// CSV import data for LLM prompt enrichment and analytical queries
+	historySummary *HistorySummary
+	csvEntries    []EntryInfo
+
 	mu sync.RWMutex
 }
 
@@ -158,7 +162,15 @@ func (a *TimesheetAssistant) Query(query string) (*QueryResult, error) {
 
 	// Step 1: Check if this is an analytical query - handle locally without LLM
 	if a.analyzer.IsAnalyticalQuery(query) {
-		result := a.analyzer.Analyze(query, ctx.Entries)
+		// Merge API entries with CSV history for comprehensive analysis
+		allEntries := ctx.Entries
+		a.mu.RLock()
+		csvEntries := a.csvEntries
+		a.mu.RUnlock()
+		if len(csvEntries) > 0 {
+			allEntries = append(allEntries, csvEntries...)
+		}
+		result := a.analyzer.Analyze(query, allEntries)
 		if result != nil {
 			return result, nil
 		}
@@ -213,7 +225,7 @@ func (a *TimesheetAssistant) Query(query string) (*QueryResult, error) {
 // queryEmbeddedLLM queries the embedded llama.cpp model
 func (a *TimesheetAssistant) queryEmbeddedLLM(query string, ctx *TimesheetContext) (*QueryResult, error) {
 	// Build a prompt similar to the Ollama prompt
-	prompt := buildLLMPrompt(query, ctx)
+	prompt := buildLLMPrompt(query, ctx, a.historySummary)
 
 	response, err := a.embeddedLLM.Generate(prompt)
 	if err != nil {
@@ -225,7 +237,7 @@ func (a *TimesheetAssistant) queryEmbeddedLLM(query string, ctx *TimesheetContex
 
 // queryOllama queries the Ollama LLM server
 func (a *TimesheetAssistant) queryOllama(query string, ctx *TimesheetContext) (*QueryResult, error) {
-	response, err := a.ollamaClient.QueryTimesheets(query, ctx)
+	response, err := a.ollamaClient.QueryTimesheets(query, ctx, a.historySummary)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +265,7 @@ func parseLLMResponse(response string, ctx *TimesheetContext) *QueryResult {
 }
 
 // buildLLMPrompt creates the prompt for either embedded or Ollama LLM
-func buildLLMPrompt(query string, ctx *TimesheetContext) string {
+func buildLLMPrompt(query string, ctx *TimesheetContext, historySummary *HistorySummary) string {
 	var sb strings.Builder
 
 	sb.WriteString("You are a timesheet assistant for Kartoza, a geospatial open source company. ")
@@ -298,6 +310,11 @@ func buildLLMPrompt(query string, ctx *TimesheetContext) string {
 			sb.WriteString(fmt.Sprintf("- %s\n", act.Name))
 		}
 		sb.WriteString("\n")
+	}
+
+	// Include historical work patterns if available
+	if historySummary != nil {
+		sb.WriteString(historySummary.FormatForPrompt())
 	}
 
 	sb.WriteString("USER QUESTION: " + query + "\n\n")
@@ -388,6 +405,91 @@ func (a *TimesheetAssistant) TrainFromHistoryAsync(entries []EntryInfo, callback
 		return
 	}
 	a.nnTrainer.TrainAsync(entries, callback)
+}
+
+// TrainFromCSV imports CSV history data, trains the NN, and builds a history summary for LLM prompts.
+func (a *TimesheetAssistant) TrainFromCSV(csvPath string) error {
+	entries, err := ImportCSVHistory(csvPath)
+	if err != nil {
+		return fmt.Errorf("CSV import failed: %w", err)
+	}
+
+	if len(entries) == 0 {
+		return fmt.Errorf("no entries found in CSV")
+	}
+
+	// Build history summary for LLM prompt enrichment
+	summary := BuildHistorySummary(entries)
+	a.mu.Lock()
+	a.historySummary = summary
+	a.csvEntries = entries
+	a.mu.Unlock()
+
+	// Merge with existing API entries if available
+	a.mu.RLock()
+	ctx := a.context
+	a.mu.RUnlock()
+
+	allEntries := entries
+	if ctx != nil && len(ctx.Entries) > 0 {
+		allEntries = append(allEntries, ctx.Entries...)
+	}
+
+	// Train the neural network on the combined dataset
+	if a.nnTrainer != nil {
+		return a.nnTrainer.Train(allEntries)
+	}
+
+	return nil
+}
+
+// TrainFromCSVAsync trains from CSV history asynchronously
+func (a *TimesheetAssistant) TrainFromCSVAsync(csvPath string, callback func(int, error)) {
+	go func() {
+		entries, err := ImportCSVHistory(csvPath)
+		if err != nil {
+			if callback != nil {
+				callback(0, fmt.Errorf("CSV import failed: %w", err))
+			}
+			return
+		}
+
+		if len(entries) == 0 {
+			if callback != nil {
+				callback(0, fmt.Errorf("no entries found in CSV"))
+			}
+			return
+		}
+
+		summary := BuildHistorySummary(entries)
+		a.mu.Lock()
+		a.historySummary = summary
+		a.csvEntries = entries
+		a.mu.Unlock()
+
+		allEntries := entries
+		a.mu.RLock()
+		ctx := a.context
+		a.mu.RUnlock()
+		if ctx != nil && len(ctx.Entries) > 0 {
+			allEntries = append(allEntries, ctx.Entries...)
+		}
+
+		if a.nnTrainer != nil {
+			err = a.nnTrainer.Train(allEntries)
+		}
+
+		if callback != nil {
+			callback(len(entries), err)
+		}
+	}()
+}
+
+// GetHistorySummary returns the history summary from CSV import
+func (a *TimesheetAssistant) GetHistorySummary() *HistorySummary {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.historySummary
 }
 
 // SetUseOllama enables or disables Ollama

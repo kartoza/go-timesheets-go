@@ -12,6 +12,7 @@ type SettingsMenuItem int
 const (
 	SettingsEditFavourites SettingsMenuItem = iota
 	SettingsCodeRepos
+	SettingsImportCSV
 	SettingsLogOut
 	SettingsBack
 )
@@ -335,6 +336,7 @@ func (m *SettingsModel) updateMenuItems() {
 	m.menuItems = []settingsMenuItem{
 		{label: "Edit Favourites", action: SettingsEditFavourites},
 		{label: "Manage Code Repos", action: SettingsCodeRepos},
+		{label: "Import CSV History", action: SettingsImportCSV},
 		{label: "Log Out", action: SettingsLogOut},
 		{label: "← Back to Main Menu", action: SettingsBack},
 	}
@@ -355,6 +357,9 @@ func (m *SettingsModel) handleMenuSelection() (*SettingsModel, tea.Cmd) {
 	case SettingsCodeRepos:
 		return m, func() tea.Msg { return launchCodeReposMsg{} }
 
+	case SettingsImportCSV:
+		return m, func() tea.Msg { return launchImportCSVMsg{} }
+
 	case SettingsLogOut:
 		m.confirmLogout = true
 		m.logoutConfirmSelection = 1 // Default to "No"
@@ -369,3 +374,4 @@ func (m *SettingsModel) handleMenuSelection() (*SettingsModel, tea.Cmd) {
 
 // Message types for settings
 type settingsLogoutConfirmedMsg struct{}
+type launchImportCSVMsg struct{}

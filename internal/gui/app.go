@@ -72,9 +72,15 @@ func (a *App) Run() error {
 		a.hideWindow()
 	})
 
-	// Global ESC key handler - navigate back to previous screen
+	// Global ESC key handler - close popup if open, otherwise navigate back
 	a.window.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
 		if ev.Name == fyne.KeyEscape {
+			// Check if there's a modal popup overlay to close first
+			overlays := a.window.Canvas().Overlays()
+			if overlays != nil && overlays.Top() != nil {
+				overlays.Top().Hide()
+				return
+			}
 			a.navigateBack()
 		}
 	})

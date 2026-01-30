@@ -62,8 +62,15 @@ func (t *KartozaTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant
 		return ColorDarkGray
 	case theme.ColorNameShadow:
 		return color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x66}
+	case theme.ColorNameMenuBackground:
+		return color.NRGBA{R: 0x2A, G: 0x2A, B: 0x2A, A: 0xFF}
+	case theme.ColorNameOverlayBackground:
+		return color.NRGBA{R: 0x2A, G: 0x2A, B: 0x2A, A: 0xFF}
+	case theme.ColorNameHeaderBackground:
+		return color.NRGBA{R: 0x2A, G: 0x2A, B: 0x2A, A: 0xFF}
 	default:
-		return theme.DefaultTheme().Color(name, variant)
+		// Force dark variant for any unhandled color names
+		return theme.DefaultTheme().Color(name, theme.VariantDark)
 	}
 }
 

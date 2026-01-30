@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/kartoza/go-timesheets-go/internal/ai"
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/monitoring"
@@ -52,6 +53,7 @@ type AppWithAuth struct {
 	monitoringServer   *monitoring.Server
 	metrics            *monitoring.Metrics
 	powCapturer        *pow.Capturer
+	statusMessage      string
 }
 
 // NewAppWithAuth creates a new app with authentication
@@ -391,6 +393,36 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = StateHistoryView
 		return a, a.historyView.Init()
 
+	case launchImportCSVMsg:
+		// Import CSV history for AI training
+		return a, func() tea.Msg {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return csvImportResultMsg{err: err}
+			}
+			csvPath := filepath.Join(homeDir, "Downloads", "Timesheet.csv")
+			assistant := ai.NewTimesheetAssistant()
+			defer assistant.Close()
+			trainErr := assistant.TrainFromCSV(csvPath)
+			if trainErr != nil {
+				return csvImportResultMsg{err: trainErr}
+			}
+			summary := assistant.GetHistorySummary()
+			count := 0
+			if summary != nil {
+				count = summary.TotalEntries
+			}
+			return csvImportResultMsg{count: count}
+		}
+
+	case csvImportResultMsg:
+		if msg.err != nil {
+			a.statusMessage = "CSV import failed: " + msg.err.Error()
+		} else {
+			a.statusMessage = fmt.Sprintf("Imported %d entries and trained AI model", msg.count)
+		}
+		return a, nil
+
 	case launchCodeReposMsg:
 		// Transition to code repos view
 		codeReposView := NewCodeReposModel(a.apiClient)
@@ -514,6 +546,10 @@ type launchSettingsMsg struct{}
 type launchOfficeViewMsg struct{}
 type officeFinishedMsg struct{}
 type backToMenuMsg struct{}
+type csvImportResultMsg struct {
+	count int
+	err   error
+}
 
 // getHeaderState returns the current header state from the main menu
 func (a *AppWithAuth) getHeaderState() *HeaderState {

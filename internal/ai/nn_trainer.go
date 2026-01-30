@@ -139,44 +139,84 @@ func (t *NNTrainer) TrainAsync(entries []EntryInfo, callback func(error)) {
 // buildTrainingPairs converts timesheet entries into training pairs.
 // Each unique project/task/activity combination becomes a training document,
 // with the description and combination name as text features.
+// For description-only entries (e.g. from CSV import without project/task names),
+// each unique description also becomes a training document.
 func (t *NNTrainer) buildTrainingPairs(entries []EntryInfo) []TrainingPair {
 	// Deduplicate by project+task+activity
 	type key struct {
 		project, task, activity string
 	}
 	seen := make(map[key]bool)
+	seenDesc := make(map[string]bool)
 	var pairs []TrainingPair
 
 	for _, e := range entries {
-		k := key{e.ProjectName, e.TaskName, e.ActivityName}
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
+		hasStructuredData := e.ProjectName != "" || e.TaskName != "" || e.ActivityName != ""
 
-		label := e.ProjectName
-		if e.TaskName != "" {
-			label += " " + e.TaskName
-		}
-		if e.ActivityName != "" {
-			label += " " + e.ActivityName
-		}
+		if hasStructuredData {
+			k := key{e.ProjectName, e.TaskName, e.ActivityName}
+			if !seen[k] {
+				seen[k] = true
 
-		// Use description as the query if available
-		query := label
-		if e.Description != "" {
-			query = e.Description
-		}
+				label := e.ProjectName
+				if e.TaskName != "" {
+					label += " " + e.TaskName
+				}
+				if e.ActivityName != "" {
+					label += " " + e.ActivityName
+				}
 
-		pairs = append(pairs, TrainingPair{
-			Query: query,
-			Label: label,
-			Match: TimesheetMatch{
-				ProjectName:  e.ProjectName,
-				TaskName:     e.TaskName,
-				ActivityName: e.ActivityName,
-			},
-		})
+				// Use description as the query if available
+				query := label
+				if e.Description != "" {
+					query = e.Description
+				}
+
+				pairs = append(pairs, TrainingPair{
+					Query: query,
+					Label: label,
+					Match: TimesheetMatch{
+						ProjectName:  e.ProjectName,
+						TaskName:     e.TaskName,
+						ActivityName: e.ActivityName,
+					},
+				})
+			}
+
+			// Also add description-keyed pairs for structured entries
+			// to expand vocabulary with multiple descriptions per combination
+			if e.Description != "" && e.Description != "-" && !seenDesc[e.Description] {
+				seenDesc[e.Description] = true
+				label := e.ProjectName
+				if e.TaskName != "" {
+					label += " " + e.TaskName
+				}
+				if e.ActivityName != "" {
+					label += " " + e.ActivityName
+				}
+				pairs = append(pairs, TrainingPair{
+					Query: e.Description,
+					Label: label,
+					Match: TimesheetMatch{
+						ProjectName:  e.ProjectName,
+						TaskName:     e.TaskName,
+						ActivityName: e.ActivityName,
+					},
+				})
+			}
+		} else if e.Description != "" && e.Description != "-" {
+			// Description-only entry (e.g. from CSV import)
+			if !seenDesc[e.Description] {
+				seenDesc[e.Description] = true
+				pairs = append(pairs, TrainingPair{
+					Query: e.Description,
+					Label: e.Description,
+					Match: TimesheetMatch{
+						ProjectName: e.ProjectName, // May be customer name from CSV
+					},
+				})
+			}
+		}
 	}
 
 	return pairs

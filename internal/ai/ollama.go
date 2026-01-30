@@ -80,8 +80,8 @@ func (c *OllamaClient) SetModel(model string) {
 
 // QueryTimesheets sends a natural language query to Ollama with timesheet context
 // and returns a structured response
-func (c *OllamaClient) QueryTimesheets(query string, ctx *TimesheetContext) (string, error) {
-	prompt := c.buildTimesheetPrompt(query, ctx)
+func (c *OllamaClient) QueryTimesheets(query string, ctx *TimesheetContext, historySummary *HistorySummary) (string, error) {
+	prompt := c.buildTimesheetPrompt(query, ctx, historySummary)
 	return c.generate(prompt)
 }
 
@@ -131,7 +131,7 @@ func (c *OllamaClient) generate(prompt string) (string, error) {
 }
 
 // buildTimesheetPrompt creates the prompt with timesheet context
-func (c *OllamaClient) buildTimesheetPrompt(query string, ctx *TimesheetContext) string {
+func (c *OllamaClient) buildTimesheetPrompt(query string, ctx *TimesheetContext, historySummary *HistorySummary) string {
 	var sb strings.Builder
 
 	sb.WriteString("You are a timesheet assistant for Kartoza, a geospatial open source company. ")
@@ -195,6 +195,11 @@ func (c *OllamaClient) buildTimesheetPrompt(query string, ctx *TimesheetContext)
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
+	}
+
+	// Include historical work patterns if available
+	if historySummary != nil {
+		sb.WriteString(historySummary.FormatForPrompt())
 	}
 
 	sb.WriteString("USER QUESTION: " + query + "\n\n")

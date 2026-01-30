@@ -139,7 +139,7 @@ func (s *HistoryScreen) createEntryCard() fyne.CanvasObject {
 
 	descLabel := widget.NewLabel("Description")
 	descLabel.TextStyle = fyne.TextStyle{Italic: true}
-	descLabel.Truncation = fyne.TextTruncateEllipsis
+	descLabel.Wrapping = fyne.TextWrapWord
 
 	return container.NewVBox(
 		container.NewHBox(
@@ -550,11 +550,11 @@ func (s *HistoryScreen) showEntryDetail(index int) {
 		container.NewCenter(title),
 		widget.NewSeparator(),
 		widget.NewLabel("Project *"),
-		projectSelect,
+		projectSelect.Entry,
 		widget.NewLabel("Task"),
-		taskSelect,
+		taskSelect.Entry,
 		widget.NewLabel("Activity *"),
-		activitySelect,
+		activitySelect.Entry,
 		widget.NewLabel("Description"),
 		descContainer,
 		dateTimeRow,
