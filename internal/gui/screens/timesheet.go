@@ -170,11 +170,11 @@ func (s *TimesheetScreen) build() {
 		container.NewCenter(title),
 		widget.NewSeparator(),
 		widget.NewLabel("Project *"),
-		s.projectSelect.Entry,
+		s.projectSelect,
 		widget.NewLabel("Task"),
-		s.taskSelect.Entry,
+		s.taskSelect.Select,
 		widget.NewLabel("Activity *"),
-		s.activitySelect.Entry,
+		s.activitySelect.Select,
 		widget.NewLabel("Description"),
 		s.descEntry,
 		dateTimeRow,
@@ -379,4 +379,10 @@ func (s *TimesheetScreen) Reset() {
 	s.startTimeEntry.SetText(time.Now().Format("15:04"))
 	s.endTimeEntry.SetText("")
 	s.clearError()
+}
+
+// SetDateAndTime sets the date and start time fields (used when filling gaps)
+func (s *TimesheetScreen) SetDateAndTime(date time.Time, startTime time.Time) {
+	s.dateEntry.SetText(date.Format("2006-01-02"))
+	s.startTimeEntry.SetText(startTime.Format("15:04"))
 }

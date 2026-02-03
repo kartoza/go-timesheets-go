@@ -1408,3 +1408,357 @@ Actions taken:
 - Updated createEntryCard() to include descLabel with italic style and fyne.TextTruncateEllipsis
 - Updated updateEntryCard() to populate description from entry.Description
 - User note: TUI and GUI should stay in lock step, share non-UI code (DRY)
+
+## 2026-01-27: Integrate AI assistant (llama.cpp, neural network, fuzzy matching)
+
+**Prompt:** Continue from previous session - integrate llama.cpp and Go neural network from kartoza-pg-ai into the timesheet app for AI-powered project/task/activity discovery and timesheet analytics. Support analytical queries like "which projects did I work on last week?", "how consistent was my timekeeping?", etc.
+
+**Actions taken:**
+- Created TUI AI assistant screen (internal/tui/ai_assistant.go) with Bubbletea model
+- Wired AI assistant into TUI navigation (StateAIAssistant in app_with_auth.go, 'a' keyboard shortcut)
+- Wired AI assistant into GUI navigation (showAIAssistant in app.go, AI button on dashboard)
+- Added OnAIAssistant callback to DashboardScreen
+- Added ESC key navigation for AI assistant screen
+- All packages compile cleanly (go build ./... passes)
+- All tests pass (go test ./... passes)
+- Updated CHANGELOG.md with AI Assistant feature details
+- Updated README.md features list
+
+**Files created (previous session, continued here):**
+- internal/ai/types.go - Shared AI types
+- internal/ai/analysis.go - Timesheet analytics (consistency, project breakdown, etc.)
+- internal/ai/matcher.go - Fuzzy string matching
+- internal/ai/ollama.go - Ollama HTTP REST client
+- internal/ai/engine.go - Main AI engine with 4-level fallback chain
+- internal/ai/nn_tokenizer.go - Word tokenizer for NN
+- internal/ai/nn_model.go - TF-IDF cosine similarity model
+- internal/ai/nn_trainer.go - NN trainer from timesheet history
+- internal/ai/embedded_llm.go - llama.cpp integration (build tag: llamacpp)
+- internal/ai/embedded_llm_stub.go - No-op stubs (build tag: !llamacpp)
+- internal/gui/screens/ai_assistant.go - GUI AI assistant screen (Fyne)
+- internal/tui/ai_assistant.go - TUI AI assistant screen (Bubbletea)
+
+**Files modified:**
+- internal/tui/app_with_auth.go - Added StateAIAssistant, aiAssistantView, message handlers
+- internal/tui/main_menu.go - Added 'a' keyboard shortcut, updated help text
+- internal/gui/app.go - Added aiAssistantScreen, showAIAssistant(), startTimerFromAI()
+- internal/gui/screens/dashboard.go - Added OnAIAssistant callback, AI button
+- CHANGELOG.md - Added AI Assistant section
+- README.md - Added AI Assistant to features list
+
+=== 2026-01-28 - Time/Timestamp Handling Analysis ===
+User request: Search the codebase for how time/timestamps are handled. Look for:
+1. All uses of time.Now(), time.Parse, time.Format, time.UTC, time.Local
+2. How TimeEntry structs store start/end times (what format, UTC or local?)
+3. How the API/web layer handles timestamps
+4. How JSON serialization of times works
+5. Any timezone-related code
+
+=== 2026-01-28 - Convert Time Storage to UTC and User Input Parsing to Local-then-UTC ===
+User request: Convert time storage to UTC and user input parsing to local-then-UTC. Apply specific rules:
+1. time.Now() used for StartTime/EndTime on entries → change to time.Now().UTC()
+2. time.Parse("2006-01-02 15:04", str) for user input → change to time.ParseInLocation("2006-01-02 15:04", str, time.Local) then add .UTC() conversion before storage/API
+3. Display formatting of stored UTC times to users → add .Local() before .Format()
+4. time.Now() used for display fields (pre-filling date/time inputs) → keep as local (no change)
+5. time.Now() used for "today" boundary calculations for filtering → keep as local (no change)
+
+**Actions taken:**
+- Updated 32 time.Now() calls used for entry timestamps to time.Now().UTC()
+- Updated 14 time.Parse() calls for user input to time.ParseInLocation() with time.Local, then added .UTC() conversion
+- Modified files:
+  - internal/tui/favourites.go (2 changes: lines 1381, 1447)
+  - internal/tui/main_menu.go (2 changes: lines 856, 1331)
+  - internal/tui/ai_assistant.go (1 change: line 632)
+  - internal/tui/timesheet.go (8 changes: lines 1106, 1110+1115, 1123+1129, 1223+1229, 1233+1240, 1235, 1238)
+  - internal/tui/history.go (7 changes: lines 524+528, 534+539, 1824, 1835+1838, 1842+1845, 1846)
+  - internal/gui/screens/timesheet.go (3 changes: lines 261, 263+268, 274+279)
+  - internal/gui/screens/dashboard.go (4 changes: lines 409+416, 418+426, 631, 801)
+  - internal/gui/screens/history.go (3 changes: lines 454+461, 466+474, 683)
+  - internal/gui/app.go (1 change: line 334)
+  - internal/service/timesheet.go (1 change: line 222)
+
+**Result:**
+All time entries are now stored in UTC format internally. User input is parsed in local timezone then converted to UTC before storage. This ensures consistent time handling across different timezones and prepares the codebase for proper timezone-aware display formatting.
+
+================================================================================
+Date: 2026-01-28
+Prompt: "is my application timezone aware? if not can you make it so that users do not get any strange experiences e.g. if they start a clock using the web site and then stop it using the desktop app, there should not be any inconsistency and it should properly reflect the hours"
+
+**Analysis:**
+The application was NOT timezone-aware. Critical bug: `time.Now()` (local time) was used everywhere but the API was told `"timezone": "UTC"` — causing hour offsets equal to the user's UTC offset.
+
+**Changes made (Store UTC, Display Local):**
+
+1. **internal/models/models.go** - All `time.Now()` → `time.Now().UTC()` in NewProject, NewTask, NewTimeEntry, Stop
+2. **internal/api/client.go** - Defensive `.UTC()` on all time formatting before API calls; `StartTime()`/`EndTime()` display methods now return `.Local()` for user display
+3. **cmd/start.go** - `StartTime: time.Now().UTC()`; display with `.Local()`
+4. **cmd/stop.go** - `endTime := time.Now().UTC()`; display with `.Local()`
+5. **cmd/status.go** - Display StartTime with `.Local()`
+6. **internal/tui/timesheet.go** - `time.Parse` → `time.ParseInLocation` with `.UTC()` conversion; fallbacks to `.UTC()`
+7. **internal/tui/history.go** - Same ParseInLocation pattern; display helper uses `.Local()`
+8. **internal/tui/favourites.go** - `time.Now().UTC()` for StartTime/EndTime
+9. **internal/tui/main_menu.go** - `time.Now().UTC()` for StartTime/EndTime
+10. **internal/tui/ai_assistant.go** - `time.Now().UTC()` for StartTime
+11. **internal/tui/enhanced_app.go** - Date grouping uses `.Local()` for display
+12. **internal/gui/screens/timesheet.go** - ParseInLocation + UTC; time.Now().UTC()
+13. **internal/gui/screens/dashboard.go** - ParseInLocation + UTC; display with `.Local()`
+14. **internal/gui/screens/history.go** - ParseInLocation + UTC; display with `.Local()`
+15. **internal/gui/app.go** - `time.Now().UTC()`
+16. **internal/gui/systray.go** - Display with `.Local()`
+17. **internal/gui/widgets/time_entry_card.go** - Display with `.Local()`
+18. **internal/service/timesheet.go** - `SubmittedAt: time.Now().UTC()`
+
+**Result:** Build passes, all tests pass. Times are now consistently UTC internally and local for display.
+
+================================================================================
+Date: 2026-01-28
+Prompt: "the gui ai screen has jumbled text down below with the prompt hints. Also after typing text in the prompt box, pressing enter should submit. Also please extend the llama.cpp language model to have extensive knowledge on the domain of time tracking, time sheet reporting and analysis, intra-team timesheet comparison etc."
+
+**Changes made:**
+
+1. **GUI AI Screen layout fix** (`internal/gui/screens/ai_assistant.go`):
+   - Changed from `GridWrap(220px)` to `GridWithColumns(2)` for example buttons - prevents overlap
+   - Moved examples above results area using `NewBorder` layout - examples at top, results fill remaining space
+   - Removed `layout.NewSpacer()` that caused layout instability
+
+2. **Enter key submission** (`internal/gui/screens/ai_assistant.go`):
+   - Changed from `MultiLineEntry` to single-line `Entry` widget
+   - `OnSubmitted` fires on Enter key press, submitting the query
+
+3. **Domain knowledge** (`internal/ai/domain_knowledge.go` - NEW):
+   - Created comprehensive domain knowledge constant covering:
+     - Time tracking fundamentals (real-time vs retrospective)
+     - Timesheet reporting metrics (utilization, capacity, overtime)
+     - Consistency indicators (rounding patterns, gaps, overlaps)
+     - Team comparison methodology
+     - Project time analysis (burn rate, scope creep detection)
+     - Common queries and how to answer them
+     - Manager best practices and key benchmarks
+   - Injected into both LLM prompt builders (engine.go, ollama.go)
+
+4. **New analytical query types** (`internal/ai/analysis.go`):
+   - Utilization rate analysis (hours/capacity with rating)
+   - Overtime detection (days >8h with totals)
+   - Daily pace check (on track for 40h/week?)
+   - Context switching analysis (projects/day with focus rating)
+   - Timesheet gap detection (days <4h in last 2 weeks)
+   - Unsubmitted entries summary
+   - Weekly comparison (week-over-week trends)
+   - Project comparison (hours distribution with percentages)
+   - Expanded keyword detection for all new query types
+
+5. **Updated example queries** (both TUI and GUI):
+   - Added: utilization rate, pace check, gaps, context switching, project comparison, overtime
+
+**Result:** Build passes, all tests pass.
+
+================================================================================
+Date: 2026-01-28
+Prompt: "every time the user writes a query store it in a log in the application working folder. add a context file here in the repo that is a markdown document describing all the different types of queries we can think of and use that to help to train the llama model."
+
+User also provided 14 specific query examples to include.
+
+**Changes made:**
+
+1. **Query logging** (`internal/ai/engine.go`):
+   - Added `queryLogPath` field and `SetQueryLogPath()` / `logQuery()` methods
+   - Every query is logged with timestamp to `~/.config/kartoza-timesheets/ai-query.log`
+   - Format: `2006-01-02 15:04:05\tquery text`
+   - Logging is non-blocking; failures are silently ignored
+
+2. **Query reference document** (`docs/ai-query-reference.md` + `internal/ai/query_reference.md`):
+   - Created comprehensive markdown document with all supported query types
+   - Categories: Project matching, Personal time analysis (daily/weekly/monthly), Tracking quality, Productivity, Submissions, Comparisons (week/project/team), Organizational, Activity breakdown, Advisory
+   - Includes all 14 user-provided queries plus many more
+   - Embedded into binary via `go:embed` in `domain_knowledge.go`
+   - Injected into both LLM prompt builders (engine.go, ollama.go) as "SUPPORTED QUERY TYPES"
+
+3. **New analysis functions** (`internal/ai/analysis.go`):
+   - `analyzeLongestPeriod` - longest day/week/month with top 5
+   - `analyzeMostProductiveDay` - most productive day by hours/entries/projects
+   - `analyzeSessionLength` - average/median session length with bucket distribution
+   - Added keywords for all new query types
+
+**Result:** Build passes, all tests pass.
+
+================================================================================
+Date: 2026-02-03
+Session: GUI Timesheet Form Widget Improvements
+
+Prompt:
+on the new timesheet entry form in gui mode, when I have selected the project using autocomplete, the task and activity widgets should be traditional combo boxes (with no typing supported) and should be populated with items related to the active project.
+
+Also I should be able to navigate everything using keyboard. For example, if I type a few characters of the project name, I should then be able to use the arrow keys to select an item from the drop down list of projects
+
+Action Taken:
+1. **Changed BoundedSelect widget** (`internal/gui/widgets/bounded_select.go`):
+   - Changed from `widget.SelectEntry` (allows typing) to `widget.Select` (traditional dropdown)
+   - Task and Activity selectors are now click-to-select only (no typing allowed)
+   - Added `Widget()` helper method for cleaner access to underlying widget
+
+2. **Updated all GUI screens** that use BoundedSelect:
+   - `internal/gui/screens/timesheet.go` - Changed `.Entry` to `.Select` for task/activity
+   - `internal/gui/screens/favourites.go` - Changed `.Entry` to `.Select` for task/activity
+   - `internal/gui/screens/history.go` - Changed `.Entry` to `.Select` for task/activity
+   - `internal/gui/screens/dashboard.go` - Changed `.Entry` to `.Select` for task/activity
+
+3. **Keyboard navigation** - Already supported via Fyne's native widgets:
+   - Project `SearchableSelect` uses `widget.SelectEntry` which supports:
+     - Typing to filter options
+     - Arrow keys to navigate dropdown items
+     - Enter to select highlighted item
+   - Task/Activity `BoundedSelect` uses `widget.Select` which supports:
+     - Tab/Shift+Tab to navigate between fields
+     - Enter/Space to open dropdown
+     - Arrow keys to navigate options
+     - Enter to select
+
+**Result:** Build passes. Task and activity are now traditional dropdowns (no typing), while project remains a searchable autocomplete field with full keyboard navigation support.
+
+================================================================================
+Date: 2026-02-03
+Session: GUI Gaps Feature - 14-Day Time Gap Visualization
+
+Prompt:
+Next to the history button, I want a 'Gaps' button. It should show a new panel with 14 vertical bars representing the last 14 days. The bars should be segmented and colour coded according to the total number of hours worked on each project per day. A red segment will indicate no time logged (assuming an 8 hour day, the vertical could be longer if more time was worked but the default would be 8). Clicking on a red segment will start a new timesheet entry pre filled in to that day and the start time
+
+Action Taken:
+1. **Created GapsScreen** (`internal/gui/screens/gaps.go`):
+   - New screen showing 14 vertical bars for the last 14 days
+   - Each bar is segmented by project with consistent color coding
+   - Red segments at top indicate unlogged time (gap from 8-hour target)
+   - Displays date, day-of-week, and total hours for each day
+   - Legend explaining the red gap segments
+
+2. **Updated ProgressBox widget** (`internal/gui/widgets/progress_gauge.go`):
+   - Changed `ProgressBox()` function signature to accept both History and Gaps buttons
+   - Added horizontal button row with both buttons centered
+
+3. **Updated DashboardScreen** (`internal/gui/screens/dashboard.go`):
+   - Added `gapsButton` widget and `OnGaps` callback
+   - Created Gaps button with "📊 Gaps" label
+
+4. **Updated App navigation** (`internal/gui/app.go`):
+   - Added `gapsScreen` to App struct
+   - Added `showGaps()` function to display the gaps screen
+   - Added `showTimesheetForDate()` function to pre-fill timesheet with date/time
+   - Added gaps screen to ESC navigation (back to dashboard)
+   - Added gaps screen reset in `handleLogout()`
+
+5. **Added SetDateAndTime method** (`internal/gui/screens/timesheet.go`):
+   - New method to pre-fill date and start time fields when clicking a gap
+
+**Features:**
+- 14 vertical bars representing the last 14 days
+- Color-coded segments per project (8 distinct colors cycling by project ID)
+- Red segments show gaps (time not logged to reach 8-hour target)
+- Clicking red gap opens timesheet pre-filled with that date and estimated start time
+- Start time calculation: if day has existing hours, starts after those; otherwise 9:00 AM
+
+**Result:** Build passes. Gaps button now appears next to History button on dashboard.
+
+================================================================================
+Date: 2026-02-03
+Session: DRY Refactor - TUI Gaps View with Shared Service
+
+Prompt:
+did you implement it for both the tui and gui? and did you make sure to keep things DRY and use the existing New Timesheet form instead of creating a new one
+
+Action Taken:
+1. **Created shared GapsService** (`internal/service/gaps.go`):
+   - Extracted `DayData` and `ProjectHourData` structs to shared package
+   - `CalculateGaps(entries, days)` - processes timelog entries into day data
+   - `GetSortedProjects(day)` - returns projects sorted by hours
+   - `CalculateGapStartTime(day, defaultStartHour)` - calculates start time for gap filling
+   - `GetProjectColorHex(projectID)` and `GetProjectColorIndex(projectID)` for consistent colors
+   - Both TUI and GUI now use this shared service (DRY)
+
+2. **Updated GUI GapsScreen** (`internal/gui/screens/gaps.go`):
+   - Now uses `service.GapsService` instead of duplicated logic
+   - Uses `service.DayData` type
+   - Calls shared methods for gap calculation and project colors
+
+3. **Created TUI GapsView** (`internal/tui/gaps.go`):
+   - Uses the same `service.GapsService` as GUI
+   - ASCII art vertical bars showing 14-day history
+   - Left/right arrow navigation between days
+   - Press Enter on a gap day to launch timesheet creator pre-filled with date/time
+
+4. **Updated TUI navigation** (`internal/tui/app_with_auth.go`):
+   - Added `StateGapsView` app state
+   - Added `gapsView *GapsView` to app struct
+   - Added `launchGapsViewMsg` message type
+   - Added `launchTimesheetForDateMsg` to pre-fill timesheet from gaps
+   - Added handlers for gaps view state in Update and View
+
+5. **Added keyboard shortcut** (`internal/tui/main_menu.go`):
+   - Press 'g' to launch Gaps view (alongside 'h' for History)
+   - Updated help text to show 'g: Gaps' shortcut
+
+**DRY Principles Applied:**
+- Single `GapsService` shared between TUI and GUI
+- Both UIs reuse existing timesheet forms (GUI: `TimesheetScreen.SetDateAndTime()`, TUI: pre-fill dateInput/startTimeInput)
+- Project colors defined once in service, used by both UIs
+- Gap calculation logic not duplicated
+
+**Result:** Build passes. Both TUI ('g' key) and GUI ('📊 Gaps' button) have gaps feature using shared service and reusing existing timesheet forms.
+
+================================================================================
+Date: 2026-02-03
+Session: GUI Gaps Hover Details & TUI Keyboard Navigation
+
+Prompt:
+in the gui version, if I hold my mouse over a segment in the gaps view, it should show beneath the diagram the project name newline task name newline activity, newline hours worked in total newline description(s) from the hours record for the project. In tui mode it should do the same but also support keyboard navigation around the grid
+
+Action Taken:
+1. **Updated service layer** (`internal/service/gaps.go`):
+   - Added `EntryDetail` struct with TaskName, ActivityName, Hours, Description
+   - Updated `ProjectHourData` to include `Entries []EntryDetail` slice
+   - Updated `CalculateGaps()` to populate entry details from timelog entries
+
+2. **Updated GUI GapsScreen** (`internal/gui/screens/gaps.go`):
+   - Created custom `hoverableSegment` widget implementing `desktop.Hoverable` and `fyne.Tappable`
+   - Added detail panel with labels for Project, Task, Activity, Hours, and Description
+   - `showProjectDetail(proj)` - displays project info when hovering over a project segment
+   - `showGapDetail(day)` - displays gap info when hovering over a red gap segment
+   - `showDetailPlaceholder()` - shows help text when not hovering
+
+3. **Updated TUI GapsView** (`internal/tui/gaps.go`):
+   - Added `Segment` struct with `SegmentType` (SegmentGap or SegmentProject)
+   - Added `daySegments [][]Segment` for navigable segments per day
+   - Added `selectedSegment int` for vertical navigation within a day
+   - Keyboard navigation: left/right for days, up/down for segments within a day
+   - `buildDaySegments()` builds segment list for navigation
+   - `renderDetailPanel()` shows project/task/activity/hours/description details
+
+**Result:** Build passes. Both UIs now show detailed information when hovering (GUI) or navigating (TUI) to segments.
+
+================================================================================
+Date: 2026-02-03
+Session: Fix Project Autocomplete Regression
+
+Prompt:
+before you do that, there is a regression in the timesheets form. The activity and tasks combo changes are good but in the projects combo it no longer supports type to complete - the api requires we send at least 2 letters to receive a filtered list of projects that you can populate the combo with
+
+Action Taken:
+1. **Analyzed the issue**:
+   - The `SearchableSelect` widget had been simplified to use Fyne's `widget.SelectEntry`
+   - This native widget doesn't properly support API-based dynamic searching
+   - The old implementation had a custom popup with keyboard navigation that worked correctly
+
+2. **Restored SearchableSelect widget** (`internal/gui/widgets/searchable_select.go`):
+   - Restored the custom `navigableEntry` that forwards Up/Down/Enter/Escape keys
+   - Restored custom popup list with dark theme and keyboard navigation
+   - Restored `CreateRenderer()` with proper widget lifecycle
+   - Added keyboard highlight with orange color for selected item
+   - Arrow keys navigate the popup list, Enter selects, Escape closes
+   - API search triggered after 2+ characters typed
+
+3. **Fixed screen references**:
+   - Updated `timesheet.go` to use `s.projectSelect` (whole widget) instead of `s.projectSelect.Entry`
+   - Updated `history.go` similarly
+   - Updated `favourites.go` similarly
+   - Updated `code_repos.go` similarly
+   - Updated `dashboard.go` similarly
+
+**Result:** Build passes. Project autocomplete now properly supports type-to-complete with API-based filtering (2+ chars triggers search), while task and activity remain traditional dropdowns.

@@ -232,6 +232,10 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// History shortcut
 			return m, func() tea.Msg { return launchHistoryViewMsg{} }
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("g"))):
+			// Gaps shortcut
+			return m, func() tea.Msg { return launchGapsViewMsg{} }
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("a"))):
 			// AI Assistant shortcut
 			return m, func() tea.Msg { return launchAIAssistantMsg{} }
@@ -546,7 +550,7 @@ func (m *MainMenuModel) renderHelp() string {
 	if m.powCapturer != nil && m.powCapturer.IsEnabled() {
 		powStatus = "on"
 	}
-	return helpStyle.Render(fmt.Sprintf("s: Start/Stop • h: History • a: AI • 1-9: Quick start • p: POW (%s) • q: Quit", powStatus))
+	return helpStyle.Render(fmt.Sprintf("s: Start/Stop • h: History • g: Gaps • a: AI • 1-9: Quick start • p: POW (%s) • q: Quit", powStatus))
 }
 
 // getMenuItemFromMousePosition calculates which menu item was clicked based on mouse coordinates

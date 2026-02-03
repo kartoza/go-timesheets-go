@@ -27,6 +27,7 @@ const (
 	StateMainMenu
 	StateTimesheetCreation
 	StateHistoryView
+	StateGapsView
 	StateCodeRepos
 	StateFavourites
 	StateSettings
@@ -40,6 +41,7 @@ type AppWithAuth struct {
 	mainMenu           *MainMenuModel
 	timesheetCreator   *TimesheetCreator
 	historyView        *HistoryView
+	gapsView           *GapsView
 	codeReposView      *CodeReposModel
 	favouritesView     *FavouritesModel
 	settingsView       *SettingsModel
@@ -214,6 +216,10 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.historyView != nil {
 				a.historyView, _ = a.historyView.Update(msg)
 			}
+		case StateGapsView:
+			if a.gapsView != nil {
+				a.gapsView, _ = a.gapsView.Update(msg)
+			}
 		case StateCodeRepos:
 			if a.codeReposView != nil {
 				model, c := a.codeReposView.Update(msg)
@@ -268,6 +274,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.historyView != nil {
 				var c tea.Cmd
 				a.historyView, c = a.historyView.Update(msg)
+				cmds = append(cmds, c)
+			}
+		case StateGapsView:
+			if a.gapsView != nil {
+				var c tea.Cmd
+				a.gapsView, c = a.gapsView.Update(msg)
 				cmds = append(cmds, c)
 			}
 		case StateCodeRepos:
@@ -392,6 +404,28 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.historyView = historyView
 		a.state = StateHistoryView
 		return a, a.historyView.Init()
+
+	case launchGapsViewMsg:
+		// Transition to gaps view
+		gapsView := NewGapsView(a.apiClient)
+		gapsView.width = a.width
+		gapsView.height = a.height
+		gapsView.SetHeaderState(a.getHeaderState())
+		a.gapsView = gapsView
+		a.state = StateGapsView
+		return a, a.gapsView.Init()
+
+	case launchTimesheetForDateMsg:
+		// Launch timesheet creator with pre-filled date/time (from gaps view)
+		a.timesheetCreator = NewTimesheetCreator(a.apiClient, a.username)
+		a.timesheetCreator.width = a.width
+		a.timesheetCreator.height = a.height
+		a.timesheetCreator.SetHeaderState(a.getHeaderState())
+		// Pre-fill date and time
+		a.timesheetCreator.dateInput.SetValue(msg.date.Format("2006-01-02"))
+		a.timesheetCreator.startTimeInput.SetValue(msg.startTime.Format("15:04"))
+		a.state = StateTimesheetCreation
+		return a, a.timesheetCreator.Init()
 
 	case launchImportCSVMsg:
 		// Import CSV history for AI training
@@ -540,6 +574,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Message types for state transitions
 type launchTimerCreationMsg struct{}
 type launchHistoryViewMsg struct{}
+type launchGapsViewMsg struct{}
 type launchCodeReposMsg struct{}
 type launchFavouritesMsg struct{}
 type launchSettingsMsg struct{}
@@ -589,6 +624,12 @@ func (a *AppWithAuth) View() string {
 			return a.historyView.View()
 		}
 		return a.renderLoadingScreen("Loading history")
+
+	case StateGapsView:
+		if a.gapsView != nil {
+			return a.gapsView.View()
+		}
+		return a.renderLoadingScreen("Loading gaps view")
 
 	case StateCodeRepos:
 		if a.codeReposView != nil {

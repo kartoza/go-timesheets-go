@@ -28,6 +28,7 @@ type App struct {
 	dashboardScreen   *screens.DashboardScreen
 	timesheetScreen   *screens.TimesheetScreen
 	historyScreen     *screens.HistoryScreen
+	gapsScreen        *screens.GapsScreen
 	settingsScreen    *screens.SettingsScreen
 	favouritesScreen  *screens.FavouritesScreen
 	codeReposScreen   *screens.CodeReposScreen
@@ -156,6 +157,8 @@ func (a *App) navigateBack() {
 		a.showDashboard()
 	case "history":
 		a.showDashboard()
+	case "gaps":
+		a.showDashboard()
 	case "settings":
 		a.showDashboard()
 	case "favourites":
@@ -197,6 +200,7 @@ func (a *App) showDashboard() {
 		a.dashboardScreen = screens.NewDashboardScreen(a.apiClient, a.window, a.powCapture)
 		a.dashboardScreen.OnSettings = a.showSettings
 		a.dashboardScreen.OnHistory = a.showHistory
+		a.dashboardScreen.OnGaps = a.showGaps
 		a.dashboardScreen.OnNewTimesheet = a.showTimesheet
 		a.dashboardScreen.OnOffice = a.showOffice
 		a.dashboardScreen.OnAIAssistant = a.showAIAssistant
@@ -245,6 +249,36 @@ func (a *App) showHistory() {
 
 	a.setContent(a.historyScreen.Container)
 	a.historyScreen.Refresh()
+}
+
+func (a *App) showGaps() {
+	a.currentScreen = "gaps"
+
+	if a.gapsScreen == nil {
+		a.gapsScreen = screens.NewGapsScreen(a.apiClient, a.window)
+		a.gapsScreen.OnBack = a.showDashboard
+		a.gapsScreen.OnStartTimesheetFor = a.showTimesheetForDate
+	}
+
+	a.setContent(a.gapsScreen.Container)
+	a.gapsScreen.Refresh()
+}
+
+// showTimesheetForDate shows the timesheet screen pre-filled for a specific date and time
+func (a *App) showTimesheetForDate(date time.Time, startTime time.Time) {
+	a.currentScreen = "timesheet"
+
+	if a.timesheetScreen == nil {
+		a.timesheetScreen = screens.NewTimesheetScreen(a.apiClient, a.window)
+		a.timesheetScreen.OnBack = a.showDashboard
+		a.timesheetScreen.OnTimerStarted = func() {
+			a.showDashboard()
+		}
+	}
+
+	a.setContent(a.timesheetScreen.Container)
+	a.timesheetScreen.Refresh()
+	a.timesheetScreen.SetDateAndTime(date, startTime)
 }
 
 func (a *App) showSettings() {
@@ -351,6 +385,7 @@ func (a *App) handleLogout() {
 	a.dashboardScreen = nil
 	a.timesheetScreen = nil
 	a.historyScreen = nil
+	a.gapsScreen = nil
 	a.settingsScreen = nil
 	a.favouritesScreen = nil
 	a.codeReposScreen = nil

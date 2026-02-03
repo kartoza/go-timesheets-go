@@ -37,6 +37,7 @@ type DashboardScreen struct {
 	favButtons      []*widgets.FavouriteButton
 	startStopButton *widget.Button
 	historyButton   *widget.Button
+	gapsButton      *widget.Button
 	settingsButton  *widget.Button
 	powButton       *widget.Button
 	officeButton    *widget.Button
@@ -56,6 +57,7 @@ type DashboardScreen struct {
 	// Callbacks
 	OnSettings          func()
 	OnHistory           func()
+	OnGaps              func()
 	OnNewTimesheet      func()
 	OnOffice            func()
 	OnAIAssistant       func()
@@ -120,7 +122,14 @@ func (s *DashboardScreen) build() {
 		}
 	})
 
-	progressBox := widgets.ProgressBox(s.progressGauge, s.historyButton)
+	// Gaps button
+	s.gapsButton = widget.NewButton("📊 Gaps", func() {
+		if s.OnGaps != nil {
+			s.OnGaps()
+		}
+	})
+
+	progressBox := widgets.ProgressBox(s.progressGauge, s.historyButton, s.gapsButton)
 
 	// Dashboard row (timer left, progress right)
 	dashboardRow := container.NewGridWithColumns(2, timerBox, progressBox)
@@ -502,11 +511,11 @@ func (s *DashboardScreen) showStopTimerDialog() {
 		container.NewCenter(title),
 		widget.NewSeparator(),
 		widget.NewLabel("Project *"),
-		projectSelect.Entry,
+		projectSelect,
 		widget.NewLabel("Task"),
-		taskSelect.Entry,
+		taskSelect.Select,
 		widget.NewLabel("Activity *"),
-		activitySelect.Entry,
+		activitySelect.Select,
 		widget.NewLabel("Description"),
 		descContainer,
 		dateTimeRow,

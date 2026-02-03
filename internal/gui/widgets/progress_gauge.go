@@ -7,6 +7,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -166,18 +167,26 @@ func (r *progressGaugeRenderer) Objects() []fyne.CanvasObject {
 
 func (r *progressGaugeRenderer) Destroy() {}
 
-// ProgressBox creates a complete progress box with border and history button
-func ProgressBox(gauge *ProgressGauge, historyButton *widget.Button) fyne.CanvasObject {
+// ProgressBox creates a complete progress box with border and history/gaps buttons
+func ProgressBox(gauge *ProgressGauge, historyButton *widget.Button, gapsButton *widget.Button) fyne.CanvasObject {
 	title := canvas.NewText("Daily Progress", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
 	title.TextSize = 16
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignCenter
 
+	// Button row with both history and gaps buttons
+	buttonRow := container.NewHBox(
+		layout.NewSpacer(),
+		historyButton,
+		gapsButton,
+		layout.NewSpacer(),
+	)
+
 	content := container.NewVBox(
 		container.NewCenter(title),
 		gauge,
 		widget.NewSeparator(),
-		container.NewCenter(historyButton),
+		buttonRow,
 	)
 
 	// Create bordered container
