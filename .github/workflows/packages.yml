@@ -150,7 +150,7 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
-          dnf install -y golang rpm-build git mesa-libGL-devel libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel libXi-devel libXxf86vm-devel gcc
+          dnf install -y golang rpm-build git mesa-libGL-devel libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel libXi-devel libXxf86vm-devel gcc gh
 
       - name: Checkout code
         uses: actions/checkout@v4
