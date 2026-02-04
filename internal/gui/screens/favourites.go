@@ -3,17 +3,14 @@ package screens
 import (
 	"fmt"
 	"image/color"
-	"sort"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
-	"github.com/kartoza/go-timesheets-go/internal/gui/util"
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
@@ -34,7 +31,6 @@ type FavouritesScreen struct {
 
 	// Data
 	favourites *models.FavouriteAssociations
-	activities []api.ActivityListItem
 
 	// Callbacks
 	OnBack func()
@@ -139,282 +135,69 @@ func (s *FavouritesScreen) editFavourite(index int) {
 		fav = &models.FavouriteAssociation{SlotNumber: slotNum}
 	}
 
-	// Colors matching timesheet dialog
-	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
-	labelGray := color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
-	bgColor := color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 0xFF}
-
-	// Title
-	titleText := canvas.NewText(fmt.Sprintf("Edit Favourite %d", slotNum), goldColor)
-	titleText.TextSize = 20
-	titleText.TextStyle = fyne.TextStyle{Bold: true}
-	titleText.Alignment = fyne.TextAlignCenter
-
-	// Name entry
-	nameEntry := widget.NewEntry()
-	nameEntry.SetText(fav.Name)
-	nameEntry.SetPlaceHolder("Display name (optional)")
-
-	// Project select (searchable)
-	projectSelect := widgets.NewSearchableSelect("Search projects...", s.window)
-	if fav.ProjectID > 0 {
-		projectSelect.SetSelected(&widgets.SelectItem{ID: fav.ProjectID, Label: fav.ProjectName})
-	}
-	projectSelect.OnSearch = func(query string) {
-		s.searchProjects(query, projectSelect)
+	preFill := &widgets.EntryFormData{
+		ProjectID:    fav.ProjectID,
+		ProjectName:  fav.ProjectName,
+		TaskID:       fav.TaskID,
+		TaskName:     fav.TaskName,
+		ActivityID:   fav.ActivityID,
+		ActivityName: fav.ActivityName,
+		Name:         fav.Name,
+		ColorHex:     fav.Color,
 	}
 
-	// Task select (bounded height)
-	taskSelect := widgets.NewBoundedSelect("Select task...", []string{}, s.window)
-
-	// Activity select (bounded height)
-	activitySelect := widgets.NewBoundedSelect("Select activity...", []string{}, s.window)
-
-	// State tracking
-	var selectedProject *api.ProjectListItem
-	var selectedTask *api.TaskListItem
-	var selectedActivity *api.ActivityListItem
-	var tasks []api.TaskListItem
-
-	// Load activities
-	loadActivities := func() {
-		if len(s.activities) == 0 {
-			util.RunAsync(
-				func() ([]api.ActivityListItem, error) {
-					return s.apiClient.GetActivities()
+	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
+		Title:           fmt.Sprintf("Edit Favourite %d", slotNum),
+		Window:          s.window,
+		APIClient:       s.apiClient,
+		ShowName:        true,
+		ShowTask:        true,
+		ShowActivity:    true,
+		ShowColorPicker: true,
+		PreFill:         preFill,
+		Buttons: []widgets.EntryFormButton{
+			{
+				Label:       "Clear Slot",
+				Importance:  widget.DangerImportance,
+				LeftAligned: true,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					s.clearFavourite(index)
+					close()
 				},
-				func(activities []api.ActivityListItem, err error) {
-					if err == nil {
-						// Sort activities alphabetically
-						sort.Slice(activities, func(i, j int) bool {
-							return activities[i].Label < activities[j].Label
-						})
-						s.activities = activities
-						options := make([]string, len(activities))
-						for i, a := range activities {
-							options[i] = a.Label
-						}
-						activitySelect.SetOptions(options)
-						// Pre-select if we have an existing value
-						if fav.ActivityID > 0 {
-							activitySelect.SetSelected(fav.ActivityName)
-							selectedActivity = &api.ActivityListItem{ID: fav.ActivityID, Label: fav.ActivityName}
-						}
-					}
-				},
-			)
-		} else {
-			options := make([]string, len(s.activities))
-			for i, a := range s.activities {
-				options[i] = a.Label
-			}
-			activitySelect.SetOptions(options)
-			if fav.ActivityID > 0 {
-				activitySelect.SetSelected(fav.ActivityName)
-				selectedActivity = &api.ActivityListItem{ID: fav.ActivityID, Label: fav.ActivityName}
-			}
-		}
-	}
-
-	// Project change handler
-	projectSelect.OnChanged = func(item *widgets.SelectItem) {
-		if item != nil {
-			selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
-			util.RunAsync(
-				func() ([]api.TaskListItem, error) {
-					return s.apiClient.GetTasks(fmt.Sprintf("%d", item.ID))
-				},
-				func(result []api.TaskListItem, err error) {
-					if err == nil {
-						tasks = result
-						options := make([]string, len(tasks))
-						for i, t := range tasks {
-							options[i] = t.Label
-						}
-						taskSelect.SetOptions(options)
-					}
-				},
-			)
-		} else {
-			selectedProject = nil
-			taskSelect.SetOptions([]string{})
-		}
-	}
-
-	// Task change handler
-	taskSelect.OnChanged = func(selected string) {
-		for _, t := range tasks {
-			if t.Label == selected {
-				selectedTask = &t
-				break
-			}
-		}
-	}
-
-	// Activity change handler
-	activitySelect.OnChanged = func(selected string) {
-		for _, a := range s.activities {
-			if a.Label == selected {
-				selectedActivity = &a
-				break
-			}
-		}
-	}
-
-	// Pre-select existing values
-	if fav.ProjectID > 0 {
-		selectedProject = &api.ProjectListItem{ID: fav.ProjectID, Label: fav.ProjectName}
-		// Load tasks for existing project
-		util.RunAsync(
-			func() ([]api.TaskListItem, error) {
-				return s.apiClient.GetTasks(fmt.Sprintf("%d", fav.ProjectID))
 			},
-			func(result []api.TaskListItem, err error) {
-				if err == nil {
-					tasks = result
-					options := make([]string, len(tasks))
-					for i, t := range tasks {
-						options[i] = t.Label
-					}
-					taskSelect.SetOptions(options)
-					if fav.TaskID > 0 {
-						taskSelect.SetSelected(fav.TaskName)
-						selectedTask = &api.TaskListItem{ID: fav.TaskID, Label: fav.TaskName}
-					}
-				}
+			{
+				Label: "Cancel",
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					close()
+				},
 			},
-		)
-	}
-
-	// Load activities
-	loadActivities()
-
-	// Colour picker
-	selectedColor := fav.Color
-	colorLabel := canvas.NewText("Button Colour", labelGray)
-	colorLabel.TextSize = 12
-	colorPicker := widgets.NewColorPicker(fav.Color, func(hex string) {
-		selectedColor = hex
-	})
-
-	// Labels with consistent styling
-	nameLabel := canvas.NewText("Name", labelGray)
-	nameLabel.TextSize = 12
-	projectLabel := canvas.NewText("Project *", labelGray)
-	projectLabel.TextSize = 12
-	taskLabel := canvas.NewText("Task", labelGray)
-	taskLabel.TextSize = 12
-	activityLabel := canvas.NewText("Activity *", labelGray)
-	activityLabel.TextSize = 12
-
-	// Clear button
-	var customDialog *widget.PopUp
-	clearBtn := widget.NewButton("Clear Slot", func() {
-		s.clearFavourite(index)
-		if customDialog != nil {
-			customDialog.Hide()
-		}
-	})
-	clearBtn.Importance = widget.DangerImportance
-
-	// Save button
-	saveBtn := widget.NewButton("Save", func() {
-		// Validation
-		if selectedProject == nil {
-			s.setStatus("Please select a project")
-			return
-		}
-		if selectedActivity == nil {
-			s.setStatus("Please select an activity")
-			return
-		}
-		s.saveFavouriteSlot(index, nameEntry.Text, selectedColor, selectedProject, selectedTask, selectedActivity)
-		if customDialog != nil {
-			customDialog.Hide()
-		}
-	})
-	saveBtn.Importance = widget.HighImportance
-
-	// Cancel button
-	cancelBtn := widget.NewButton("Cancel", func() {
-		if customDialog != nil {
-			customDialog.Hide()
-		}
-	})
-
-	// Button row
-	buttonRow := container.NewHBox(
-		clearBtn,
-		layout.NewSpacer(),
-		cancelBtn,
-		saveBtn,
-	)
-
-	// Form layout
-	formContent := container.NewVBox(
-		container.NewCenter(titleText),
-		widget.NewSeparator(),
-		nameLabel,
-		nameEntry,
-		projectLabel,
-		projectSelect,
-		taskLabel,
-		taskSelect.Select,
-		activityLabel,
-		activitySelect.Select,
-		widget.NewSeparator(),
-		colorLabel,
-		colorPicker,
-		layout.NewSpacer(),
-		widget.NewSeparator(),
-		buttonRow,
-	)
-
-	// Container with border (matching timesheet styling)
-	formBorder := canvas.NewRectangle(goldColor)
-	formBorder.StrokeColor = goldColor
-	formBorder.StrokeWidth = 2
-	formBorder.FillColor = bgColor
-	formBorder.CornerRadius = 10
-
-	formContainer := container.NewStack(
-		formBorder,
-		container.NewPadded(container.NewPadded(formContent)),
-	)
-
-	// Wrap in scroll for safety
-	scrollContent := container.NewVScroll(formContainer)
-	scrollContent.SetMinSize(fyne.NewSize(380, 560))
-
-	// Create custom popup with dark background
-	popupBg := canvas.NewRectangle(darkGray)
-	popupBg.SetMinSize(fyne.NewSize(400, 590))
-
-	popupContent := container.NewStack(
-		popupBg,
-		container.NewPadded(scrollContent),
-	)
-
-	customDialog = widget.NewModalPopUp(popupContent, s.window.Canvas())
-	customDialog.Show()
-}
-
-func (s *FavouritesScreen) searchProjects(query string, selectWidget *widgets.SearchableSelect) {
-	util.RunAsync(
-		func() ([]api.ProjectListItem, error) {
-			return s.apiClient.GetProjects(query)
+			{
+				Label:      "Save",
+				Importance: widget.HighImportance,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					if data.ProjectID == 0 {
+						setError("Please select a project")
+						return
+					}
+					if data.ActivityID == 0 {
+						setError("Please select an activity")
+						return
+					}
+					s.saveFavouriteSlot(index, data.Name, data.ColorHex,
+						&api.ProjectListItem{ID: data.ProjectID, Label: data.ProjectName},
+						func() *api.TaskListItem {
+							if data.TaskID > 0 {
+								return &api.TaskListItem{ID: data.TaskID, Label: data.TaskName}
+							}
+							return nil
+						}(),
+						&api.ActivityListItem{ID: data.ActivityID, Label: data.ActivityName},
+					)
+					close()
+				},
+			},
 		},
-		func(projects []api.ProjectListItem, err error) {
-			if err == nil {
-				items := make([]widgets.SelectItem, len(projects))
-				for i, p := range projects {
-					items[i] = widgets.SelectItem{ID: p.ID, Label: p.Label}
-				}
-				selectWidget.SetItems(items)
-			}
-		},
-	)
+	})
 }
 
 func (s *FavouritesScreen) saveFavouriteSlot(index int, name, colorHex string, project *api.ProjectListItem, task *api.TaskListItem, activity *api.ActivityListItem) {

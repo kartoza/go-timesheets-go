@@ -26,7 +26,6 @@ type App struct {
 	// Screens
 	loginScreen       *screens.LoginScreen
 	dashboardScreen   *screens.DashboardScreen
-	timesheetScreen   *screens.TimesheetScreen
 	historyScreen     *screens.HistoryScreen
 	gapsScreen        *screens.GapsScreen
 	settingsScreen    *screens.SettingsScreen
@@ -153,8 +152,6 @@ func (a *App) quit() {
 // navigateBack handles ESC key to go to the previous screen
 func (a *App) navigateBack() {
 	switch a.currentScreen {
-	case "timesheet":
-		a.showDashboard()
 	case "history":
 		a.showDashboard()
 	case "gaps":
@@ -201,7 +198,6 @@ func (a *App) showDashboard() {
 		a.dashboardScreen.OnSettings = a.showSettings
 		a.dashboardScreen.OnHistory = a.showHistory
 		a.dashboardScreen.OnGaps = a.showGaps
-		a.dashboardScreen.OnNewTimesheet = a.showTimesheet
 		a.dashboardScreen.OnOffice = a.showOffice
 		a.dashboardScreen.OnAIAssistant = a.showAIAssistant
 		a.dashboardScreen.OnTimerStatusChange = a.onTimerStatusChange
@@ -224,20 +220,6 @@ func (a *App) onTimerStatusChange(running bool, projectName, taskName, activityN
 	}
 }
 
-func (a *App) showTimesheet() {
-	a.currentScreen = "timesheet"
-
-	if a.timesheetScreen == nil {
-		a.timesheetScreen = screens.NewTimesheetScreen(a.apiClient, a.window)
-		a.timesheetScreen.OnBack = a.showDashboard
-		a.timesheetScreen.OnTimerStarted = func() {
-			a.showDashboard()
-		}
-	}
-
-	a.setContent(a.timesheetScreen.Container)
-	a.timesheetScreen.Refresh()
-}
 
 func (a *App) showHistory() {
 	a.currentScreen = "history"
@@ -257,28 +239,17 @@ func (a *App) showGaps() {
 	if a.gapsScreen == nil {
 		a.gapsScreen = screens.NewGapsScreen(a.apiClient, a.window)
 		a.gapsScreen.OnBack = a.showDashboard
-		a.gapsScreen.OnStartTimesheetFor = a.showTimesheetForDate
+		a.gapsScreen.OnStartTimesheetFor = func(date time.Time, startTime time.Time) {
+			// Ensure dashboard exists before using it
+			if a.dashboardScreen == nil {
+				a.showDashboard()
+			}
+			a.dashboardScreen.ShowNewEntryDialogForDate(date, startTime)
+		}
 	}
 
 	a.setContent(a.gapsScreen.Container)
 	a.gapsScreen.Refresh()
-}
-
-// showTimesheetForDate shows the timesheet screen pre-filled for a specific date and time
-func (a *App) showTimesheetForDate(date time.Time, startTime time.Time) {
-	a.currentScreen = "timesheet"
-
-	if a.timesheetScreen == nil {
-		a.timesheetScreen = screens.NewTimesheetScreen(a.apiClient, a.window)
-		a.timesheetScreen.OnBack = a.showDashboard
-		a.timesheetScreen.OnTimerStarted = func() {
-			a.showDashboard()
-		}
-	}
-
-	a.setContent(a.timesheetScreen.Container)
-	a.timesheetScreen.Refresh()
-	a.timesheetScreen.SetDateAndTime(date, startTime)
 }
 
 func (a *App) showSettings() {
@@ -383,7 +354,6 @@ func (a *App) handleLogout() {
 
 	// Reset screens
 	a.dashboardScreen = nil
-	a.timesheetScreen = nil
 	a.historyScreen = nil
 	a.gapsScreen = nil
 	a.settingsScreen = nil

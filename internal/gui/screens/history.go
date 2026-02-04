@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"os/exec"
 	"runtime"
-	"sort"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -223,175 +222,35 @@ func (s *HistoryScreen) showEntryDetail(index int) {
 	entry := s.entries[index]
 	isEditable := !entry.Submitted
 
-	// Local state for the dialog
-	var (
-		selectedProject  *api.ProjectListItem
-		selectedTask     *api.TaskListItem
-		selectedActivity *api.ActivityListItem
-		projects         []api.ProjectListItem
-		tasks            []api.TaskListItem
-		activities       []api.ActivityListItem
-		errorLabel       *canvas.Text
-	)
-
-	// Pre-select from entry
-	selectedProject = &api.ProjectListItem{
-		ID:    entry.ProjectID,
-		Label: entry.ProjectName,
-	}
-	if entry.TaskID.Value > 0 {
-		selectedTask = &api.TaskListItem{
-			ID:    entry.TaskID.Value,
-			Label: entry.TaskName,
-		}
-	}
-	selectedActivity = &api.ActivityListItem{
-		ID:    entry.ActivityID,
-		Label: entry.ActivityType,
-	}
-
-	// Title
 	titleText := "Entry Details"
 	if entry.Submitted {
 		titleText = "Entry Details (Submitted)"
 	}
-	title := canvas.NewText(titleText, color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
-	title.TextSize = 24
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	title.Alignment = fyne.TextAlignCenter
 
-	// Project select
-	projectSelect := widgets.NewSearchableSelect("Search projects...", s.window)
-	projectSelect.SetSelected(&widgets.SelectItem{
-		ID:    entry.ProjectID,
-		Label: entry.ProjectName,
-	})
-
-	// Task select
-	taskSelect := widgets.NewBoundedSelect("Select task...", []string{}, s.window)
-
-	// Activity select
-	activitySelect := widgets.NewBoundedSelect("Select activity...", []string{}, s.window)
-
-	// Wire up project select
-	projectSelect.OnChanged = func(item *widgets.SelectItem) {
-		if item != nil {
-			selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
-			util.RunAsync(
-				func() ([]api.TaskListItem, error) {
-					return s.apiClient.GetTasks(fmt.Sprintf("%d", item.ID))
-				},
-				func(result []api.TaskListItem, err error) {
-					if err != nil {
-						return
-					}
-					tasks = result
-					options := make([]string, len(tasks))
-					for i, t := range tasks {
-						options[i] = t.Label
-					}
-					taskSelect.SetOptions(options)
-				},
-			)
-		} else {
-			selectedProject = nil
-			taskSelect.SetOptions([]string{})
-		}
-	}
-	projectSelect.OnSearch = func(query string) {
-		util.RunAsync(
-			func() ([]api.ProjectListItem, error) {
-				return s.apiClient.GetProjects(query)
-			},
-			func(result []api.ProjectListItem, err error) {
-				if err != nil {
-					return
-				}
-				projects = result
-				items := make([]widgets.SelectItem, len(projects))
-				for i, p := range projects {
-					items[i] = widgets.SelectItem{ID: p.ID, Label: p.Label}
-				}
-				projectSelect.SetItems(items)
-			},
-		)
+	desc := ""
+	if entry.Description != nil {
+		desc = *entry.Description
 	}
 
-	// Wire up task select
-	taskSelect.OnChanged = func(selected string) {
-		for _, t := range tasks {
-			if t.Label == selected {
-				selectedTask = &t
-				break
-			}
-		}
-	}
-
-	// Wire up activity select
-	activitySelect.OnChanged = func(selected string) {
-		for _, a := range activities {
-			if a.Label == selected {
-				selectedActivity = &a
-				break
-			}
-		}
-	}
-
-	// Description entry
-	descEntry := widget.NewMultiLineEntry()
-	descEntry.SetPlaceHolder("Description (optional)")
-	if entry.Description != nil && *entry.Description != "" {
-		descEntry.SetText(*entry.Description)
-	}
-	descEntry.SetMinRowsVisible(3)
-
-	// Fetch from Git button
-	hasRepoAssoc := s.hasRepoAssociationForProject(entry.ProjectID)
-	fetchButton := widget.NewButton("Fetch from Git", func() {
-		s.fetchGitCommitsForEntry(&entry, descEntry)
-	})
-	if !hasRepoAssoc || !isEditable {
-		fetchButton.Disable()
-	}
-
-	// Date/time fields
 	fromTime, _ := entry.GetFromTimeAsTime()
-
-	startDateEntry := widget.NewEntry()
-	startDateEntry.SetPlaceHolder("YYYY-MM-DD")
-	startDateEntry.SetText(fromTime.Local().Format("2006-01-02"))
-
-	startTimeEntry := widget.NewEntry()
-	startTimeEntry.SetPlaceHolder("HH:MM")
-	startTimeEntry.SetText(fromTime.Local().Format("15:04"))
-
-	endDateEntry := widget.NewEntry()
-	endDateEntry.SetPlaceHolder("YYYY-MM-DD")
-
-	endTimeEntry := widget.NewEntry()
-	endTimeEntry.SetPlaceHolder("HH:MM")
-
+	preFill := &widgets.EntryFormData{
+		ProjectID:    entry.ProjectID,
+		ProjectName:  entry.ProjectName,
+		TaskID:       entry.TaskID.Value,
+		TaskName:     entry.TaskName,
+		ActivityID:   entry.ActivityID,
+		ActivityName: entry.ActivityType,
+		Description:  desc,
+		StartDate:    fromTime.Local().Format("2006-01-02"),
+		StartTime:    fromTime.Local().Format("15:04"),
+	}
 	if entry.ToTime != "" {
 		toTime, _ := entry.GetToTimeAsTime()
-		endDateEntry.SetText(toTime.Local().Format("2006-01-02"))
-		endTimeEntry.SetText(toTime.Local().Format("15:04"))
+		preFill.EndDate = toTime.Local().Format("2006-01-02")
+		preFill.EndTime = toTime.Local().Format("15:04")
 	}
 
-	// Disable fields if submitted
-	if !isEditable {
-		descEntry.Disable()
-		startDateEntry.Disable()
-		startTimeEntry.Disable()
-		endDateEntry.Disable()
-		endTimeEntry.Disable()
-	}
-
-	// Error label
-	errorLabel = canvas.NewText("", color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF})
-	errorLabel.TextSize = 12
-	errorLabel.Alignment = fyne.TextAlignCenter
-
-	// Status info row
+	// Build extra content: status display + POW video button
 	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
 	statusText := "Pending"
 	statusColor := goldColor
@@ -406,243 +265,139 @@ func (s *HistoryScreen) showEntryDetail(index int) {
 	statusDisplay.TextSize = 12
 	statusDisplay.Alignment = fyne.TextAlignCenter
 
-	// POW video info
-	var powSection fyne.CanvasObject
+	extraItems := container.NewVBox(container.NewCenter(statusDisplay))
+
 	powVideoPath, hasPOW := s.powVideoMap[entry.ID]
 	if hasPOW && powVideoPath != "" {
 		playBtn := widget.NewButton("Play POW Video", func() {
 			s.playPOWVideo(powVideoPath)
 		})
 		playBtn.Importance = widget.HighImportance
-		powSection = container.NewHBox(layout.NewSpacer(), playBtn)
+		extraItems.Add(container.NewHBox(layout.NewSpacer(), playBtn))
 	}
 
-	// Date/time row: Start Date + Start Time | End Date + End Time
-	dateTimeRow := container.NewGridWithColumns(4,
-		container.NewVBox(widget.NewLabel("Start Date"), startDateEntry),
-		container.NewVBox(widget.NewLabel("Start Time"), startTimeEntry),
-		container.NewVBox(widget.NewLabel("End Date"), endDateEntry),
-		container.NewVBox(widget.NewLabel("End Time"), endTimeEntry),
-	)
-
-	// Buttons
-	var d *widget.PopUp
-
-	closeButton := widget.NewButton("Close", func() {
-		if d != nil {
-			d.Hide()
-		}
-	})
-
-	buttonRow := container.NewHBox(layout.NewSpacer(), closeButton)
+	// Build buttons
+	var buttons []widgets.EntryFormButton
 
 	if isEditable {
-		saveButton := widget.NewButton("Save Changes", func() {
-			// Validation
-			if selectedProject == nil {
-				errorLabel.Text = "Please select a project"
-				errorLabel.Refresh()
-				return
-			}
-			if selectedActivity == nil {
-				errorLabel.Text = "Please select an activity"
-				errorLabel.Refresh()
-				return
-			}
-
-			// Parse start date/time
-			startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-				fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text), time.Local)
-			if err != nil {
-				errorLabel.Text = "Invalid start date/time"
-				errorLabel.Refresh()
-				return
-			}
-			startParsed = startParsed.UTC()
-
-			// Parse end date/time (optional for running entries)
-			var endTimePtr *time.Time
-			var duration float64
-			if endDateEntry.Text != "" && endTimeEntry.Text != "" {
-				endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-					fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text), time.Local)
-				if err != nil {
-					errorLabel.Text = "Invalid end date/time"
-					errorLabel.Refresh()
-					return
-				}
-				endParsed = endParsed.UTC()
-				if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
-					errorLabel.Text = "End time must be after start time"
-					errorLabel.Refresh()
-					return
-				}
-				endTimePtr = &endParsed
-				duration = endParsed.Sub(startParsed).Hours()
-			}
-
-			errorLabel.Text = ""
-			errorLabel.Refresh()
-
-			// Build TimeEntry for UpdateTimesheet
-			updatedEntry := models.TimeEntry{
-				ProjectID:   fmt.Sprintf("%d", selectedProject.ID),
-				ActivityID:  fmt.Sprintf("%d", selectedActivity.ID),
-				Description: descEntry.Text,
-				StartTime:   startParsed,
-				EndTime:     endTimePtr,
-				Duration:    duration,
-			}
-			if selectedTask != nil {
-				taskID := fmt.Sprintf("%d", selectedTask.ID)
-				updatedEntry.TaskID = &taskID
-			}
-
-			if d != nil {
-				d.Hide()
-			}
-			s.setStatus("Saving changes...")
-
-			util.RunAsync(
-				func() (bool, error) {
-					return true, s.apiClient.UpdateTimesheet(
-						fmt.Sprintf("%d", entry.ID), updatedEntry)
-				},
-				func(_ bool, err error) {
-					if err != nil {
-						s.setStatus("Error: " + err.Error())
-						return
-					}
-					s.setStatus("Entry updated")
-					s.Refresh()
-				},
-			)
+		buttons = append(buttons, widgets.EntryFormButton{
+			Label:       "Delete",
+			Importance:  widget.DangerImportance,
+			LeftAligned: true,
+			OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+				close()
+				s.confirmDelete(index)
+			},
 		})
-		saveButton.Importance = widget.HighImportance
-
-		deleteBtn := widget.NewButton("Delete", func() {
-			if d != nil {
-				d.Hide()
-			}
-			s.confirmDelete(index)
+	}
+	buttons = append(buttons, widgets.EntryFormButton{
+		Label: "Close",
+		OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+			close()
+		},
+	})
+	if isEditable {
+		buttons = append(buttons, widgets.EntryFormButton{
+			Label:      "Save Changes",
+			Importance: widget.HighImportance,
+			OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+				s.doSaveEntry(entry.ID, data, setError, close)
+			},
 		})
-		deleteBtn.Importance = widget.DangerImportance
-
-		buttonRow = container.NewHBox(
-			layout.NewSpacer(),
-			deleteBtn,
-			closeButton,
-			saveButton,
-		)
 	}
 
-	// Description container with fetch button
-	descContainer := container.NewBorder(
-		nil,
-		container.NewHBox(layout.NewSpacer(), fetchButton),
-		nil,
-		nil,
-		descEntry,
-	)
-
-	// Form layout matching create/stop dialog style
-	form := container.NewVBox(
-		container.NewCenter(title),
-		widget.NewSeparator(),
-		widget.NewLabel("Project *"),
-		projectSelect,
-		widget.NewLabel("Task"),
-		taskSelect.Select,
-		widget.NewLabel("Activity *"),
-		activitySelect.Select,
-		widget.NewLabel("Description"),
-		descContainer,
-		dateTimeRow,
-		container.NewCenter(statusDisplay),
-	)
-
-	// Add POW section if present
-	if powSection != nil {
-		form.Add(powSection)
+	// Git fetcher for editable entries
+	var gitFetcher func(descEntry *widget.Entry)
+	if isEditable && s.hasRepoAssociationForProject(entry.ProjectID) {
+		entryCopy := entry
+		gitFetcher = func(descEntry *widget.Entry) {
+			s.fetchGitCommitsForEntry(&entryCopy, descEntry)
+		}
 	}
 
-	form.Add(layout.NewSpacer())
-	form.Add(errorLabel)
-	form.Add(widget.NewSeparator())
-	form.Add(buttonRow)
+	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
+		Title:           titleText,
+		Window:          s.window,
+		APIClient:       s.apiClient,
+		ShowDescription: true,
+		ShowDateTime:    true,
+		ShowTask:        true,
+		ShowActivity:    true,
+		ReadOnly:        !isEditable,
+		PreFill:         preFill,
+		ExtraContent:    extraItems,
+		GitFetcher:      gitFetcher,
+		Buttons:         buttons,
+	})
+}
 
-	// Gold-bordered dark background (identical to create/stop dialogs)
-	formBorder := canvas.NewRectangle(color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
-	formBorder.StrokeColor = color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
-	formBorder.StrokeWidth = 2
-	formBorder.FillColor = color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 0xFF}
-	formBorder.CornerRadius = 10
+// doSaveEntry handles saving changes from the entry detail dialog
+func (s *HistoryScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, setError func(string), close func()) {
+	if data.ProjectID == 0 {
+		setError("Please select a project")
+		return
+	}
+	if data.ActivityID == 0 {
+		setError("Please select an activity")
+		return
+	}
 
-	formContainer := container.NewStack(
-		formBorder,
-		container.NewPadded(container.NewPadded(form)),
-	)
+	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
+		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	if err != nil {
+		setError("Invalid start date/time")
+		return
+	}
+	startParsed = startParsed.UTC()
 
-	// Modal popup overlay (same as create/stop dialogs)
-	d = widget.NewModalPopUp(formContainer, s.window.Canvas())
-	d.Resize(fyne.NewSize(550, 650))
-	d.Show()
+	var endTimePtr *time.Time
+	var duration float64
+	if data.EndDate != "" && data.EndTime != "" {
+		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
+			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		if err != nil {
+			setError("Invalid end date/time")
+			return
+		}
+		endParsed = endParsed.UTC()
+		if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
+			setError("End time must be after start time")
+			return
+		}
+		endTimePtr = &endParsed
+		duration = endParsed.Sub(startParsed).Hours()
+	}
 
-	// Load tasks for current project
+	updatedEntry := models.TimeEntry{
+		ProjectID:   fmt.Sprintf("%d", data.ProjectID),
+		ActivityID:  fmt.Sprintf("%d", data.ActivityID),
+		Description: data.Description,
+		StartTime:   startParsed,
+		EndTime:     endTimePtr,
+		Duration:    duration,
+	}
+	if data.TaskID > 0 {
+		taskID := fmt.Sprintf("%d", data.TaskID)
+		updatedEntry.TaskID = &taskID
+	}
+
+	close()
+	s.setStatus("Saving changes...")
+
 	util.RunAsync(
-		func() ([]api.TaskListItem, error) {
-			return s.apiClient.GetTasks(fmt.Sprintf("%d", entry.ProjectID))
+		func() (bool, error) {
+			return true, s.apiClient.UpdateTimesheet(
+				fmt.Sprintf("%d", entryID), updatedEntry)
 		},
-		func(result []api.TaskListItem, err error) {
+		func(_ bool, err error) {
 			if err != nil {
+				s.setStatus("Error: " + err.Error())
 				return
 			}
-			tasks = result
-			options := make([]string, len(tasks))
-			for i, t := range tasks {
-				options[i] = t.Label
-			}
-			taskSelect.SetOptions(options)
-			if selectedTask != nil {
-				taskSelect.SetSelected(selectedTask.Label)
-			}
-			if !isEditable {
-				taskSelect.Disable()
-			}
+			s.setStatus("Entry updated")
+			s.Refresh()
 		},
 	)
-
-	// Load activities
-	util.RunAsync(
-		func() ([]api.ActivityListItem, error) {
-			return s.apiClient.GetActivities()
-		},
-		func(result []api.ActivityListItem, err error) {
-			if err != nil {
-				return
-			}
-			sort.Slice(result, func(i, j int) bool {
-				return result[i].Label < result[j].Label
-			})
-			activities = result
-			options := make([]string, len(activities))
-			for i, a := range activities {
-				options[i] = a.Label
-			}
-			activitySelect.SetOptions(options)
-			if selectedActivity != nil {
-				activitySelect.SetSelected(selectedActivity.Label)
-			}
-			if !isEditable {
-				activitySelect.Disable()
-			}
-		},
-	)
-
-	// Disable project select for submitted entries (after showing dialog)
-	if !isEditable {
-		projectSelect.Disable()
-	}
 }
 
 // hasRepoAssociationForProject checks if there's a code repo association for the given project

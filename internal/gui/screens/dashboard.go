@@ -3,7 +3,6 @@ package screens
 import (
 	"fmt"
 	"image/color"
-	"sort"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -49,7 +48,9 @@ type DashboardScreen struct {
 	activeTimer    *api.TimelogEntry
 	favourites     *models.FavouriteAssociations
 	todayHours     float64
+	weeklyHours    float64
 	monthlyHours   float64
+	weeklyLabel    *canvas.Text
 	timerStartTime time.Time
 	ticker         *time.Ticker
 	stopTicker     chan struct{}
@@ -58,7 +59,6 @@ type DashboardScreen struct {
 	OnSettings          func()
 	OnHistory           func()
 	OnGaps              func()
-	OnNewTimesheet      func()
 	OnOffice            func()
 	OnAIAssistant       func()
 	OnTimerStatusChange func(running bool, projectName, taskName, activityName string, startTime time.Time)
@@ -74,8 +74,33 @@ func NewDashboardScreen(apiClient *api.Client, window fyne.Window, powCapture *p
 		stopTicker: make(chan struct{}),
 	}
 	s.loadFavourites()
+	s.restorePowState()
 	s.build()
 	return s
+}
+
+// restorePowState restores the POW enabled state from config
+func (s *DashboardScreen) restorePowState() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return
+	}
+
+	if cfg.UI.PowEnabled {
+		// Initialize POW capturer if not already provided
+		if s.powCapture == nil {
+			powCfg := pow.DefaultConfig()
+			powCfg.Enabled = true
+			capturer, err := pow.New(powCfg)
+			if err != nil {
+				return
+			}
+			s.powCapture = capturer
+		} else if !s.powCapture.IsEnabled() {
+			// Enable existing capturer
+			s.powCapture.SetEnabled(true)
+		}
+	}
 }
 
 func (s *DashboardScreen) loadFavourites() {
@@ -94,13 +119,13 @@ func (s *DashboardScreen) build() {
 	s.headerLabel.TextSize = 18
 	s.headerLabel.TextStyle = fyne.TextStyle{Bold: true}
 
-	monthlyLabel := canvas.NewText(fmt.Sprintf("Monthly: %.1fh", s.monthlyHours), color.NRGBA{R: 0x56, G: 0x9F, B: 0xC6, A: 0xFF})
-	monthlyLabel.TextSize = 14
+	s.weeklyLabel = canvas.NewText(fmt.Sprintf("Weekly: %.1fh", s.weeklyHours), color.NRGBA{R: 0x56, G: 0x9F, B: 0xC6, A: 0xFF})
+	s.weeklyLabel.TextSize = 14
 
 	header := container.NewHBox(
 		s.headerLabel,
 		layout.NewSpacer(),
-		monthlyLabel,
+		s.weeklyLabel,
 	)
 
 	// Timer display
@@ -198,7 +223,7 @@ func (s *DashboardScreen) build() {
 	s.powStatusLabel.TextSize = 10
 	s.powStatusLabel.Alignment = fyne.TextAlignCenter
 
-	// Button row
+	// Button row with minimum height to prevent overlap with favourites grid
 	buttonRow := container.NewHBox(
 		layout.NewSpacer(),
 		aiButton,
@@ -207,24 +232,39 @@ func (s *DashboardScreen) build() {
 		s.settingsButton,
 		layout.NewSpacer(),
 	)
+	// Wrap in a container with minimum height
+	buttonRowContainer := container.NewVBox(
+		widget.NewSeparator(),
+		buttonRow,
+	)
 
 	// Status label
 	s.statusLabel = canvas.NewText("", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
 	s.statusLabel.TextSize = 12
 	s.statusLabel.Alignment = fyne.TextAlignCenter
 
-	// Main layout
-	s.Container = container.NewVBox(
+	// Main layout - use Border layout to ensure buttons stay at bottom
+	mainContent := container.NewVBox(
 		header,
 		widget.NewSeparator(),
 		dashboardRow,
 		layout.NewSpacer(),
 		favSection,
-		layout.NewSpacer(),
-		buttonRow,
+	)
+
+	bottomSection := container.NewVBox(
+		buttonRowContainer,
 		container.NewCenter(s.powStatusLabel),
 		widget.NewSeparator(),
 		container.NewCenter(s.statusLabel),
+	)
+
+	s.Container = container.NewBorder(
+		nil,           // top
+		bottomSection, // bottom - always visible
+		nil,           // left
+		nil,           // right
+		mainContent,   // center - takes remaining space
 	)
 
 	// Update POW button state
@@ -235,356 +275,273 @@ func (s *DashboardScreen) onStartStopClicked() {
 	if s.activeTimer != nil {
 		s.showStopTimerDialog()
 	} else {
-		if s.OnNewTimesheet != nil {
-			s.OnNewTimesheet()
-		}
+		s.ShowNewEntryDialog()
 	}
 }
 
 func (s *DashboardScreen) showStopTimerDialog() {
-	// Local state for the dialog
-	var (
-		selectedProject  *api.ProjectListItem
-		selectedTask     *api.TaskListItem
-		selectedActivity *api.ActivityListItem
-		projects         []api.ProjectListItem
-		tasks            []api.TaskListItem
-		activities       []api.ActivityListItem
-		errorLabel       *canvas.Text
-	)
-
-	// Pre-select from active timer
-	selectedProject = &api.ProjectListItem{
-		ID:    s.activeTimer.ProjectID,
-		Label: s.activeTimer.ProjectName,
-	}
-	if s.activeTimer.TaskID.Value > 0 {
-		selectedTask = &api.TaskListItem{
-			ID:    s.activeTimer.TaskID.Value,
-			Label: s.activeTimer.TaskName,
-		}
-	}
-	selectedActivity = &api.ActivityListItem{
-		ID:    s.activeTimer.ActivityID,
-		Label: s.activeTimer.ActivityType,
-	}
-
-	// Title
-	title := canvas.NewText("Stop Timer", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
-	title.TextSize = 24
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	title.Alignment = fyne.TextAlignCenter
-
-	// Project select
-	projectSelect := widgets.NewSearchableSelect("Search projects...", s.window)
-	projectSelect.SetSelected(&widgets.SelectItem{
-		ID:    s.activeTimer.ProjectID,
-		Label: s.activeTimer.ProjectName,
-	})
-
-	// Task select
-	taskSelect := widgets.NewBoundedSelect("Select task...", []string{}, s.window)
-
-	// Activity select
-	activitySelect := widgets.NewBoundedSelect("Select activity...", []string{}, s.window)
-
-	// Wire up project select
-	projectSelect.OnChanged = func(item *widgets.SelectItem) {
-		if item != nil {
-			selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
-			// Load tasks for the new project
-			util.RunAsync(
-				func() ([]api.TaskListItem, error) {
-					return s.apiClient.GetTasks(fmt.Sprintf("%d", item.ID))
-				},
-				func(result []api.TaskListItem, err error) {
-					if err != nil {
-						return
-					}
-					tasks = result
-					options := make([]string, len(tasks))
-					for i, t := range tasks {
-						options[i] = t.Label
-					}
-					taskSelect.SetOptions(options)
-				},
-			)
-		} else {
-			selectedProject = nil
-			taskSelect.SetOptions([]string{})
-		}
-	}
-	projectSelect.OnSearch = func(query string) {
-		util.RunAsync(
-			func() ([]api.ProjectListItem, error) {
-				return s.apiClient.GetProjects(query)
-			},
-			func(result []api.ProjectListItem, err error) {
-				if err != nil {
-					return
-				}
-				projects = result
-				items := make([]widgets.SelectItem, len(projects))
-				for i, p := range projects {
-					items[i] = widgets.SelectItem{ID: p.ID, Label: p.Label}
-				}
-				projectSelect.SetItems(items)
-			},
-		)
-	}
-
-	// Wire up task select
-	taskSelect.OnChanged = func(selected string) {
-		for _, t := range tasks {
-			if t.Label == selected {
-				selectedTask = &t
-				break
-			}
-		}
-	}
-
-	// Wire up activity select
-	activitySelect.OnChanged = func(selected string) {
-		for _, a := range activities {
-			if a.Label == selected {
-				selectedActivity = &a
-				break
-			}
-		}
-	}
-
-	// Description entry (full width)
-	descEntry := widget.NewMultiLineEntry()
-	descEntry.SetPlaceHolder("Description (optional)")
-	if s.activeTimer.Description != nil {
-		descEntry.SetText(*s.activeTimer.Description)
-	}
-	descEntry.SetMinRowsVisible(3)
-
-	// Fetch from Git button
-	hasRepoAssoc := s.hasRepoAssociation(s.activeTimer.ProjectID)
-	fetchButton := widget.NewButton("Fetch from Git", func() {
-		s.fetchGitCommitsForDescription(descEntry)
-	})
-	if !hasRepoAssoc {
-		fetchButton.Disable()
-	}
-
-	// Date/time fields - parse start time from active timer
 	startTime, _ := s.activeTimer.GetFromTimeAsTime()
 
-	startDateEntry := widget.NewEntry()
-	startDateEntry.SetPlaceHolder("YYYY-MM-DD")
-	startDateEntry.SetText(startTime.Local().Format("2006-01-02"))
+	desc := ""
+	if s.activeTimer.Description != nil {
+		desc = *s.activeTimer.Description
+	}
 
-	startTimeEntry := widget.NewEntry()
-	startTimeEntry.SetPlaceHolder("HH:MM")
-	startTimeEntry.SetText(startTime.Local().Format("15:04"))
+	preFill := &widgets.EntryFormData{
+		ProjectID:    s.activeTimer.ProjectID,
+		ProjectName:  s.activeTimer.ProjectName,
+		TaskID:       s.activeTimer.TaskID.Value,
+		TaskName:     s.activeTimer.TaskName,
+		ActivityID:   s.activeTimer.ActivityID,
+		ActivityName: s.activeTimer.ActivityType,
+		Description:  desc,
+		StartDate:    startTime.Local().Format("2006-01-02"),
+		StartTime:    startTime.Local().Format("15:04"),
+		EndDate:      time.Now().Format("2006-01-02"),
+		EndTime:      time.Now().Format("15:04"),
+	}
 
-	endDateEntry := widget.NewEntry()
-	endDateEntry.SetPlaceHolder("YYYY-MM-DD")
-	endDateEntry.SetText(time.Now().Format("2006-01-02"))
+	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
+		Title:           "Stop Timer",
+		Window:          s.window,
+		APIClient:       s.apiClient,
+		ShowDescription: true,
+		ShowDateTime:    true,
+		ShowTask:        true,
+		ShowActivity:    true,
+		PreFill:         preFill,
+		GitFetcher:      func(desc *widget.Entry) { s.fetchGitCommitsForDescription(desc) },
+		Buttons: []widgets.EntryFormButton{
+			{
+				Label:       "Delete",
+				Importance:  widget.DangerImportance,
+				LeftAligned: true,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					close()
+					s.confirmDeleteTimer()
+				},
+			},
+			{
+				Label: "Cancel",
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					close()
+				},
+			},
+			{
+				Label:      "Stop Timer",
+				Importance: widget.HighImportance,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					s.doStopTimer(data, setError, close)
+				},
+			},
+		},
+	})
+}
 
-	endTimeEntry := widget.NewEntry()
-	endTimeEntry.SetPlaceHolder("HH:MM")
-	endTimeEntry.SetText(time.Now().Format("15:04"))
+// doStopTimer handles the stop timer action from the unified dialog
+func (s *DashboardScreen) doStopTimer(data *widgets.EntryFormData, setError func(string), close func()) {
+	if data.ProjectID == 0 {
+		setError("Please select a project")
+		return
+	}
+	if data.ActivityID == 0 {
+		setError("Please select an activity")
+		return
+	}
 
-	// Error label
-	errorLabel = canvas.NewText("", color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF})
-	errorLabel.TextSize = 12
-	errorLabel.Alignment = fyne.TextAlignCenter
+	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
+		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	if err != nil {
+		setError("Invalid start date/time")
+		return
+	}
+	startParsed = startParsed.UTC()
 
-	// Date/time row: Start Date + Start Time | End Date + End Time
-	dateTimeRow := container.NewGridWithColumns(4,
-		container.NewVBox(widget.NewLabel("Start Date"), startDateEntry),
-		container.NewVBox(widget.NewLabel("Start Time"), startTimeEntry),
-		container.NewVBox(widget.NewLabel("End Date"), endDateEntry),
-		container.NewVBox(widget.NewLabel("End Time"), endTimeEntry),
+	endParsed, err := time.ParseInLocation("2006-01-02 15:04",
+		fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+	if err != nil {
+		setError("Invalid end date/time")
+		return
+	}
+	endParsed = endParsed.UTC()
+
+	if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
+		setError("End time must be after start time")
+		return
+	}
+
+	entry := models.TimeEntry{
+		ProjectID:   fmt.Sprintf("%d", data.ProjectID),
+		ActivityID:  fmt.Sprintf("%d", data.ActivityID),
+		Description: data.Description,
+		StartTime:   startParsed,
+		EndTime:     &endParsed,
+		Duration:    endParsed.Sub(startParsed).Hours(),
+	}
+	if data.TaskID > 0 {
+		taskID := fmt.Sprintf("%d", data.TaskID)
+		entry.TaskID = &taskID
+	}
+
+	close()
+	s.setStatus("Stopping timer...")
+
+	util.RunAsync(
+		func() (bool, error) {
+			return true, s.apiClient.UpdateTimesheet(
+				fmt.Sprintf("%d", s.activeTimer.ID), entry)
+		},
+		func(_ bool, err error) {
+			if err != nil {
+				s.setStatus("Error: " + err.Error())
+				return
+			}
+			s.activeTimer = nil
+			s.updateTimerDisplay()
+			s.setStatus("Timer stopped")
+			s.Refresh()
+		},
 	)
+}
 
-	// Buttons - declare var so we can reference in closures
-	var d *widget.PopUp
+// confirmDeleteTimer shows a delete confirmation for the active timer
+func (s *DashboardScreen) confirmDeleteTimer() {
+	dialog.ShowConfirm("Delete Timer",
+		"Are you sure you want to delete this timer entry?\nThis action cannot be undone.",
+		func(confirmed bool) {
+			if !confirmed {
+				return
+			}
+			s.setStatus("Deleting timer...")
 
-	stopButton := widget.NewButton("Stop Timer", func() {
-		// Validation
-		if selectedProject == nil {
-			errorLabel.Text = "Please select a project"
-			errorLabel.Refresh()
-			return
-		}
-		if selectedActivity == nil {
-			errorLabel.Text = "Please select an activity"
-			errorLabel.Refresh()
-			return
-		}
+			util.RunAsync(
+				func() (bool, error) {
+					return true, s.apiClient.DeleteTimesheet(fmt.Sprintf("%d", s.activeTimer.ID))
+				},
+				func(_ bool, err error) {
+					if err != nil {
+						s.setStatus("Error: " + err.Error())
+						return
+					}
+					s.activeTimer = nil
+					s.updateTimerDisplay()
+					s.setStatus("Timer deleted")
+					s.Refresh()
+				},
+			)
+		},
+		s.window,
+	)
+}
 
-		// Parse start date/time
-		startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", startDateEntry.Text, startTimeEntry.Text), time.Local)
-		if err != nil {
-			errorLabel.Text = "Invalid start date/time"
-			errorLabel.Refresh()
-			return
-		}
-		startParsed = startParsed.UTC()
+// ShowNewEntryDialog shows a new timesheet entry dialog (replaces the separate timesheet screen)
+func (s *DashboardScreen) ShowNewEntryDialog() {
+	s.showNewEntryDialogWithPrefill(time.Now().Format("2006-01-02"), time.Now().Format("15:04"))
+}
 
-		// Parse end date/time
+// ShowNewEntryDialogForDate shows a new timesheet entry dialog pre-filled for a specific date/time
+func (s *DashboardScreen) ShowNewEntryDialogForDate(date time.Time, startTime time.Time) {
+	s.showNewEntryDialogWithPrefill(date.Format("2006-01-02"), startTime.Format("15:04"))
+}
+
+func (s *DashboardScreen) showNewEntryDialogWithPrefill(dateStr, timeStr string) {
+	preFill := &widgets.EntryFormData{
+		StartDate: dateStr,
+		StartTime: timeStr,
+	}
+
+	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
+		Title:           "New Timesheet Entry",
+		Window:          s.window,
+		APIClient:       s.apiClient,
+		ShowDescription: true,
+		ShowDateTime:    true,
+		ShowTask:        true,
+		ShowActivity:    true,
+		PreFill:         preFill,
+		Buttons: []widgets.EntryFormButton{
+			{
+				Label: "Cancel",
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					close()
+				},
+			},
+			{
+				Label:      "Start Timer",
+				Importance: widget.HighImportance,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					s.doCreateEntry(data, setError, close)
+				},
+			},
+		},
+	})
+}
+
+// doCreateEntry handles the create entry action from the new entry dialog
+func (s *DashboardScreen) doCreateEntry(data *widgets.EntryFormData, setError func(string), close func()) {
+	if data.ProjectID == 0 {
+		setError("Please select a project")
+		return
+	}
+	if data.ActivityID == 0 {
+		setError("Please select an activity")
+		return
+	}
+
+	// Parse start date/time
+	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
+		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	if err != nil {
+		setError("Invalid start time (use HH:MM format)")
+		return
+	}
+	startParsed = startParsed.UTC()
+
+	// Parse end time if provided
+	var endTimePtr *time.Time
+	var duration float64
+	if data.EndTime != "" {
 		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", endDateEntry.Text, endTimeEntry.Text), time.Local)
+			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
 		if err != nil {
-			errorLabel.Text = "Invalid end date/time"
-			errorLabel.Refresh()
+			setError("Invalid end time (use HH:MM format)")
 			return
 		}
 		endParsed = endParsed.UTC()
-
-		if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
-			errorLabel.Text = "End time must be after start time"
-			errorLabel.Refresh()
+		duration = endParsed.Sub(startParsed).Hours()
+		if duration <= 0 {
+			setError("End time must be after start time")
 			return
 		}
+		endTimePtr = &endParsed
+	}
 
-		errorLabel.Text = ""
-		errorLabel.Refresh()
+	close()
+	s.setStatus("Creating entry...")
 
-		// Build the TimeEntry for UpdateTimesheet
-		entry := models.TimeEntry{
-			ProjectID:   fmt.Sprintf("%d", selectedProject.ID),
-			ActivityID:  fmt.Sprintf("%d", selectedActivity.ID),
-			Description: descEntry.Text,
-			StartTime:   startParsed,
-			EndTime:     &endParsed,
-			Duration:    endParsed.Sub(startParsed).Hours(),
-		}
-		if selectedTask != nil {
-			taskID := fmt.Sprintf("%d", selectedTask.ID)
-			entry.TaskID = &taskID
-		}
-
-		if d != nil {
-			d.Hide()
-		}
-		s.setStatus("Stopping timer...")
-
-		util.RunAsync(
-			func() (bool, error) {
-				return true, s.apiClient.UpdateTimesheet(
-					fmt.Sprintf("%d", s.activeTimer.ID), entry)
-			},
-			func(_ bool, err error) {
-				if err != nil {
-					s.setStatus("Error: " + err.Error())
-					return
-				}
-				s.activeTimer = nil
-				s.updateTimerDisplay()
-				s.setStatus("Timer stopped")
-				s.Refresh()
-			},
-		)
-	})
-	stopButton.Importance = widget.HighImportance
-
-	cancelButton := widget.NewButton("Cancel", func() {
-		if d != nil {
-			d.Hide()
-		}
-	})
-
-	buttonRow := container.NewHBox(
-		layout.NewSpacer(),
-		cancelButton,
-		stopButton,
-	)
-
-	// Description container with fetch button
-	descContainer := container.NewBorder(
-		nil,
-		container.NewHBox(layout.NewSpacer(), fetchButton),
-		nil,
-		nil,
-		descEntry,
-	)
-
-	// Form layout matching timesheet creator style
-	form := container.NewVBox(
-		container.NewCenter(title),
-		widget.NewSeparator(),
-		widget.NewLabel("Project *"),
-		projectSelect,
-		widget.NewLabel("Task"),
-		taskSelect.Select,
-		widget.NewLabel("Activity *"),
-		activitySelect.Select,
-		widget.NewLabel("Description"),
-		descContainer,
-		dateTimeRow,
-		layout.NewSpacer(),
-		errorLabel,
-		widget.NewSeparator(),
-		buttonRow,
-	)
-
-	// Container with border (same style as timesheet creator)
-	formBorder := canvas.NewRectangle(color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
-	formBorder.StrokeColor = color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
-	formBorder.StrokeWidth = 2
-	formBorder.FillColor = color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 0xFF}
-	formBorder.CornerRadius = 10
-
-	formContainer := container.NewStack(
-		formBorder,
-		container.NewPadded(container.NewPadded(form)),
-	)
-
-	// Show as a popup overlay - pass formContainer directly so the dark
-	// background fills the entire popup with no white space around it
-	d = widget.NewModalPopUp(formContainer, s.window.Canvas())
-	d.Resize(fyne.NewSize(550, 600))
-	d.Show()
-
-	// Load tasks for current project
 	util.RunAsync(
-		func() ([]api.TaskListItem, error) {
-			return s.apiClient.GetTasks(fmt.Sprintf("%d", s.activeTimer.ProjectID))
+		func() (bool, error) {
+			entry := models.TimeEntry{
+				ProjectID:   fmt.Sprintf("%d", data.ProjectID),
+				ActivityID:  fmt.Sprintf("%d", data.ActivityID),
+				Description: data.Description,
+				StartTime:   startParsed,
+				EndTime:     endTimePtr,
+				Duration:    duration,
+			}
+			if data.TaskID > 0 {
+				taskID := fmt.Sprintf("%d", data.TaskID)
+				entry.TaskID = &taskID
+			}
+			return true, s.apiClient.CreateTimesheet(entry)
 		},
-		func(result []api.TaskListItem, err error) {
+		func(_ bool, err error) {
 			if err != nil {
+				s.setStatus("Error creating entry: " + err.Error())
 				return
 			}
-			tasks = result
-			options := make([]string, len(tasks))
-			for i, t := range tasks {
-				options[i] = t.Label
-			}
-			taskSelect.SetOptions(options)
-			if selectedTask != nil {
-				taskSelect.SetSelected(selectedTask.Label)
-			}
-		},
-	)
-
-	// Load activities
-	util.RunAsync(
-		func() ([]api.ActivityListItem, error) {
-			return s.apiClient.GetActivities()
-		},
-		func(result []api.ActivityListItem, err error) {
-			if err != nil {
-				return
-			}
-			sort.Slice(result, func(i, j int) bool {
-				return result[i].Label < result[j].Label
-			})
-			activities = result
-			options := make([]string, len(activities))
-			for i, a := range activities {
-				options[i] = a.Label
-			}
-			activitySelect.SetOptions(options)
-			if selectedActivity != nil {
-				activitySelect.SetSelected(selectedActivity.Label)
-			}
+			s.setStatus("Timer started")
+			s.Refresh()
 		},
 	)
 }
@@ -751,6 +708,25 @@ func (s *DashboardScreen) stopTimer(description string) {
 
 	s.setStatus("Stopping timer...")
 
+	// Stop POW session and generate video (works even if POW was disabled mid-session)
+	entryID := s.activeTimer.ID
+	if s.powCapture != nil {
+		videoPath, err := s.powCapture.StopSession()
+		if err != nil {
+			// Log error but don't block timer stop
+			fmt.Printf("Failed to stop POW session: %v\n", err)
+		} else if videoPath != "" {
+			// Save the POW video path mapping to the entry ID
+			cfg, cfgErr := config.LoadConfig()
+			if cfgErr == nil {
+				store, storeErr := storage.New(cfg.GetStorageDir())
+				if storeErr == nil {
+					_ = store.SavePowVideoPath(entryID, videoPath)
+				}
+			}
+		}
+	}
+
 	util.RunAsync(
 		func() (bool, error) {
 			entry := *s.activeTimer
@@ -788,6 +764,24 @@ func (s *DashboardScreen) onFavouriteClicked(index int) {
 	// If a timer is running, stop it first
 	if s.activeTimer != nil {
 		s.setStatus("Stopping current timer...")
+
+		// Stop POW session and generate video (works even if POW was disabled mid-session)
+		entryID := s.activeTimer.ID
+		if s.powCapture != nil {
+			videoPath, err := s.powCapture.StopSession()
+			if err != nil {
+				fmt.Printf("Failed to stop POW session: %v\n", err)
+			} else if videoPath != "" {
+				cfg, cfgErr := config.LoadConfig()
+				if cfgErr == nil {
+					store, storeErr := storage.New(cfg.GetStorageDir())
+					if storeErr == nil {
+						_ = store.SavePowVideoPath(entryID, videoPath)
+					}
+				}
+			}
+		}
+
 		util.RunAsync(
 			func() (bool, error) {
 				return true, s.apiClient.StopTimesheet(s.activeTimer)
@@ -828,6 +822,16 @@ func (s *DashboardScreen) startFavouriteTimer(fav *models.FavouriteAssociation) 
 				return
 			}
 			s.setStatus(fmt.Sprintf("Started: %s", fav.Name))
+
+			// Start POW session if enabled
+			if s.powCapture != nil && s.powCapture.IsEnabled() {
+				// We need to get the entry ID from the API after refresh
+				// For now, start with placeholder - actual ID will come from active timer
+				if startErr := s.powCapture.StartSession(0, fav.ProjectName, fav.TaskName); startErr != nil {
+					fmt.Printf("Failed to start POW session: %v\n", startErr)
+				}
+			}
+
 			s.Refresh()
 		},
 	)
@@ -920,12 +924,18 @@ func (s *DashboardScreen) Refresh() {
 			if err != nil {
 				return
 			}
-			// Calculate today's and monthly hours
+			// Calculate today's, weekly, and monthly hours
 			now := time.Now()
 			todayStr := now.Format("2006-01-02")
 			monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+			// Calculate week start (Monday)
+			weekday := int(now.Weekday())
+			if weekday == 0 {
+				weekday = 7 // Sunday = 7
+			}
+			weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location())
 
-			var todayHours, monthlyHours float64
+			var todayHours, weeklyHours, monthlyHours float64
 			for _, e := range entries {
 				fromTime, parseErr := e.GetFromTimeAsTime()
 				if parseErr != nil {
@@ -934,15 +944,21 @@ func (s *DashboardScreen) Refresh() {
 				if fromTime.Format("2006-01-02") == todayStr {
 					todayHours += e.Hours
 				}
+				if fromTime.After(weekStart) || fromTime.Equal(weekStart) {
+					weeklyHours += e.Hours
+				}
 				if fromTime.After(monthStart) || fromTime.Equal(monthStart) {
 					monthlyHours += e.Hours
 				}
 			}
 			s.todayHours = todayHours
+			s.weeklyHours = weeklyHours
 			s.monthlyHours = monthlyHours
 			s.progressGauge.SetProgress(todayHours, 8.0)
 			s.headerLabel.Text = fmt.Sprintf("Welcome, %s | Monthly: %.1fh", s.username, monthlyHours)
 			s.headerLabel.Refresh()
+			s.weeklyLabel.Text = fmt.Sprintf("Weekly: %.1fh", weeklyHours)
+			s.weeklyLabel.Refresh()
 		},
 	)
 
@@ -992,9 +1008,9 @@ func (s *DashboardScreen) StopTicker() {
 // togglePowMode toggles POW (Proof of Work) screenshot capture mode
 func (s *DashboardScreen) togglePowMode() {
 	if s.powCapture == nil {
-		// Initialize POW capturer if not exists
+		// Initialize POW capturer - start disabled, then toggle will enable it
 		cfg := pow.DefaultConfig()
-		cfg.Enabled = true
+		cfg.Enabled = false
 		capturer, err := pow.New(cfg)
 		if err != nil {
 			s.setStatus("POW Error: " + err.Error())
@@ -1004,28 +1020,56 @@ func (s *DashboardScreen) togglePowMode() {
 	}
 
 	enabled, ok := s.powCapture.Toggle()
+
 	if ok {
 		s.updatePowButton()
+		// Save POW state to config
+		s.savePowState(enabled)
+
 		if enabled {
 			s.setStatus("POW mode enabled - screenshots will be captured")
+			// If a timer is already running, start POW session immediately
+			if s.activeTimer != nil {
+				if err := s.powCapture.StartSession(s.activeTimer.ID, s.activeTimer.ProjectName, s.activeTimer.TaskName); err != nil {
+					fmt.Printf("Failed to start POW session for running timer: %v\n", err)
+				}
+			}
 		} else {
 			s.setStatus("POW mode disabled")
+			// If disabling while timer is running, pause the session (keep screenshots for later)
+			// Video will be generated when timer stops
+			if s.activeTimer != nil {
+				s.powCapture.PauseSession()
+			}
 		}
 	} else {
 		s.setStatus("Failed to toggle POW mode")
 	}
 }
 
+// savePowState saves the POW enabled state to config
+func (s *DashboardScreen) savePowState(enabled bool) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return
+	}
+	cfg.UI.PowEnabled = enabled
+	_ = config.SaveConfig(cfg)
+}
+
 // updatePowButton updates the POW button text based on current state
 func (s *DashboardScreen) updatePowButton() {
 	if s.powCapture != nil && s.powCapture.IsEnabled() {
 		s.powButton.SetText("📸 POW: ON")
+		s.powButton.Importance = widget.SuccessImportance // Green button
 		s.powStatusLabel.Text = "Screenshots will be captured during timer sessions"
 		s.powStatusLabel.Color = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF} // Green
 	} else {
 		s.powButton.SetText("📸 POW: OFF")
+		s.powButton.Importance = widget.MediumImportance // Default button
 		s.powStatusLabel.Text = ""
 	}
+	s.powButton.Refresh()
 	s.powStatusLabel.Refresh()
 }
 

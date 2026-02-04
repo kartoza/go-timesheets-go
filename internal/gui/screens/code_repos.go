@@ -8,12 +8,10 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
-	"github.com/kartoza/go-timesheets-go/internal/gui/util"
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
@@ -233,139 +231,52 @@ func (s *CodeReposScreen) editRepo(index int) {
 func (s *CodeReposScreen) showRepoDialog(index int, existing *models.CodeRepoAssociation) {
 	isNew := index < 0
 
-	// Colors matching timesheet dialog
-	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
-	labelGray := color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
-	bgColor := color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 0xFF}
-
 	titleStr := "Add Repository"
 	if !isNew {
 		titleStr = "Edit Repository"
 	}
 
-	titleText := canvas.NewText(titleStr, goldColor)
-	titleText.TextSize = 20
-	titleText.TextStyle = fyne.TextStyle{Bold: true}
-	titleText.Alignment = fyne.TextAlignCenter
-
-	projectSelect := widgets.NewSearchableSelect("Search projects...", s.window)
-	if existing != nil && existing.ProjectID > 0 {
-		projectSelect.SetSelected(&widgets.SelectItem{ID: existing.ProjectID, Label: existing.ProjectName})
-	}
-	projectSelect.OnSearch = func(query string) {
-		s.searchProjects(query, projectSelect)
-	}
-
-	repoEntry := widget.NewEntry()
-	repoEntry.SetPlaceHolder("github.com/owner/repo")
+	preFill := &widgets.EntryFormData{}
 	if existing != nil {
-		repoEntry.SetText(existing.RepoURL)
+		preFill.ProjectID = existing.ProjectID
+		preFill.ProjectName = existing.ProjectName
+		preFill.RepoURL = existing.RepoURL
 	}
 
-	var selectedProject *api.ProjectListItem
-	projectSelect.OnChanged = func(item *widgets.SelectItem) {
-		if item != nil {
-			selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
-		}
-	}
-
-	if existing != nil && existing.ProjectID > 0 {
-		selectedProject = &api.ProjectListItem{ID: existing.ProjectID, Label: existing.ProjectName}
-	}
-
-	// Labels
-	projectLabel := canvas.NewText("Project *", labelGray)
-	projectLabel.TextSize = 12
-	repoLabel := canvas.NewText("Repository URL *", labelGray)
-	repoLabel.TextSize = 12
-
-	// Buttons
-	var customDialog *widget.PopUp
-
-	saveBtn := widget.NewButton("Save", func() {
-		if selectedProject == nil {
-			s.setStatus("Please select a project")
-			return
-		}
-		if repoEntry.Text == "" {
-			s.setStatus("Please enter a repository URL")
-			return
-		}
-		s.saveRepo(index, selectedProject, repoEntry.Text)
-		if customDialog != nil {
-			customDialog.Hide()
-		}
-	})
-	saveBtn.Importance = widget.HighImportance
-
-	cancelBtn := widget.NewButton("Cancel", func() {
-		if customDialog != nil {
-			customDialog.Hide()
-		}
-	})
-
-	buttonRow := container.NewHBox(
-		layout.NewSpacer(),
-		cancelBtn,
-		saveBtn,
-	)
-
-	// Form layout
-	formContent := container.NewVBox(
-		container.NewCenter(titleText),
-		widget.NewSeparator(),
-		projectLabel,
-		projectSelect,
-		repoLabel,
-		repoEntry,
-		layout.NewSpacer(),
-		widget.NewSeparator(),
-		buttonRow,
-	)
-
-	// Styled container with border
-	formBorder := canvas.NewRectangle(goldColor)
-	formBorder.StrokeColor = goldColor
-	formBorder.StrokeWidth = 2
-	formBorder.FillColor = bgColor
-	formBorder.CornerRadius = 10
-
-	formContainer := container.NewStack(
-		formBorder,
-		container.NewPadded(container.NewPadded(formContent)),
-	)
-
-	scrollContent := container.NewVScroll(formContainer)
-	scrollContent.SetMinSize(fyne.NewSize(380, 320))
-
-	popupBg := canvas.NewRectangle(darkGray)
-	popupBg.SetMinSize(fyne.NewSize(400, 350))
-
-	popupContent := container.NewStack(
-		popupBg,
-		container.NewPadded(scrollContent),
-	)
-
-	customDialog = widget.NewModalPopUp(popupContent, s.window.Canvas())
-	customDialog.Show()
-}
-
-func (s *CodeReposScreen) searchProjects(query string, selectWidget *widgets.SearchableSelect) {
-	util.RunAsync(
-		func() ([]api.ProjectListItem, error) {
-			return s.apiClient.GetProjects(query)
+	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
+		Title:       titleStr,
+		Window:      s.window,
+		APIClient:   s.apiClient,
+		ShowRepoURL: true,
+		PreFill:     preFill,
+		Buttons: []widgets.EntryFormButton{
+			{
+				Label: "Cancel",
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					close()
+				},
+			},
+			{
+				Label:      "Save",
+				Importance: widget.HighImportance,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					if data.ProjectID == 0 {
+						setError("Please select a project")
+						return
+					}
+					if data.RepoURL == "" {
+						setError("Please enter a repository URL")
+						return
+					}
+					s.saveRepo(index,
+						&api.ProjectListItem{ID: data.ProjectID, Label: data.ProjectName},
+						data.RepoURL,
+					)
+					close()
+				},
+			},
 		},
-		func(projects []api.ProjectListItem, err error) {
-			if err == nil {
-				items := make([]widgets.SelectItem, len(projects))
-				for i, p := range projects {
-					items[i] = widgets.SelectItem{ID: p.ID, Label: p.Label}
-				}
-				selectWidget.SetItems(items)
-			}
-		},
-	)
+	})
 }
 
 func (s *CodeReposScreen) saveRepo(index int, project *api.ProjectListItem, repoURL string) {
