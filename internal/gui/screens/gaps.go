@@ -130,7 +130,7 @@ func (s *GapsScreen) build() {
 	legendTitle.TextSize = 12
 
 	gapLegend := container.NewHBox(
-		canvas.NewRectangle(color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF}),
+		canvas.NewRectangle(color.White),
 		canvas.NewText("Gap (click to fill)", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}),
 	)
 	gapLegend.Objects[0].(*canvas.Rectangle).SetMinSize(fyne.NewSize(16, 16))
@@ -380,7 +380,7 @@ func (s *GapsScreen) buildBars() {
 			if gapHeight < 8 {
 				gapHeight = 8
 			}
-			gapRect := canvas.NewRectangle(color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF})
+			gapRect := canvas.NewRectangle(color.White)
 			gapRect.SetMinSize(fyne.NewSize(barWidth, gapHeight))
 
 			dayIndex := i

@@ -507,8 +507,8 @@ func (g *GapsView) getBarStyle(day service.DayData, row, totalRows int, selected
 	isGapRow := day.TotalHours < rowStartHours
 
 	if isGapRow {
-		// Gap zone - red
-		style = style.Foreground(lipgloss.Color("#E74C3C"))
+		// Gap zone - white
+		style = style.Foreground(lipgloss.Color("#FFFFFF"))
 
 		// Highlight if this is the selected day and gap is selected
 		if selected && dayIndex < len(g.daySegments) {
@@ -550,7 +550,7 @@ func (g *GapsView) renderLegend() string {
 		Foreground(lipgloss.Color("#9A9EA0")).
 		Align(lipgloss.Center)
 
-	gapStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E74C3C"))
+	gapStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
 	loggedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#2ECC71"))
 
 	return legendStyle.Render(
