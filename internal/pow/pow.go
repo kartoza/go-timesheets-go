@@ -66,10 +66,6 @@ func DefaultConfig() Config {
 
 // New creates a new POW capturer
 func New(cfg Config) (*Capturer, error) {
-	if !cfg.Enabled {
-		return &Capturer{enabled: false}, nil
-	}
-
 	// Detect screenshot tool
 	tool := detectScreenshotTool()
 	if tool == "" {
@@ -88,11 +84,11 @@ func New(cfg Config) (*Capturer, error) {
 		return nil, fmt.Errorf("failed to create POW output directory: %w", err)
 	}
 
-	powDebugLog.Printf("POW capturer initialized: tool=%s, interval=%v, outputDir=%s",
-		tool, cfg.Interval, cfg.OutputDir)
+	powDebugLog.Printf("POW capturer initialized: tool=%s, interval=%v, outputDir=%s, enabled=%v",
+		tool, cfg.Interval, cfg.OutputDir, cfg.Enabled)
 
 	return &Capturer{
-		enabled:        true,
+		enabled:        cfg.Enabled,
 		interval:       cfg.Interval,
 		outputDir:      cfg.OutputDir,
 		screenshotTool: tool,
@@ -156,6 +152,7 @@ func (c *Capturer) Toggle() (enabled bool, ok bool) {
 }
 
 // StartSession begins capturing screenshots for a new timesheet session
+// If a session was previously paused for this timesheet, it resumes capturing to the same directory
 func (c *Capturer) StartSession(timesheetID int, projectName, taskName string) error {
 	if !c.enabled {
 		return nil
@@ -169,7 +166,21 @@ func (c *Capturer) StartSession(timesheetID int, projectName, taskName string) e
 		return nil
 	}
 
-	// Create session directory
+	// Check if we're resuming a paused session (same timesheet ID and session dir exists)
+	if c.timesheetID == timesheetID && c.sessionDir != "" {
+		if _, err := os.Stat(c.sessionDir); err == nil {
+			// Resume existing session
+			powDebugLog.Printf("Resuming POW session: id=%d, dir=%s, existing frames=%d",
+				timesheetID, c.sessionDir, c.frameCount)
+			c.sessionActive = true
+			c.stopChan = make(chan struct{})
+			c.wg.Add(1)
+			go c.captureLoop()
+			return nil
+		}
+	}
+
+	// Create new session directory
 	c.sessionStart = time.Now()
 	sessionTime := c.sessionStart.Format("2006-01-02_15-04-05")
 	c.sessionDir = filepath.Join(c.outputDir, sessionTime)
@@ -195,38 +206,70 @@ func (c *Capturer) StartSession(timesheetID int, projectName, taskName string) e
 	return nil
 }
 
-// StopSession stops the current capture session and generates the video
-func (c *Capturer) StopSession() (string, error) {
-	if !c.enabled {
-		return "", nil
-	}
-
+// PauseSession stops capturing but keeps the session directory for later resumption
+// No video is generated - use StopSession to finalize and create the video
+// This works regardless of enabled state (called when disabling POW mid-session)
+func (c *Capturer) PauseSession() {
 	c.mu.Lock()
 	if !c.sessionActive {
 		c.mu.Unlock()
-		return "", nil
+		return
 	}
 
 	// Signal stop
 	close(c.stopChan)
-	sessionDir := c.sessionDir
-	frameCount := c.frameCount
-	projectName := c.projectName
-	sessionStart := c.sessionStart
-
 	c.sessionActive = false
 	c.mu.Unlock()
 
 	// Wait for capture loop to finish
 	c.wg.Wait()
 
-	powDebugLog.Printf("POW session stopped: frames=%d", frameCount)
+	powDebugLog.Printf("POW session paused: frames=%d, dir=%s", c.frameCount, c.sessionDir)
+}
 
-	if frameCount == 0 {
-		// No frames captured, clean up
-		os.RemoveAll(sessionDir)
+// HasPendingSession returns true if there's a session with frames waiting to be rendered
+func (c *Capturer) HasPendingSession() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessionDir != "" && c.frameCount > 0
+}
+
+// StopSession stops the current capture session and generates the video
+// This works even if POW is disabled, to finalize any pending session
+func (c *Capturer) StopSession() (string, error) {
+	c.mu.Lock()
+
+	// If session is active, stop the capture loop first
+	if c.sessionActive {
+		close(c.stopChan)
+		c.sessionActive = false
+		c.mu.Unlock()
+		c.wg.Wait()
+		c.mu.Lock()
+	}
+
+	// Check if there's anything to render
+	if c.sessionDir == "" || c.frameCount == 0 {
+		// Clean up empty session dir if it exists
+		if c.sessionDir != "" {
+			os.RemoveAll(c.sessionDir)
+			c.sessionDir = ""
+		}
+		c.mu.Unlock()
 		return "", nil
 	}
+
+	sessionDir := c.sessionDir
+	frameCount := c.frameCount
+	projectName := c.projectName
+	sessionStart := c.sessionStart
+
+	// Clear session state
+	c.sessionDir = ""
+	c.frameCount = 0
+	c.mu.Unlock()
+
+	powDebugLog.Printf("POW session stopped: frames=%d", frameCount)
 
 	// Generate video
 	videoName := fmt.Sprintf("pow_%s_%s.mp4",
