@@ -22,7 +22,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 )
 
-// HistoryScreen represents the history screen
+// HistoryScreen represents the history screen with two-column layout
 type HistoryScreen struct {
 	Container fyne.CanvasObject
 
@@ -31,14 +31,31 @@ type HistoryScreen struct {
 	store     *storage.Storage
 
 	// Widgets
-	entryList    *widget.List
-	backButton   *widget.Button
-	submitButton *widget.Button
-	statusLabel  *canvas.Text
+	entryList     *widget.List
+	backButton    *widget.Button
+	submitButton  *widget.Button
+	statusLabel   *canvas.Text
+	detailPanel   *fyne.Container
+	selectedIndex int
+
+	// Detail panel components
+	detailTitle       *canvas.Text
+	detailProject     *canvas.Text
+	detailTask        *canvas.Text
+	detailActivity    *canvas.Text
+	detailDate        *canvas.Text
+	detailTime        *canvas.Text
+	detailHours       *canvas.Text
+	detailStatus      *canvas.Text
+	detailDescLabel   *canvas.Text
+	detailDescription *widget.Label
+	detailEditBtn     *widget.Button
+	detailDeleteBtn   *widget.Button
+	detailPowBtn      *widget.Button
 
 	// Data
-	entries      []api.TimelogEntry
-	powVideoMap  map[int]string // entry ID -> video path
+	entries     []api.TimelogEntry
+	powVideoMap map[int]string // entry ID -> video path
 
 	// Callbacks
 	OnBack func()
@@ -47,10 +64,11 @@ type HistoryScreen struct {
 // NewHistoryScreen creates a new history screen
 func NewHistoryScreen(apiClient *api.Client, window fyne.Window) *HistoryScreen {
 	s := &HistoryScreen{
-		apiClient:   apiClient,
-		window:      window,
-		entries:     []api.TimelogEntry{},
-		powVideoMap: make(map[int]string),
+		apiClient:     apiClient,
+		window:        window,
+		entries:       []api.TimelogEntry{},
+		powVideoMap:   make(map[int]string),
+		selectedIndex: -1,
 	}
 
 	// Initialize storage for POW video lookup
@@ -65,27 +83,28 @@ func NewHistoryScreen(apiClient *api.Client, window fyne.Window) *HistoryScreen 
 }
 
 func (s *HistoryScreen) build() {
+	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	grayColor := color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
+
 	// Title
-	title := canvas.NewText("Timesheet History", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
+	title := canvas.NewText("Timesheet History", goldColor)
 	title.TextSize = 24
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	title.Alignment = fyne.TextAlignCenter
 
-	// Entry list
+	// Entry list - compact without descriptions
 	s.entryList = widget.NewList(
 		func() int { return len(s.entries) },
 		func() fyne.CanvasObject {
-			return s.createEntryCard()
+			return s.createCompactEntryRow()
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			s.updateEntryCard(id, obj)
+			s.updateCompactEntryRow(id, obj)
 		},
 	)
 	s.entryList.OnSelected = func(id widget.ListItemID) {
-		if int(id) < len(s.entries) {
-			s.showEntryDetail(int(id))
-		}
-		s.entryList.UnselectAll()
+		s.selectedIndex = int(id)
+		s.updateDetailPanel()
 	}
 
 	// Buttons
@@ -99,7 +118,7 @@ func (s *HistoryScreen) build() {
 	s.submitButton.Importance = widget.HighImportance
 
 	// Status label
-	s.statusLabel = canvas.NewText("", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
+	s.statusLabel = canvas.NewText("", grayColor)
 	s.statusLabel.TextSize = 12
 	s.statusLabel.Alignment = fyne.TextAlignCenter
 
@@ -108,6 +127,26 @@ func (s *HistoryScreen) build() {
 		layout.NewSpacer(),
 		s.submitButton,
 	)
+
+	// Build detail panel
+	s.buildDetailPanel()
+
+	// Left column: list
+	leftColumn := container.NewBorder(
+		nil, nil, nil, nil,
+		s.entryList,
+	)
+
+	// Right column: detail panel with border
+	detailBorder := canvas.NewRectangle(color.NRGBA{R: 0x3D, G: 0x3E, B: 0x40, A: 0xFF})
+	rightColumn := container.NewStack(
+		detailBorder,
+		container.NewPadded(s.detailPanel),
+	)
+
+	// Two-column split (60% list, 40% detail)
+	splitContainer := container.NewHSplit(leftColumn, rightColumn)
+	splitContainer.SetOffset(0.55)
 
 	// Main layout
 	s.Container = container.NewBorder(
@@ -122,42 +161,263 @@ func (s *HistoryScreen) build() {
 		),
 		nil,
 		nil,
-		s.entryList,
+		splitContainer,
 	)
 }
 
-func (s *HistoryScreen) createEntryCard() fyne.CanvasObject {
+func (s *HistoryScreen) buildDetailPanel() {
+	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	whiteColor := color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+	grayColor := color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
+
+	// Title
+	s.detailTitle = canvas.NewText("Select an entry", goldColor)
+	s.detailTitle.TextSize = 16
+	s.detailTitle.TextStyle = fyne.TextStyle{Bold: true}
+
+	// Labels
+	s.detailProject = canvas.NewText("", whiteColor)
+	s.detailProject.TextSize = 14
+	s.detailProject.TextStyle = fyne.TextStyle{Bold: true}
+
+	s.detailTask = canvas.NewText("", grayColor)
+	s.detailTask.TextSize = 12
+
+	s.detailActivity = canvas.NewText("", grayColor)
+	s.detailActivity.TextSize = 12
+
+	s.detailDate = canvas.NewText("", whiteColor)
+	s.detailDate.TextSize = 12
+
+	s.detailTime = canvas.NewText("", grayColor)
+	s.detailTime.TextSize = 12
+
+	s.detailHours = canvas.NewText("", goldColor)
+	s.detailHours.TextSize = 14
+	s.detailHours.TextStyle = fyne.TextStyle{Bold: true}
+
+	s.detailStatus = canvas.NewText("", grayColor)
+	s.detailStatus.TextSize = 12
+
+	s.detailDescLabel = canvas.NewText("Description:", whiteColor)
+	s.detailDescLabel.TextSize = 12
+	s.detailDescLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	s.detailDescription = widget.NewLabel("Select an entry from the list to view details")
+	s.detailDescription.Wrapping = fyne.TextWrapWord
+
+	// Action buttons
+	s.detailEditBtn = widget.NewButton("Edit", func() {
+		if s.selectedIndex >= 0 && s.selectedIndex < len(s.entries) {
+			s.showEntryDetail(s.selectedIndex)
+		}
+	})
+	s.detailEditBtn.Importance = widget.HighImportance
+	s.detailEditBtn.Hide()
+
+	s.detailDeleteBtn = widget.NewButton("Delete", func() {
+		if s.selectedIndex >= 0 && s.selectedIndex < len(s.entries) {
+			s.confirmDelete(s.selectedIndex)
+		}
+	})
+	s.detailDeleteBtn.Importance = widget.DangerImportance
+	s.detailDeleteBtn.Hide()
+
+	s.detailPowBtn = widget.NewButton("🎬 Play POW", func() {
+		if s.selectedIndex >= 0 && s.selectedIndex < len(s.entries) {
+			entry := s.entries[s.selectedIndex]
+			if videoPath, ok := s.powVideoMap[entry.ID]; ok {
+				s.playPOWVideo(videoPath)
+			}
+		}
+	})
+	s.detailPowBtn.Hide()
+
+	buttonBox := container.NewHBox(
+		s.detailDeleteBtn,
+		layout.NewSpacer(),
+		s.detailPowBtn,
+		s.detailEditBtn,
+	)
+
+	// Top section: metadata (fixed height)
+	topSection := container.NewVBox(
+		s.detailTitle,
+		widget.NewSeparator(),
+		s.detailProject,
+		s.detailTask,
+		s.detailActivity,
+		widget.NewSeparator(),
+		container.NewHBox(s.detailDate, layout.NewSpacer(), s.detailHours),
+		s.detailTime,
+		s.detailStatus,
+		widget.NewSeparator(),
+		s.detailDescLabel,
+	)
+
+	// Bottom section: buttons (fixed height)
+	bottomSection := container.NewVBox(
+		widget.NewSeparator(),
+		buttonBox,
+	)
+
+	// Description scroll area expands to fill remaining space
+	descScroll := container.NewScroll(s.detailDescription)
+
+	// Use Border layout: top fixed, bottom fixed, center (description) expands
+	s.detailPanel = container.NewBorder(
+		topSection,    // top
+		bottomSection, // bottom
+		nil,           // left
+		nil,           // right
+		descScroll,    // center - expands to fill available space
+	)
+}
+
+func (s *HistoryScreen) updateDetailPanel() {
+	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	greenColor := color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF}
+	blueColor := color.NRGBA{R: 0x3A, G: 0x9A, B: 0xD9, A: 0xFF}
+
+	if s.selectedIndex < 0 || s.selectedIndex >= len(s.entries) {
+		s.detailTitle.Text = "Select an entry"
+		s.detailTitle.Refresh()
+		s.detailProject.Text = ""
+		s.detailProject.Refresh()
+		s.detailTask.Text = ""
+		s.detailTask.Refresh()
+		s.detailActivity.Text = ""
+		s.detailActivity.Refresh()
+		s.detailDate.Text = ""
+		s.detailDate.Refresh()
+		s.detailTime.Text = ""
+		s.detailTime.Refresh()
+		s.detailHours.Text = ""
+		s.detailHours.Refresh()
+		s.detailStatus.Text = ""
+		s.detailStatus.Refresh()
+		s.detailDescription.SetText("Select an entry from the list to view details")
+		s.detailEditBtn.Hide()
+		s.detailDeleteBtn.Hide()
+		s.detailPowBtn.Hide()
+		return
+	}
+
+	entry := s.entries[s.selectedIndex]
+
+	// Title
+	s.detailTitle.Text = "Entry Details"
+	s.detailTitle.Refresh()
+
+	// Project
+	s.detailProject.Text = entry.ProjectName
+	s.detailProject.Refresh()
+
+	// Task
+	if entry.TaskName != "" {
+		s.detailTask.Text = "Task: " + entry.TaskName
+	} else {
+		s.detailTask.Text = "Task: (none)"
+	}
+	s.detailTask.Refresh()
+
+	// Activity
+	s.detailActivity.Text = "Activity: " + entry.ActivityType
+	s.detailActivity.Refresh()
+
+	// Date and time
+	fromTime, err := entry.GetFromTimeAsTime()
+	if err == nil {
+		s.detailDate.Text = fromTime.Local().Format("Monday, January 02, 2006")
+		if entry.ToTime != "" {
+			toTime, _ := entry.GetToTimeAsTime()
+			s.detailTime.Text = fmt.Sprintf("%s - %s",
+				fromTime.Local().Format("15:04"),
+				toTime.Local().Format("15:04"))
+		} else {
+			s.detailTime.Text = fmt.Sprintf("%s - running", fromTime.Local().Format("15:04"))
+		}
+	} else {
+		s.detailDate.Text = entry.FromTime
+		s.detailTime.Text = ""
+	}
+	s.detailDate.Refresh()
+	s.detailTime.Refresh()
+
+	// Hours
+	s.detailHours.Text = fmt.Sprintf("%.2f hours", entry.Hours)
+	s.detailHours.Refresh()
+
+	// Status
+	if entry.ToTime == "" {
+		s.detailStatus.Text = "🟢 Running"
+		s.detailStatus.Color = greenColor
+	} else if entry.Submitted {
+		s.detailStatus.Text = "✓ Submitted"
+		s.detailStatus.Color = blueColor
+	} else {
+		s.detailStatus.Text = "○ Pending"
+		s.detailStatus.Color = goldColor
+	}
+	s.detailStatus.Refresh()
+
+	// Description
+	if entry.Description != nil && *entry.Description != "" {
+		s.detailDescription.SetText(*entry.Description)
+	} else {
+		s.detailDescription.SetText("(No description)")
+	}
+
+	// Show/hide action buttons based on entry state
+	isEditable := !entry.Submitted
+	if isEditable {
+		s.detailEditBtn.Show()
+		s.detailDeleteBtn.Show()
+	} else {
+		s.detailEditBtn.SetText("View")
+		s.detailEditBtn.Show()
+		s.detailDeleteBtn.Hide()
+	}
+
+	// POW button
+	if videoPath, hasPOW := s.powVideoMap[entry.ID]; hasPOW && videoPath != "" {
+		s.detailPowBtn.Show()
+	} else {
+		s.detailPowBtn.Hide()
+	}
+}
+
+func (s *HistoryScreen) createCompactEntryRow() fyne.CanvasObject {
 	projectLabel := widget.NewLabel("Project")
 	projectLabel.TextStyle = fyne.TextStyle{Bold: true}
+	projectLabel.Truncation = fyne.TextTruncateEllipsis
 
 	taskLabel := widget.NewLabel("Task")
+	taskLabel.Truncation = fyne.TextTruncateEllipsis
+
 	dateLabel := widget.NewLabel("Date")
 	hoursLabel := widget.NewLabel("Hours")
 	hoursLabel.TextStyle = fyne.TextStyle{Bold: true}
 	statusLabel := widget.NewLabel("Status")
 
-	descLabel := widget.NewLabel("Description")
-	descLabel.TextStyle = fyne.TextStyle{Italic: true}
-	descLabel.Wrapping = fyne.TextWrapWord
+	// Use fixed widths for consistent columns
+	dateLabel.Resize(fyne.NewSize(80, dateLabel.MinSize().Height))
+	hoursLabel.Resize(fyne.NewSize(50, hoursLabel.MinSize().Height))
 
-	return container.NewVBox(
-		container.NewHBox(
-			projectLabel,
-			layout.NewSpacer(),
-			dateLabel,
-			hoursLabel,
-		),
-		container.NewHBox(
-			taskLabel,
-			layout.NewSpacer(),
-			statusLabel,
-		),
-		descLabel,
-		widget.NewSeparator(),
+	row1 := container.NewBorder(nil, nil, nil,
+		container.NewHBox(dateLabel, hoursLabel),
+		projectLabel,
 	)
+
+	row2 := container.NewBorder(nil, nil, nil,
+		statusLabel,
+		taskLabel,
+	)
+
+	return container.NewVBox(row1, row2)
 }
 
-func (s *HistoryScreen) updateEntryCard(id widget.ListItemID, obj fyne.CanvasObject) {
+func (s *HistoryScreen) updateCompactEntryRow(id widget.ListItemID, obj fyne.CanvasObject) {
 	if int(id) >= len(s.entries) {
 		return
 	}
@@ -167,20 +427,20 @@ func (s *HistoryScreen) updateEntryCard(id widget.ListItemID, obj fyne.CanvasObj
 
 	row1 := vbox.Objects[0].(*fyne.Container)
 	row2 := vbox.Objects[1].(*fyne.Container)
-	descLabel := vbox.Objects[2].(*widget.Label)
 
 	// Row 1: Project, Date, Hours
 	row1.Objects[0].(*widget.Label).SetText(entry.ProjectName)
 
+	rightBox1 := row1.Objects[1].(*fyne.Container)
 	fromTime, err := entry.GetFromTimeAsTime()
 	if err == nil {
-		row1.Objects[2].(*widget.Label).SetText(fromTime.Local().Format("2006-01-02"))
+		rightBox1.Objects[0].(*widget.Label).SetText(fromTime.Local().Format("2006-01-02"))
 	} else {
-		row1.Objects[2].(*widget.Label).SetText(entry.FromTime)
+		rightBox1.Objects[0].(*widget.Label).SetText(entry.FromTime)
 	}
-	row1.Objects[3].(*widget.Label).SetText(fmt.Sprintf("%.1fh", entry.Hours))
+	rightBox1.Objects[1].(*widget.Label).SetText(fmt.Sprintf("%.1fh", entry.Hours))
 
-	// Row 2: Task, Status (with icons)
+	// Row 2: Task, Status
 	taskText := entry.TaskName
 	if taskText == "" {
 		taskText = "(No task)"
@@ -196,6 +456,14 @@ func (s *HistoryScreen) updateEntryCard(id widget.ListItemID, obj fyne.CanvasObj
 		statusText = "🎬 "
 	}
 
+	// Add warning icon if missing description (only for pending entries)
+	if !entry.Submitted && entry.ToTime != "" {
+		desc := entry.GetDescriptionString()
+		if desc == "" {
+			statusText += "⚠ "
+		}
+	}
+
 	// Add status
 	if entry.ToTime == "" {
 		statusText += "🟢 Running"
@@ -204,14 +472,7 @@ func (s *HistoryScreen) updateEntryCard(id widget.ListItemID, obj fyne.CanvasObj
 	} else {
 		statusText += "○ Pending"
 	}
-	row2.Objects[2].(*widget.Label).SetText(statusText)
-
-	// Row 3: Description
-	desc := "(No description)"
-	if entry.Description != nil && *entry.Description != "" {
-		desc = *entry.Description
-	}
-	descLabel.SetText(desc)
+	row2.Objects[1].(*widget.Label).SetText(statusText)
 }
 
 func (s *HistoryScreen) showEntryDetail(index int) {
@@ -609,6 +870,7 @@ func (s *HistoryScreen) deleteEntry(index int) {
 				return
 			}
 			s.setStatus("Entry deleted")
+			s.selectedIndex = -1
 			s.Refresh()
 		},
 	)
@@ -656,6 +918,9 @@ func (s *HistoryScreen) Refresh() {
 			}
 			s.setStatus(statusMsg)
 			s.entryList.Refresh()
+
+			// Update detail panel if an entry was selected
+			s.updateDetailPanel()
 
 			// Update submit button state
 			s.submitButton.Enable()

@@ -1891,3 +1891,50 @@ Create comprehensive SPECIFICATION.md document to reduce technical debt
   - Error handling appendix
 - Updated CLAUDE.md to reference SPECIFICATION.md instead of REQUIREMENTS.md
 
+
+## 2026-02-19: Fixed History Screen Layout - Two-Column Design
+
+### User Request:
+"(ss) the history report page is still broken. The implementation may be better with a two column design. The left colum is as per the current listing, minus descriptions. The right column is full height with one cell whose content changes when you click on an entry on the left. The content will show the complete description for the selected history item."
+
+### Problem:
+The history screen was showing overlapping text due to variable-height cards with wrapping descriptions causing layout issues.
+
+### Solution:
+Completely rewrote `internal/gui/screens/history.go` to implement a master-detail two-column layout:
+
+#### Left Column (55%):
+- Compact entry list using `widget.List`
+- Each row shows: Project name, Task, Date, Hours, Status
+- No descriptions in the list (moved to detail panel)
+- Status indicators: 🟢 Running, ○ Pending, ✓ Submitted
+- Warning icon (⚠) for entries missing descriptions
+- POW icon (🎬) for entries with proof-of-work videos
+
+#### Right Column (45%):
+- Detail panel that updates when an entry is selected
+- Shows full entry details:
+  - Entry title
+  - Project name (bold)
+  - Task and Activity
+  - Date (formatted nicely, e.g., "Monday, January 02, 2006")
+  - Time range
+  - Hours (gold color)
+  - Status with color coding
+  - Full description in scrollable area
+- Action buttons:
+  - Edit/View button (Edit for pending, View for submitted)
+  - Delete button (only for pending entries)
+  - Play POW button (when video available)
+
+#### Key Implementation Details:
+- Used `container.NewHSplit()` with 0.55 offset for responsive split
+- `createCompactEntryRow()` creates template rows without descriptions
+- `updateCompactEntryRow()` populates row data efficiently
+- `buildDetailPanel()` creates all detail panel widgets
+- `updateDetailPanel()` updates detail content when selection changes
+- Maintains all existing functionality (edit, delete, submit, POW playback)
+
+### Files Modified:
+- `internal/gui/screens/history.go` - Complete rewrite with two-column layout
+

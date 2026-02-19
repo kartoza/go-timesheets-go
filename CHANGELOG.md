@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.13.0] - 2026-02-19
+
 ### Added
 
 #### Gaps View Improvements
@@ -23,6 +27,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validation dialog (GUI)** - Shows a clear error dialog listing entries missing descriptions with count and project names
 - **Validation dialog (TUI)** - Shows a styled error dialog indicating how many entries need descriptions
 - **Helpful guidance** - Prompts users to click on entries to add descriptions before submitting
+
+#### History Screen Redesign (GUI)
+- **Two-column master-detail layout** - Left column shows compact entry list, right column shows full details
+- **Compact list view** - Entries display project, task, date, hours, and status without descriptions
+- **Expandable detail panel** - Selected entry shows full details with scrollable description area
+- **Description fills available space** - Description area expands vertically and scrolls for long content
+- **Status indicators** - Visual icons for running (🟢), pending (○), submitted (✓), missing description (⚠), and POW video (🎬)
+- **Contextual action buttons** - Edit/View, Delete, and Play POW buttons appear based on entry state
+
+---
+
+## [0.11.0] - 2026-02-18
+
+### Added
+
+#### POW Session Management
+- **Pause/Resume POW** - Pause proof-of-work screenshot capture during breaks without stopping the timer
+- **Configurable POW state** - POW mode can be enabled/disabled independently of timer state
+
+### Changed
+- **Gap bar color** - Changed gap visualization bar color from red to white for better visibility
+
+### Fixed
+- **Unified entry form** - Consolidated duplicate entry form dialogs into single reusable component
 
 ---
 
@@ -267,6 +295,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.13.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/kartoza/go-timesheets-go/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kartoza/go-timesheets-go/compare/v0.8.0...v0.9.0
