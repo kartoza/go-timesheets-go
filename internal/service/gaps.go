@@ -25,10 +25,12 @@ type ProjectHourData struct {
 
 // EntryDetail holds details of a single time entry
 type EntryDetail struct {
+	ID           int
 	TaskName     string
 	ActivityName string
 	Hours        float64
 	Description  string
+	Submitted    bool
 }
 
 // GapsService provides gap calculation logic shared between TUI and GUI
@@ -76,10 +78,12 @@ func (s *GapsService) CalculateGaps(entries []api.TimelogEntry, days int) []DayD
 
 				// Create entry detail
 				detail := EntryDetail{
+					ID:           entry.ID,
 					TaskName:     entry.TaskName,
 					ActivityName: entry.ActivityType,
 					Hours:        entry.Hours,
 					Description:  entry.GetDescriptionString(),
+					Submitted:    entry.Submitted,
 				}
 
 				// Add to project hours
@@ -133,6 +137,19 @@ func (s *GapsService) CalculateGapStartTime(day *DayData, defaultStartHour int) 
 	}
 	// No entries for this day, start at default hour
 	return time.Date(day.Date.Year(), day.Date.Month(), day.Date.Day(), defaultStartHour, 0, 0, 0, day.Date.Location())
+}
+
+// CalculateGapEndTime calculates the end time for filling a gap based on the gap hours
+// The end time is start time + gap hours (up to 8 hours target)
+func (s *GapsService) CalculateGapEndTime(day *DayData, startTime time.Time) time.Time {
+	gapHours := day.GapHours
+	if gapHours <= 0 {
+		gapHours = 1 // Default to 1 hour if no gap
+	}
+	if gapHours > s.TargetHours {
+		gapHours = s.TargetHours
+	}
+	return startTime.Add(time.Duration(gapHours * float64(time.Hour)))
 }
 
 // ProjectColors provides consistent colors for projects

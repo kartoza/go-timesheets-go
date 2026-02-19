@@ -441,13 +441,28 @@ func (s *DashboardScreen) ShowNewEntryDialog() {
 
 // ShowNewEntryDialogForDate shows a new timesheet entry dialog pre-filled for a specific date/time
 func (s *DashboardScreen) ShowNewEntryDialogForDate(date time.Time, startTime time.Time) {
-	s.showNewEntryDialogWithPrefill(date.Format("2006-01-02"), startTime.Format("15:04"))
+	s.showNewEntryDialogWithPrefillAndEnd(date.Format("2006-01-02"), startTime.Format("15:04"), "", "")
+}
+
+// ShowNewEntryDialogForDateWithEnd shows a new timesheet entry dialog pre-filled for a specific date/time with end time
+func (s *DashboardScreen) ShowNewEntryDialogForDateWithEnd(date time.Time, startTime time.Time, endTime time.Time, onSuccess func()) {
+	s.showNewEntryDialogWithPrefillAndCallback(date.Format("2006-01-02"), startTime.Format("15:04"), date.Format("2006-01-02"), endTime.Format("15:04"), onSuccess)
 }
 
 func (s *DashboardScreen) showNewEntryDialogWithPrefill(dateStr, timeStr string) {
+	s.showNewEntryDialogWithPrefillAndEnd(dateStr, timeStr, "", "")
+}
+
+func (s *DashboardScreen) showNewEntryDialogWithPrefillAndEnd(startDateStr, startTimeStr, endDateStr, endTimeStr string) {
+	s.showNewEntryDialogWithPrefillAndCallback(startDateStr, startTimeStr, endDateStr, endTimeStr, nil)
+}
+
+func (s *DashboardScreen) showNewEntryDialogWithPrefillAndCallback(startDateStr, startTimeStr, endDateStr, endTimeStr string, onSuccess func()) {
 	preFill := &widgets.EntryFormData{
-		StartDate: dateStr,
-		StartTime: timeStr,
+		StartDate: startDateStr,
+		StartTime: startTimeStr,
+		EndDate:   endDateStr,
+		EndTime:   endTimeStr,
 	}
 
 	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
@@ -467,10 +482,10 @@ func (s *DashboardScreen) showNewEntryDialogWithPrefill(dateStr, timeStr string)
 				},
 			},
 			{
-				Label:      "Start Timer",
+				Label:      "Create Entry",
 				Importance: widget.HighImportance,
 				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
-					s.doCreateEntry(data, setError, close)
+					s.doCreateEntryWithCallback(data, setError, close, onSuccess)
 				},
 			},
 		},
@@ -479,6 +494,11 @@ func (s *DashboardScreen) showNewEntryDialogWithPrefill(dateStr, timeStr string)
 
 // doCreateEntry handles the create entry action from the new entry dialog
 func (s *DashboardScreen) doCreateEntry(data *widgets.EntryFormData, setError func(string), close func()) {
+	s.doCreateEntryWithCallback(data, setError, close, nil)
+}
+
+// doCreateEntryWithCallback handles entry creation with optional success callback
+func (s *DashboardScreen) doCreateEntryWithCallback(data *widgets.EntryFormData, setError func(string), close func(), onSuccess func()) {
 	if data.ProjectID == 0 {
 		setError("Please select a project")
 		return
@@ -540,8 +560,11 @@ func (s *DashboardScreen) doCreateEntry(data *widgets.EntryFormData, setError fu
 				s.setStatus("Error creating entry: " + err.Error())
 				return
 			}
-			s.setStatus("Timer started")
+			s.setStatus("Entry created")
 			s.Refresh()
+			if onSuccess != nil {
+				onSuccess()
+			}
 		},
 	)
 }

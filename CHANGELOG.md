@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Gaps View Improvements
+- **Automatic refresh** - Gaps view now refreshes automatically after creating a new entry
+- **Smart end time defaults** - When clicking a gap to create an entry, end time is pre-filled based on the gap duration
+- **Entry editing from gaps** - Click on project segments in gaps view to edit unsubmitted entries
+- **Missing description warnings** - Yellow exclamation mark (!) indicator on entries without descriptions in the gaps visualization
+- **Entry selection dialog** - When multiple entries exist for a project, shows a selection dialog to choose which to edit
+
+#### Submission Validation
+- **Description requirement** - Submit action now validates that all pending entries have descriptions
+- **Validation dialog (GUI)** - Shows a clear error dialog listing entries missing descriptions with count and project names
+- **Validation dialog (TUI)** - Shows a styled error dialog indicating how many entries need descriptions
+- **Helpful guidance** - Prompts users to click on entries to add descriptions before submitting
+
 ---
 
 ## [0.10.0] - 2026-01-27

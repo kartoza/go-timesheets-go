@@ -147,10 +147,12 @@ func (g *GapsView) Update(msg tea.Msg) (*GapsView, tea.Cmd) {
 					if seg.Type == SegmentGap {
 						day := &g.dayData[g.selectedDay]
 						startTime := g.gapsService.CalculateGapStartTime(day, 9)
+						endTime := g.gapsService.CalculateGapEndTime(day, startTime)
 						return g, func() tea.Msg {
 							return launchTimesheetForDateMsg{
 								date:      day.Date,
 								startTime: startTime,
+								endTime:   endTime,
 							}
 						}
 					}
@@ -402,6 +404,7 @@ func (g *GapsView) renderDetailPanel() string {
 		tasks := make(map[string]bool)
 		activities := make(map[string]bool)
 		var descriptions []string
+		missingDescCount := 0
 
 		for _, entry := range proj.Entries {
 			if entry.TaskName != "" {
@@ -412,7 +415,24 @@ func (g *GapsView) renderDetailPanel() string {
 			}
 			if entry.Description != "" {
 				descriptions = append(descriptions, entry.Description)
+			} else if !entry.Submitted {
+				missingDescCount++
 			}
+		}
+
+		// Warning for missing descriptions
+		if missingDescCount > 0 {
+			warnStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#E74C3C")).
+				Bold(true)
+			lines = append(lines, warnStyle.Render(fmt.Sprintf("⚠ %d entr%s missing description",
+				missingDescCount,
+				func() string {
+					if missingDescCount == 1 {
+						return "y"
+					}
+					return "ies"
+				}())))
 		}
 
 		// Tasks
@@ -590,6 +610,7 @@ type gapsDataLoadedMsg struct {
 type launchTimesheetForDateMsg struct {
 	date      time.Time
 	startTime time.Time
+	endTime   time.Time
 }
 
 func min(a, b int) int {

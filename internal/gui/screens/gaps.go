@@ -9,12 +9,15 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/gui/util"
+	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
+	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/service"
 )
 
@@ -44,7 +47,9 @@ type GapsScreen struct {
 
 	// Callbacks
 	OnBack              func()
-	OnStartTimesheetFor func(date time.Time, startTime time.Time) // Called when clicking a gap
+	OnStartTimesheetFor func(date time.Time, startTime time.Time, endTime time.Time) // Called when clicking a gap
+	OnEditEntry         func(entry *api.TimelogEntry)                                 // Called when clicking an entry
+	OnEntryChanged      func()                                                        // Called when an entry is created/edited
 }
 
 // NewGapsScreen creates a new gaps screen
@@ -296,15 +301,15 @@ func (s *GapsScreen) getProjectColor(projectID int) color.Color {
 // hoverableSegment is a custom widget that detects mouse hover
 type hoverableSegment struct {
 	widget.BaseWidget
-	rect      *canvas.Rectangle
+	content   fyne.CanvasObject
 	onHover   func()
 	onUnhover func()
 	onClick   func()
 }
 
-func newHoverableSegment(rect *canvas.Rectangle, onHover, onUnhover, onClick func()) *hoverableSegment {
+func newHoverableSegment(content fyne.CanvasObject, onHover, onUnhover, onClick func()) *hoverableSegment {
 	h := &hoverableSegment{
-		rect:      rect,
+		content:   content,
 		onHover:   onHover,
 		onUnhover: onUnhover,
 		onClick:   onClick,
@@ -342,19 +347,19 @@ type hoverableSegmentRenderer struct {
 }
 
 func (r *hoverableSegmentRenderer) Layout(size fyne.Size) {
-	r.segment.rect.Resize(size)
+	r.segment.content.Resize(size)
 }
 
 func (r *hoverableSegmentRenderer) MinSize() fyne.Size {
-	return r.segment.rect.MinSize()
+	return r.segment.content.MinSize()
 }
 
 func (r *hoverableSegmentRenderer) Refresh() {
-	r.segment.rect.Refresh()
+	r.segment.content.Refresh()
 }
 
 func (r *hoverableSegmentRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.segment.rect}
+	return []fyne.CanvasObject{r.segment.content}
 }
 
 func (r *hoverableSegmentRenderer) Destroy() {}
@@ -403,12 +408,36 @@ func (s *GapsScreen) buildBars() {
 			projRect := canvas.NewRectangle(s.getProjectColor(proj.ProjectID))
 			projRect.SetMinSize(fyne.NewSize(barWidth, segHeight))
 
+			// Check if any entry is missing description and not submitted
+			hasMissingDesc := false
+			for _, entry := range proj.Entries {
+				if entry.Description == "" && !entry.Submitted {
+					hasMissingDesc = true
+					break
+				}
+			}
+
 			projPtr := proj
+			dayIdx := i
+
+			// Create segment content - may include warning indicator
+			var segContent fyne.CanvasObject
+			if hasMissingDesc {
+				// Add exclamation mark overlay
+				warnIcon := canvas.NewText("!", color.NRGBA{R: 0xFF, G: 0xFF, B: 0x00, A: 0xFF})
+				warnIcon.TextSize = 12
+				warnIcon.TextStyle = fyne.TextStyle{Bold: true}
+				warnIcon.Alignment = fyne.TextAlignCenter
+				segContent = container.NewStack(projRect, container.NewCenter(warnIcon))
+			} else {
+				segContent = projRect
+			}
+
 			projSegment := newHoverableSegment(
-				projRect,
+				segContent,
 				func() { s.showProjectDetail(projPtr) },
 				func() { s.showDetailPlaceholder() },
-				nil,
+				func() { s.onProjectClicked(dayIdx, projPtr) },
 			)
 			segments.Add(projSegment)
 		}
@@ -461,10 +490,287 @@ func (s *GapsScreen) onGapClicked(dayIndex int) {
 
 	day := &s.dayData[dayIndex]
 	startTime := s.gapsService.CalculateGapStartTime(day, 9) // 9 AM default start
+	endTime := s.gapsService.CalculateGapEndTime(day, startTime)
 
 	if s.OnStartTimesheetFor != nil {
-		s.OnStartTimesheetFor(day.Date, startTime)
+		s.OnStartTimesheetFor(day.Date, startTime, endTime)
 	}
+}
+
+func (s *GapsScreen) onProjectClicked(dayIndex int, proj *service.ProjectHourData) {
+	if dayIndex < 0 || dayIndex >= len(s.dayData) || proj == nil {
+		return
+	}
+
+	// Filter to only show editable (non-submitted) entries
+	var editableEntries []service.EntryDetail
+	for _, entry := range proj.Entries {
+		if !entry.Submitted {
+			editableEntries = append(editableEntries, entry)
+		}
+	}
+
+	if len(editableEntries) == 0 {
+		dialog.ShowInformation("No Editable Entries",
+			"All entries for this project have been submitted.",
+			s.window)
+		return
+	}
+
+	// If single entry, edit directly; otherwise show a selection dialog
+	if len(editableEntries) == 1 {
+		s.showEntryEditDialog(editableEntries[0])
+		return
+	}
+
+	// Show a list of entries to select from
+	s.showEntrySelectionDialog(proj.ProjectName, editableEntries)
+}
+
+func (s *GapsScreen) showEntrySelectionDialog(projectName string, entries []service.EntryDetail) {
+	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+	redColor := color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF}
+
+	titleText := canvas.NewText("Select Entry to Edit", goldColor)
+	titleText.TextSize = 18
+	titleText.TextStyle = fyne.TextStyle{Bold: true}
+
+	projText := canvas.NewText(projectName, darkGray)
+	projText.TextSize = 14
+
+	// Build a list of entries
+	var entryButtons []fyne.CanvasObject
+	var d dialog.Dialog
+
+	for _, entry := range entries {
+		e := entry // capture
+		label := fmt.Sprintf("%.1fh - %s", e.Hours, e.ActivityName)
+		if e.TaskName != "" {
+			label = fmt.Sprintf("%.1fh - %s (%s)", e.Hours, e.ActivityName, e.TaskName)
+		}
+
+		// Add warning icon if missing description
+		var btnContent fyne.CanvasObject
+		if e.Description == "" {
+			warnIcon := canvas.NewText("⚠", redColor)
+			warnIcon.TextSize = 12
+			btnLabel := widget.NewLabel(label)
+			btnContent = container.NewHBox(warnIcon, btnLabel)
+		} else {
+			btnContent = widget.NewLabel(label)
+		}
+
+		btn := widget.NewButton("", func() {
+			d.Hide()
+			s.showEntryEditDialog(e)
+		})
+		// Wrap button with content
+		entryButtons = append(entryButtons, container.NewStack(btn, container.NewCenter(btnContent)))
+	}
+
+	content := container.NewVBox(
+		container.NewCenter(titleText),
+		widget.NewSeparator(),
+		container.NewCenter(projText),
+		widget.NewSeparator(),
+	)
+	for _, btn := range entryButtons {
+		content.Add(btn)
+	}
+
+	closeBtn := widget.NewButton("Cancel", func() {
+		d.Hide()
+	})
+
+	buttons := container.NewHBox(layout.NewSpacer(), closeBtn, layout.NewSpacer())
+	fullContent := container.NewVBox(content, widget.NewSeparator(), buttons)
+
+	d = dialog.NewCustomWithoutButtons("", fullContent, s.window)
+	d.Resize(fyne.NewSize(400, 300))
+	d.Show()
+}
+
+func (s *GapsScreen) showEntryEditDialog(entry service.EntryDetail) {
+	// We need to fetch the full entry from the API to get all fields
+	// For now, we'll use the entry ID to show an edit dialog
+	s.setStatus("Loading entry...")
+
+	util.RunAsync(
+		func() ([]api.TimelogEntry, error) {
+			return s.apiClient.GetTimelogs()
+		},
+		func(entries []api.TimelogEntry, err error) {
+			if err != nil {
+				s.setStatus("Error loading entry: " + err.Error())
+				return
+			}
+
+			// Find the matching entry
+			var matchedEntry *api.TimelogEntry
+			for i := range entries {
+				if entries[i].ID == entry.ID {
+					matchedEntry = &entries[i]
+					break
+				}
+			}
+
+			if matchedEntry == nil {
+				s.setStatus("Entry not found")
+				return
+			}
+
+			if matchedEntry.Submitted {
+				dialog.ShowInformation("Cannot Edit",
+					"This entry has already been submitted.",
+					s.window)
+				s.setStatus("")
+				return
+			}
+
+			s.setStatus("")
+			s.showEntryEditForm(matchedEntry)
+		},
+	)
+}
+
+func (s *GapsScreen) showEntryEditForm(entry *api.TimelogEntry) {
+	desc := ""
+	if entry.Description != nil {
+		desc = *entry.Description
+	}
+
+	fromTime, _ := entry.GetFromTimeAsTime()
+	preFill := &widgets.EntryFormData{
+		ProjectID:    entry.ProjectID,
+		ProjectName:  entry.ProjectName,
+		TaskID:       entry.TaskID.Value,
+		TaskName:     entry.TaskName,
+		ActivityID:   entry.ActivityID,
+		ActivityName: entry.ActivityType,
+		Description:  desc,
+		StartDate:    fromTime.Local().Format("2006-01-02"),
+		StartTime:    fromTime.Local().Format("15:04"),
+	}
+	if entry.ToTime != "" {
+		toTime, _ := entry.GetToTimeAsTime()
+		preFill.EndDate = toTime.Local().Format("2006-01-02")
+		preFill.EndTime = toTime.Local().Format("15:04")
+	}
+
+	// Status display
+	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+	statusText := "Pending"
+	statusColor := goldColor
+	if entry.ToTime == "" {
+		statusText = "Running"
+		statusColor = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF}
+	}
+	statusDisplay := canvas.NewText(fmt.Sprintf("Status: %s  |  %.2f hours", statusText, entry.Hours), statusColor)
+	statusDisplay.TextSize = 12
+	statusDisplay.Alignment = fyne.TextAlignCenter
+	extraItems := container.NewVBox(container.NewCenter(statusDisplay))
+
+	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
+		Title:           "Edit Entry",
+		Window:          s.window,
+		APIClient:       s.apiClient,
+		ShowDescription: true,
+		ShowDateTime:    true,
+		ShowTask:        true,
+		ShowActivity:    true,
+		ReadOnly:        false,
+		PreFill:         preFill,
+		ExtraContent:    extraItems,
+		Buttons: []widgets.EntryFormButton{
+			{
+				Label: "Cancel",
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					close()
+				},
+			},
+			{
+				Label:      "Save Changes",
+				Importance: widget.HighImportance,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					s.doSaveEntry(entry.ID, data, setError, close)
+				},
+			},
+		},
+	})
+}
+
+func (s *GapsScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, setError func(string), close func()) {
+	if data.ProjectID == 0 {
+		setError("Please select a project")
+		return
+	}
+	if data.ActivityID == 0 {
+		setError("Please select an activity")
+		return
+	}
+
+	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
+		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	if err != nil {
+		setError("Invalid start date/time")
+		return
+	}
+	startParsed = startParsed.UTC()
+
+	var endTimePtr *time.Time
+	var duration float64
+	if data.EndDate != "" && data.EndTime != "" {
+		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
+			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		if err != nil {
+			setError("Invalid end date/time")
+			return
+		}
+		endParsed = endParsed.UTC()
+		if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
+			setError("End time must be after start time")
+			return
+		}
+		endTimePtr = &endParsed
+		duration = endParsed.Sub(startParsed).Hours()
+	}
+
+	updatedEntry := models.TimeEntry{
+		ProjectID:   fmt.Sprintf("%d", data.ProjectID),
+		ActivityID:  fmt.Sprintf("%d", data.ActivityID),
+		Description: data.Description,
+		StartTime:   startParsed,
+		EndTime:     endTimePtr,
+		Duration:    duration,
+	}
+	if data.TaskID > 0 {
+		taskID := fmt.Sprintf("%d", data.TaskID)
+		updatedEntry.TaskID = &taskID
+	}
+
+	close()
+	s.setStatus("Saving changes...")
+
+	util.RunAsync(
+		func() (bool, error) {
+			return true, s.apiClient.UpdateTimesheet(
+				fmt.Sprintf("%d", entryID), updatedEntry)
+		},
+		func(_ bool, err error) {
+			if err != nil {
+				s.setStatus("Error: " + err.Error())
+				return
+			}
+			s.setStatus("Entry updated")
+			// Refresh the gaps view
+			s.Refresh()
+			// Notify parent that entry changed
+			if s.OnEntryChanged != nil {
+				s.OnEntryChanged()
+			}
+		},
+	)
 }
 
 func (s *GapsScreen) setStatus(msg string) {

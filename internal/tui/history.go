@@ -66,11 +66,13 @@ type HistoryView struct {
 	loading bool
 
 	// Submit all pending
-	confirmSubmit   bool
-	isSubmitting    bool
-	submitSuccess   string
-	pendingCount    int
-	hasRunningEntry bool
+	confirmSubmit       bool
+	isSubmitting        bool
+	submitSuccess       string
+	pendingCount        int
+	hasRunningEntry     bool
+	missingDescCount    int  // Count of pending entries without descriptions
+	showMissingDescErr  bool // Show error about missing descriptions
 }
 
 // NewHistoryView creates a new history view
@@ -189,12 +191,17 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		// Count pending entries (stopped but not submitted) and check for running entries
 		h.pendingCount = 0
 		h.hasRunningEntry = false
+		h.missingDescCount = 0
 		for _, entry := range h.allHistory {
 			if !entry.IsSubmitted() {
 				if entry.EndTime().IsZero() {
 					h.hasRunningEntry = true
 				} else {
 					h.pendingCount++
+					// Check for missing description
+					if entry.GetDescriptionString() == "" {
+						h.missingDescCount++
+					}
 				}
 			}
 		}
@@ -296,6 +303,15 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 
 // updateListMode handles input in list mode
 func (h *HistoryView) updateListMode(msg tea.KeyMsg) (*HistoryView, tea.Cmd) {
+	// Handle missing description error dialog
+	if h.showMissingDescErr {
+		switch msg.String() {
+		case "enter", "esc", " ":
+			h.showMissingDescErr = false
+		}
+		return h, nil
+	}
+
 	// Handle confirmation dialog
 	if h.confirmSubmit {
 		switch msg.String() {
@@ -322,8 +338,14 @@ func (h *HistoryView) updateListMode(msg tea.KeyMsg) (*HistoryView, tea.Cmd) {
 	case "s":
 		// Submit all pending - show confirmation (only if no running timer)
 		if h.pendingCount > 0 && !h.isSubmitting && !h.hasRunningEntry {
-			h.confirmSubmit = true
-			h.submitSuccess = "" // Clear previous success message
+			// Check for missing descriptions first
+			if h.missingDescCount > 0 {
+				h.showMissingDescErr = true
+				h.submitSuccess = "" // Clear previous success message
+			} else {
+				h.confirmSubmit = true
+				h.submitSuccess = "" // Clear previous success message
+			}
 		}
 
 	case "up", "k":
@@ -787,6 +809,39 @@ func (h *HistoryView) renderListView() string {
 			Render(h.submitSuccess)
 	}
 
+	// Missing descriptions error dialog
+	var missingDescDialog string
+	if h.showMissingDescErr {
+		dialogStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#E74C3C")).
+			Padding(1, 2).
+			Width(55).
+			Align(lipgloss.Center)
+
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#E74C3C"))
+
+		missingDescDialog = dialogStyle.Render(lipgloss.JoinVertical(
+			lipgloss.Center,
+			titleStyle.Render("Cannot Submit"),
+			"",
+			fmt.Sprintf("%d entr%s missing descriptions.",
+				h.missingDescCount,
+				func() string {
+					if h.missingDescCount == 1 {
+						return "y is"
+					}
+					return "ies are"
+				}()),
+			"",
+			"Press Enter to edit entries and add descriptions.",
+			"",
+			"Press Enter or Esc to close",
+		))
+	}
+
 	// Confirmation dialog
 	var confirmDialog string
 	if h.confirmSubmit {
@@ -826,6 +881,9 @@ func (h *HistoryView) renderListView() string {
 	mainElements = append(mainElements, header, "")
 	if successMsg != "" {
 		mainElements = append(mainElements, successMsg, "")
+	}
+	if missingDescDialog != "" {
+		mainElements = append(mainElements, missingDescDialog, "")
 	}
 	if confirmDialog != "" {
 		mainElements = append(mainElements, confirmDialog, "")

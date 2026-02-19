@@ -696,16 +696,27 @@ func (s *HistoryScreen) loadPowVideoMapping() {
 
 // submitPendingEntries submits all pending entries
 func (s *HistoryScreen) submitPendingEntries() {
-	// Count pending entries
+	// Count pending entries and check for missing descriptions
 	pendingEntries := make([]api.TimelogEntry, 0)
+	entriesWithoutDesc := make([]api.TimelogEntry, 0)
 	for _, e := range s.entries {
 		if !e.Submitted && e.ToTime != "" {
 			pendingEntries = append(pendingEntries, e)
+			desc := e.GetDescriptionString()
+			if desc == "" {
+				entriesWithoutDesc = append(entriesWithoutDesc, e)
+			}
 		}
 	}
 
 	if len(pendingEntries) == 0 {
 		s.setStatus("No pending entries to submit")
+		return
+	}
+
+	// Reject submission if there are entries without descriptions
+	if len(entriesWithoutDesc) > 0 {
+		s.showMissingDescriptionsDialog(entriesWithoutDesc)
 		return
 	}
 
@@ -781,4 +792,79 @@ func (s *HistoryScreen) doSubmit(entries []api.TimelogEntry) {
 			s.Refresh()
 		},
 	)
+}
+
+// showMissingDescriptionsDialog shows an error dialog when entries are missing descriptions
+func (s *HistoryScreen) showMissingDescriptionsDialog(entries []api.TimelogEntry) {
+	redColor := color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF}
+	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+
+	titleText := canvas.NewText("Cannot Submit", redColor)
+	titleText.TextSize = 18
+	titleText.TextStyle = fyne.TextStyle{Bold: true}
+
+	messageText := canvas.NewText(
+		fmt.Sprintf("%d entr%s missing descriptions.", len(entries), func() string {
+			if len(entries) == 1 {
+				return "y is"
+			}
+			return "ies are"
+		}()),
+		darkGray,
+	)
+	messageText.TextSize = 14
+
+	// Build list of entries without descriptions (max 5)
+	var entryList []fyne.CanvasObject
+	maxShow := 5
+	if len(entries) < maxShow {
+		maxShow = len(entries)
+	}
+	for i := 0; i < maxShow; i++ {
+		e := entries[i]
+		fromTime, _ := e.GetFromTimeAsTime()
+		entryText := canvas.NewText(
+			fmt.Sprintf("• %s - %s (%s)",
+				e.ProjectName,
+				fromTime.Local().Format("Mon Jan 02"),
+				fmt.Sprintf("%.1fh", e.Hours)),
+			darkGray,
+		)
+		entryText.TextSize = 12
+		entryList = append(entryList, entryText)
+	}
+	if len(entries) > 5 {
+		moreText := canvas.NewText(fmt.Sprintf("... and %d more", len(entries)-5), darkGray)
+		moreText.TextSize = 12
+		moreText.TextStyle = fyne.TextStyle{Italic: true}
+		entryList = append(entryList, moreText)
+	}
+
+	helpText := canvas.NewText("Click on each entry to add a description.", darkGray)
+	helpText.TextSize = 12
+	helpText.TextStyle = fyne.TextStyle{Italic: true}
+
+	content := container.NewVBox(
+		container.NewCenter(titleText),
+		widget.NewSeparator(),
+		container.NewCenter(messageText),
+		widget.NewSeparator(),
+	)
+	for _, item := range entryList {
+		content.Add(item)
+	}
+	content.Add(widget.NewSeparator())
+	content.Add(container.NewCenter(helpText))
+
+	var d dialog.Dialog
+	okBtn := widget.NewButton("OK", func() {
+		d.Hide()
+	})
+
+	buttons := container.NewHBox(layout.NewSpacer(), okBtn, layout.NewSpacer())
+	fullContent := container.NewVBox(content, widget.NewSeparator(), buttons)
+
+	d = dialog.NewCustomWithoutButtons("", fullContent, s.window)
+	d.Resize(fyne.NewSize(400, 300))
+	d.Show()
 }

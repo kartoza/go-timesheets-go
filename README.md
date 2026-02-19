@@ -17,6 +17,7 @@
 - 🖱️ **Full Mouse Support** - Click to interact with all screens and controls
 - ⏱️ **Time Tracking** - Start and stop time tracking for projects and activities
 - 📊 **Project Management** - Create and manage projects with tasks
+- 📈 **Gaps Analysis** - 14-day visualization showing missing hours with quick entry creation
 - 🖥️ **CLI Commands** - Command-line interface for automation
 - 📱 **Waybar Integration** - Desktop status bar integration with JSON output
 - 💾 **Data Persistence** - Local JSON-based storage with API sync
@@ -25,6 +26,7 @@
 - ⭐ **Favourites** - Quick-start timers with preset project/task/activity combinations
 - 🤖 **AI Assistant** - Natural language project discovery and timesheet analytics with multi-level AI fallback (LLM, Neural Network, Fuzzy matching)
 - 🎉 **Celebration Mode** - Fireworks celebration after timesheet submission!
+- ✅ **Submission Validation** - Ensures all entries have descriptions before submission
 
 ## 🚀 Quick Start
 

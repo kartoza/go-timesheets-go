@@ -1762,3 +1762,109 @@ Action Taken:
    - Updated `dashboard.go` similarly
 
 **Result:** Build passes. Project autocomplete now properly supports type-to-complete with API-based filtering (2+ chars triggers search), while task and activity remain traditional dropdowns.
+
+## 2026-02-04: Continue DRY refactor - Unified Entry Form Dialog (continued session)
+
+Continued implementing the approved DRY refactor plan for the unified `ShowEntryFormDialog()`.
+
+### Changes made:
+1. **dashboard.go**: Replaced `showStopTimerDialog()` (~380 lines) with ~60 line call to `ShowEntryFormDialog()`. Added `ShowNewEntryDialog()`, `ShowNewEntryDialogForDate()`, and helper methods `doStopTimer`, `doCreateEntry`, `confirmDeleteTimer`. Removed `OnNewTimesheet` callback (no longer needed). Removed `sort` import.
+
+2. **app.go**: Removed `timesheetScreen` field, removed `showTimesheet()` and `showTimesheetForDate()` methods. Rewired `OnNewTimesheet` removal, updated gaps screen's `OnStartTimesheetFor` to use `dashboardScreen.ShowNewEntryDialogForDate()`. Removed "timesheet" case from `navigateBack`. Cleaned up `handleLogout`.
+
+3. **history.go**: Replaced `showEntryDetail()` (~430 lines) with ~120 line version using `ShowEntryFormDialog()`. Added `doSaveEntry` method. Extra content (status display + POW video button) injected via `ExtraContent`. Git fetcher conditionally enabled. Removed `sort` import.
+
+4. **favourites.go**: Replaced `editFavourite()` (~270 lines) with ~70 line version using `ShowEntryFormDialog()`. Removed `searchProjects` helper method. Removed `activities` field, `sort`, `layout`, `util` imports.
+
+5. **code_repos.go**: Replaced `showRepoDialog()` (~120 lines) with ~50 line version. Removed `searchProjects` helper. Removed `layout`, `util` imports.
+
+6. **Deleted**: `internal/gui/screens/timesheet.go` (entire file - 389 lines) - replaced by modal dialog from dashboard.
+
+### Net impact:
+- ~1500 lines of duplicated dialog code removed
+- 389-line file deleted entirely
+- All forms now use consistent unified dialog with gold-bordered dark modal styling
+- New entry creation is now a modal from dashboard (no separate screen navigation)
+
+## 2026-02-04: Fix entry form dialog UX issues
+
+User reported three issues:
+1. Tab after typing in filter should move focus to project select combo
+2. Task and activity combos are squished - should match project picker height
+3. Description should expand to fill available space, pushing date/time to bottom
+
+### Changes:
+1. **project_picker.go**: Created `tabAwareEntry` that extends `widget.Entry` to intercept Tab key and focus the project select combo. Filter entry now uses this custom type.
+
+2. **entry_form_dialog.go**: 
+   - Task and activity selects wrapped in `container.NewStack` with a transparent rectangle spacer set to the project picker's min height, ensuring consistent row heights.
+   - Restructured form layout from flat `container.NewVBox` to `container.NewBorder` with top (title/project/task/activity), bottom (date-time/extra/buttons), and center (description) - the description now expands to fill all available vertical space.
+   - Forms without a description field use the previous VBox layout with spacer.
+
+## Session: 2026-02-04 (continued from previous context)
+
+### User request (continued from previous session)
+Fix Tab key in project filter - "I typed ka in the project filter and pressed tab and it jumped to task"
+
+### Actions taken:
+- Investigated why Tab key wasn't focusing the project Select dropdown
+- Confirmed that `widget.Select` does implement `fyne.Focusable` in Fyne v2.7.2
+- Identified that the issue was likely related to canvas resolution in popup context
+- Changed approach: instead of trying to focus the Select, directly call `Tapped()` on it to open the dropdown
+- Replaced `focusTarget fyne.Focusable` with `onTab func()` callback in `tabAwareEntry`
+- Tab now calls `p.projectSelect.Tapped(&fyne.PointEvent{})` which opens the dropdown directly
+- Build and tests pass
+
+## 2026-02-19: Gaps View Enhancements and Submission Validation
+
+### User Request:
+1. When in gaps view and add a timer entry, the gap view should update to reflect the new entry
+2. When clicking on a gap to create a new entry, default the end date and time based on the gap
+3. Reject timesheet submission if there are entries without descriptions
+4. Show exclamation mark on entries without descriptions in gaps view
+5. Allow editing entries from gaps view (if not submitted)
+
+### Changes Made:
+
+#### Service Layer (internal/service/gaps.go)
+- Added `ID` and `Submitted` fields to `EntryDetail` struct
+- Added `CalculateGapEndTime()` method to calculate end time based on gap hours
+
+#### GUI Gaps Screen (internal/gui/screens/gaps.go)
+- Changed `OnStartTimesheetFor` callback to include `endTime` parameter
+- Added `OnEditEntry` and `OnEntryChanged` callbacks
+- Updated `hoverableSegment` to accept `fyne.CanvasObject` instead of just `*canvas.Rectangle`
+- Added yellow "!" indicator on project segments with entries missing descriptions
+- Added `onProjectClicked()` handler for clicking on project segments
+- Added `showEntrySelectionDialog()` for selecting which entry to edit when multiple exist
+- Added `showEntryEditDialog()` and `showEntryEditForm()` for editing entries
+- Added `doSaveEntry()` for saving entry changes
+
+#### GUI Dashboard Screen (internal/gui/screens/dashboard.go)
+- Added `ShowNewEntryDialogForDateWithEnd()` method with success callback
+- Added `showNewEntryDialogWithPrefillAndEnd()` and `showNewEntryDialogWithPrefillAndCallback()` methods
+- Added `doCreateEntryWithCallback()` method for entry creation with optional callback
+
+#### GUI History Screen (internal/gui/screens/history.go)
+- Added description validation in `submitPendingEntries()`
+- Added `showMissingDescriptionsDialog()` to show error when entries lack descriptions
+
+#### GUI App (internal/gui/app.go)
+- Updated `showGaps()` to pass end time and set up entry changed callback
+
+#### TUI Gaps View (internal/tui/gaps.go)
+- Added `endTime` field to `launchTimesheetForDateMsg`
+- Updated gap click handler to include calculated end time
+- Added warning message in `renderDetailPanel()` for entries missing descriptions
+
+#### TUI History View (internal/tui/history.go)
+- Added `missingDescCount` and `showMissingDescErr` fields
+- Added missing description tracking in `historyLoadedMsg` handler
+- Added validation before submit to show error dialog
+- Added styled error dialog rendering for missing descriptions
+
+#### Documentation
+- Updated README.md with Gaps Analysis feature
+- Added Submission Validation feature to features list
+- Updated CHANGELOG.md with all new features under [Unreleased]
+

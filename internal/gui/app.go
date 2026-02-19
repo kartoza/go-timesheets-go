@@ -239,12 +239,23 @@ func (a *App) showGaps() {
 	if a.gapsScreen == nil {
 		a.gapsScreen = screens.NewGapsScreen(a.apiClient, a.window)
 		a.gapsScreen.OnBack = a.showDashboard
-		a.gapsScreen.OnStartTimesheetFor = func(date time.Time, startTime time.Time) {
+		a.gapsScreen.OnStartTimesheetFor = func(date time.Time, startTime time.Time, endTime time.Time) {
 			// Ensure dashboard exists before using it
 			if a.dashboardScreen == nil {
 				a.showDashboard()
 			}
-			a.dashboardScreen.ShowNewEntryDialogForDate(date, startTime)
+			a.dashboardScreen.ShowNewEntryDialogForDateWithEnd(date, startTime, endTime, func() {
+				// Refresh gaps view after entry is created
+				if a.gapsScreen != nil {
+					a.gapsScreen.Refresh()
+				}
+			})
+		}
+		a.gapsScreen.OnEntryChanged = func() {
+			// Refresh gaps view when an entry is changed
+			if a.gapsScreen != nil {
+				a.gapsScreen.Refresh()
+			}
 		}
 	}
 
