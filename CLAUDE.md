@@ -90,8 +90,8 @@ golangci-lint run
 
 | File | Purpose |
 |------|---------|
+| `SPECIFICATION.md` | Complete specification with user stories, business rules, and functional requirements |
 | `PROMPT.log` | Track all user prompts and actions taken |
-| `REQUIREMENTS.md` | Detailed project specifications (to be created) |
 | `.pre-commit-config.yaml` | Quality assurance configuration |
 | `scripts/setup-dev.sh` | Development environment setup |
 | `.github/workflows/ci.yml` | Continuous integration pipeline |
