@@ -158,6 +158,33 @@ This document provides a complete specification of the Go Timesheets Go applicat
 | Description | string | Work description |
 | Submitted | bool | Submission status |
 
+### 3.8 CalendarEvent
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| ID | string | Yes | Google Calendar event ID |
+| Title | string | Yes | Event summary/title |
+| Start | time.Time | Yes | Event start time |
+| End | time.Time | Yes | Event end time |
+| AllDay | bool | Yes | Whether all-day event |
+| Location | string | No | Event location |
+| ColorHex | string | No | Event color (hex) |
+
+**Methods**:
+- `FormatTimeRange()`: Returns "HH:MM - HH:MM" formatted string
+- `DurationHours()`: Returns duration in hours as float64
+- `OverlapsWith(start, end)`: Checks if event overlaps with time range
+
+### 3.9 GoogleCalendarConfig
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| ClientID | string | Yes | OAuth 2.0 Client ID |
+| ClientSecret | string | Yes | OAuth 2.0 Client Secret |
+| AccessToken | string | No | Current access token |
+| RefreshToken | string | No | Token for refresh |
+| TokenExpiry | string | No | Token expiration (ISO 8601) |
+
 ---
 
 ## 4. User Stories
@@ -289,7 +316,25 @@ This document provides a complete specification of the Go Timesheets Go applicat
 **US-GIT-02**: As a user, I want to fetch git commit messages for the time period of my entry so that I can use them as descriptions.
 - Acceptance: "Fetch from Git" button populates description field
 
-### 4.9 Desktop Integration
+### 4.9 Google Calendar Integration
+
+**US-CAL-01**: As a user, I want to connect my Google Calendar so that I can see my appointments when filling timesheet gaps.
+- Acceptance: OAuth 2.0 flow with user-provided credentials
+- Storage: Tokens stored securely in config directory
+
+**US-CAL-02**: As a user, I want to see my calendar events for a day when creating a timesheet entry so that I can recall what I worked on.
+- Acceptance: Calendar panel shows events when creating entry from gaps view
+
+**US-CAL-03**: As a user, I want to click a calendar event to populate the start/end times in my timesheet entry so that I can quickly match my logged time to calendar meetings.
+- Acceptance: Clicking event fills start/end time fields in entry form
+
+**US-CAL-04**: As a user, I want to configure my Google Calendar credentials in settings so that I can connect and disconnect as needed.
+- Acceptance: Settings screen with Client ID/Secret fields, Connect/Disconnect buttons
+
+**US-CAL-05**: As a user, I want all-day events filtered out when viewing calendar in gaps view so that only timed events are shown.
+- Acceptance: All-day events excluded from calendar panel display
+
+### 4.10 Desktop Integration
 
 **US-DESK-01**: As a user, I want to see my timer status in my desktop panel (waybar) so that I always know my tracking state.
 - Acceptance: JSON status output compatible with waybar custom modules
@@ -621,6 +666,26 @@ This document provides a complete specification of the Go Timesheets Go applicat
 - **Purpose**: Embedded LLM
 - **Integration**: Build-time linking
 - **Required**: No (build flag optional)
+
+### 11.6 Google Calendar
+
+- **Purpose**: Display calendar events when filling timesheet gaps
+- **Protocol**: Google Calendar API v3 with OAuth 2.0
+- **Authentication**: User-provided OAuth client credentials
+- **Required**: No (optional feature enhancement)
+
+**Setup Process**:
+1. User creates OAuth credentials in Google Cloud Console
+2. User enters Client ID and Client Secret in Settings → Google Calendar
+3. User clicks "Connect" to initiate OAuth flow
+4. Browser opens for Google authorization
+5. Local HTTP server (port 9876) receives callback
+6. Tokens stored securely in `~/.config/kartoza-timesheets/google_calendar.json`
+
+**Integration Points**:
+- **Gaps View**: When clicking a gap to create entry, calendar panel shows events for that day
+- **Entry Form**: Calendar panel displayed alongside entry form (right side panel)
+- **Event Selection**: Clicking calendar event auto-fills start/end times in entry form
 
 ---
 

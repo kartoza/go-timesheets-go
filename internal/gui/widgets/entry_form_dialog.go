@@ -44,6 +44,14 @@ type EntryFormConfig struct {
 
 	// Optional git commit fetcher - if non-nil, a "Fetch from Git" button appears below description
 	GitFetcher func(descEntry *widget.Entry)
+
+	// Calendar panel - if non-nil, shown on right side of form
+	// CalendarPanel should be a container with calendar events
+	CalendarPanel fyne.CanvasObject
+
+	// Callback to update start/end times from calendar event
+	// If set, this will be called with pointers to the date/time entry widgets
+	OnCalendarTimeUpdate func(startDateEntry, startTimeEntry, endDateEntry, endTimeEntry *widget.Entry)
 }
 
 // EntryFormData is both the pre-fill input and the output from the form.
@@ -454,14 +462,47 @@ func ShowEntryFormDialog(cfg *EntryFormConfig) {
 	formBorder.FillColor = bgColor
 	formBorder.CornerRadius = 10
 
-	formContainer := container.NewStack(
-		formBorder,
-		container.NewPadded(container.NewPadded(formContent)),
-	)
+	var mainContainer fyne.CanvasObject
+	dialogWidth := float32(550)
+
+	// If calendar panel is provided, create a split layout
+	if cfg.CalendarPanel != nil {
+		// Call the callback to provide entry references for time updates
+		if cfg.OnCalendarTimeUpdate != nil && startDateEntry != nil {
+			cfg.OnCalendarTimeUpdate(startDateEntry, startTimeEntry, endDateEntry, endTimeEntry)
+		}
+
+		// Create split layout with form on left and calendar on right
+		leftPanel := container.NewStack(
+			formBorder,
+			container.NewPadded(container.NewPadded(formContent)),
+		)
+
+		// Calendar panel background
+		calendarBg := canvas.NewRectangle(bgColor)
+		calendarBg.CornerRadius = 10
+
+		rightPanel := container.NewStack(
+			calendarBg,
+			container.NewPadded(cfg.CalendarPanel),
+		)
+
+		// Use HSplit for 60/40 layout
+		split := container.NewHSplit(leftPanel, rightPanel)
+		split.SetOffset(0.6)
+
+		mainContainer = split
+		dialogWidth = 800 // Wider dialog when calendar is shown
+	} else {
+		mainContainer = container.NewStack(
+			formBorder,
+			container.NewPadded(container.NewPadded(formContent)),
+		)
+	}
 
 	// Show as modal popup
-	popup = widget.NewModalPopUp(formContainer, cfg.Window.Canvas())
-	popup.Resize(fyne.NewSize(550, 650))
+	popup = widget.NewModalPopUp(mainContainer, cfg.Window.Canvas())
+	popup.Resize(fyne.NewSize(dialogWidth, 650))
 	popup.Show()
 
 	// Disable project picker for read-only mode

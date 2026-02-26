@@ -31,31 +31,33 @@ const (
 	StateCodeRepos
 	StateFavourites
 	StateSettings
+	StateCalendarSettings
 	StateAIAssistant
 )
 
 // AppWithAuth is a wrapper app that handles authentication
 type AppWithAuth struct {
-	state              AppState
-	loginModel         *LoginModel
-	mainMenu           *MainMenuModel
-	timesheetCreator   *TimesheetCreator
-	historyView        *HistoryView
-	gapsView           *GapsView
-	codeReposView      *CodeReposModel
-	favouritesView     *FavouritesModel
-	settingsView       *SettingsModel
-	aiAssistantView    *AIAssistantModel
-	width              int
-	height             int
-	tokenLoaded        bool
-	apiClient          *api.Client
-	username           string
-	spinner            spinner.Model
-	monitoringServer   *monitoring.Server
-	metrics            *monitoring.Metrics
-	powCapturer        *pow.Capturer
-	statusMessage      string
+	state                AppState
+	loginModel           *LoginModel
+	mainMenu             *MainMenuModel
+	timesheetCreator     *TimesheetCreator
+	historyView          *HistoryView
+	gapsView             *GapsView
+	codeReposView        *CodeReposModel
+	favouritesView       *FavouritesModel
+	settingsView         *SettingsModel
+	calendarSettingsView *CalendarSettingsModel
+	aiAssistantView      *AIAssistantModel
+	width                int
+	height               int
+	tokenLoaded          bool
+	apiClient            *api.Client
+	username             string
+	spinner              spinner.Model
+	monitoringServer     *monitoring.Server
+	metrics              *monitoring.Metrics
+	powCapturer          *pow.Capturer
+	statusMessage        string
 }
 
 // NewAppWithAuth creates a new app with authentication
@@ -300,6 +302,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.settingsView = model
 				cmds = append(cmds, c)
 			}
+		case StateCalendarSettings:
+			if a.calendarSettingsView != nil {
+				model, c := a.calendarSettingsView.Update(msg)
+				a.calendarSettingsView = model
+				cmds = append(cmds, c)
+			}
 		case StateAIAssistant:
 			if a.aiAssistantView != nil {
 				model, c := a.aiAssistantView.Update(msg)
@@ -497,6 +505,25 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = StateAIAssistant
 		return a, a.aiAssistantView.Init()
 
+	case launchCalendarSettingsMsg:
+		// Transition to calendar settings view
+		calendarSettingsView := NewCalendarSettingsModel()
+		calendarSettingsView.width = a.width
+		calendarSettingsView.height = a.height
+		calendarSettingsView.SetHeaderState(a.getHeaderState())
+		a.calendarSettingsView = calendarSettingsView
+		a.state = StateCalendarSettings
+		return a, a.calendarSettingsView.Init()
+
+	case backToSettingsMsg:
+		// Return to settings from calendar settings
+		a.calendarSettingsView = nil
+		a.state = StateSettings
+		if a.settingsView != nil {
+			return a, a.settingsView.Init()
+		}
+		return a, nil
+
 	case settingsLogoutConfirmedMsg:
 		// Logout confirmed from settings, delete token and quit
 		_ = config.DeleteToken()
@@ -557,6 +584,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.settingsView != nil {
 				model, c := a.settingsView.Update(msg)
 				a.settingsView = model
+				cmds = append(cmds, c)
+			}
+		case StateCalendarSettings:
+			if a.calendarSettingsView != nil {
+				model, c := a.calendarSettingsView.Update(msg)
+				a.calendarSettingsView = model
 				cmds = append(cmds, c)
 			}
 		case StateAIAssistant:
@@ -648,6 +681,12 @@ func (a *AppWithAuth) View() string {
 			return a.settingsView.View()
 		}
 		return a.renderLoadingScreen("Loading settings")
+
+	case StateCalendarSettings:
+		if a.calendarSettingsView != nil {
+			return a.calendarSettingsView.View()
+		}
+		return a.renderLoadingScreen("Loading calendar settings")
 
 	case StateAIAssistant:
 		if a.aiAssistantView != nil {

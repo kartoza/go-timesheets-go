@@ -7,13 +7,16 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
 	"fyne.io/systray"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/gui/screens"
 	"github.com/kartoza/go-timesheets-go/internal/gui/util"
+	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/pow"
+	"github.com/kartoza/go-timesheets-go/internal/service"
 )
 
 // App represents the main GUI application
@@ -23,16 +26,20 @@ type App struct {
 	apiClient  *api.Client
 	powCapture *pow.Capturer
 
+	// Services
+	calendarService *service.CalendarService
+
 	// Screens
-	loginScreen       *screens.LoginScreen
-	dashboardScreen   *screens.DashboardScreen
-	historyScreen     *screens.HistoryScreen
-	gapsScreen        *screens.GapsScreen
-	settingsScreen    *screens.SettingsScreen
-	favouritesScreen  *screens.FavouritesScreen
-	codeReposScreen   *screens.CodeReposScreen
-	officeScreen      *screens.OfficeScreen
-	aiAssistantScreen *screens.AIAssistantScreen
+	loginScreen            *screens.LoginScreen
+	dashboardScreen        *screens.DashboardScreen
+	historyScreen          *screens.HistoryScreen
+	gapsScreen             *screens.GapsScreen
+	settingsScreen         *screens.SettingsScreen
+	favouritesScreen       *screens.FavouritesScreen
+	codeReposScreen        *screens.CodeReposScreen
+	officeScreen           *screens.OfficeScreen
+	aiAssistantScreen      *screens.AIAssistantScreen
+	calendarSettingsScreen *screens.CalendarSettingsScreen
 
 	// Navigation
 	currentScreen string // Track current screen for ESC navigation
@@ -162,6 +169,8 @@ func (a *App) navigateBack() {
 		a.showSettings()
 	case "coderepos":
 		a.showSettings()
+	case "calendarsettings":
+		a.showSettings()
 	case "office":
 		if a.officeScreen != nil {
 			a.officeScreen.StopAnimation()
@@ -236,20 +245,17 @@ func (a *App) showHistory() {
 func (a *App) showGaps() {
 	a.currentScreen = "gaps"
 
+	// Initialize calendar service lazily
+	if a.calendarService == nil {
+		a.calendarService, _ = service.NewCalendarService()
+	}
+
 	if a.gapsScreen == nil {
 		a.gapsScreen = screens.NewGapsScreen(a.apiClient, a.window)
 		a.gapsScreen.OnBack = a.showDashboard
 		a.gapsScreen.OnStartTimesheetFor = func(date time.Time, startTime time.Time, endTime time.Time) {
-			// Ensure dashboard exists before using it
-			if a.dashboardScreen == nil {
-				a.showDashboard()
-			}
-			a.dashboardScreen.ShowNewEntryDialogForDateWithEnd(date, startTime, endTime, func() {
-				// Refresh gaps view after entry is created
-				if a.gapsScreen != nil {
-					a.gapsScreen.Refresh()
-				}
-			})
+			// Show timesheet entry dialog with calendar panel
+			a.showTimesheetDialogWithCalendar(date, startTime, endTime)
 		}
 		a.gapsScreen.OnEntryChanged = func() {
 			// Refresh gaps view when an entry is changed
@@ -263,6 +269,147 @@ func (a *App) showGaps() {
 	a.gapsScreen.Refresh()
 }
 
+// showTimesheetDialogWithCalendar shows a timesheet entry dialog with calendar events panel
+func (a *App) showTimesheetDialogWithCalendar(date time.Time, startTime time.Time, endTime time.Time) {
+	// Create calendar panel
+	calendarPanel := widgets.NewCalendarPanel(a.calendarService)
+	calendarPanel.SetDate(date)
+
+	// Variables to hold entry widget references
+	var startDateEntry, startTimeEntry, endDateEntry, endTimeEntry *widget.Entry
+
+	// Set up callback for when calendar event is selected
+	calendarPanel.OnEventSelected = func(event models.CalendarEvent) {
+		if startDateEntry != nil {
+			startDateEntry.SetText(event.Start.Local().Format("2006-01-02"))
+		}
+		if startTimeEntry != nil {
+			startTimeEntry.SetText(event.Start.Local().Format("15:04"))
+		}
+		if endDateEntry != nil {
+			endDateEntry.SetText(event.End.Local().Format("2006-01-02"))
+		}
+		if endTimeEntry != nil {
+			endTimeEntry.SetText(event.End.Local().Format("15:04"))
+		}
+	}
+
+	// Set up callback to navigate to calendar settings
+	calendarPanel.OnSetupClicked = func() {
+		a.showCalendarSettings()
+	}
+
+	preFill := &widgets.EntryFormData{
+		StartDate: date.Format("2006-01-02"),
+		StartTime: startTime.Format("15:04"),
+		EndDate:   date.Format("2006-01-02"),
+		EndTime:   endTime.Format("15:04"),
+	}
+
+	widgets.ShowEntryFormDialog(&widgets.EntryFormConfig{
+		Title:           "New Timesheet Entry",
+		Window:          a.window,
+		APIClient:       a.apiClient,
+		ShowDescription: true,
+		ShowDateTime:    true,
+		ShowTask:        true,
+		ShowActivity:    true,
+		PreFill:         preFill,
+		CalendarPanel:   calendarPanel.Container,
+		OnCalendarTimeUpdate: func(sd, st, ed, et *widget.Entry) {
+			startDateEntry = sd
+			startTimeEntry = st
+			endDateEntry = ed
+			endTimeEntry = et
+		},
+		Buttons: []widgets.EntryFormButton{
+			{
+				Label: "Cancel",
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					close()
+				},
+			},
+			{
+				Label:      "Create Entry",
+				Importance: widget.HighImportance,
+				OnTapped: func(data *widgets.EntryFormData, setError func(string), close func()) {
+					a.createTimesheetEntry(data, setError, close)
+				},
+			},
+		},
+	})
+}
+
+// createTimesheetEntry handles creating a new timesheet entry
+func (a *App) createTimesheetEntry(data *widgets.EntryFormData, setError func(string), close func()) {
+	if data.ProjectID == 0 {
+		setError("Please select a project")
+		return
+	}
+	if data.ActivityID == 0 {
+		setError("Please select an activity")
+		return
+	}
+
+	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
+		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	if err != nil {
+		setError("Invalid start date/time")
+		return
+	}
+	startParsed = startParsed.UTC()
+
+	var endTimePtr *time.Time
+	var duration float64
+	if data.EndDate != "" && data.EndTime != "" {
+		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
+			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		if err != nil {
+			setError("Invalid end date/time")
+			return
+		}
+		endParsed = endParsed.UTC()
+		if endParsed.Before(startParsed) || endParsed.Equal(startParsed) {
+			setError("End time must be after start time")
+			return
+		}
+		endTimePtr = &endParsed
+		duration = endParsed.Sub(startParsed).Hours()
+	}
+
+	entry := models.TimeEntry{
+		ProjectID:   fmt.Sprintf("%d", data.ProjectID),
+		ActivityID:  fmt.Sprintf("%d", data.ActivityID),
+		Description: data.Description,
+		StartTime:   startParsed,
+		EndTime:     endTimePtr,
+		Duration:    duration,
+	}
+	if data.TaskID > 0 {
+		taskID := fmt.Sprintf("%d", data.TaskID)
+		entry.TaskID = &taskID
+	}
+
+	close()
+
+	// Create the entry asynchronously
+	util.RunAsync(
+		func() (bool, error) {
+			return true, a.apiClient.CreateTimesheet(entry)
+		},
+		func(_ bool, err error) {
+			if err != nil {
+				// Show error in a dialog since the form is closed
+				return
+			}
+			// Refresh gaps view after entry is created
+			if a.gapsScreen != nil {
+				a.gapsScreen.Refresh()
+			}
+		},
+	)
+}
+
 func (a *App) showSettings() {
 	a.currentScreen = "settings"
 
@@ -271,10 +418,23 @@ func (a *App) showSettings() {
 		a.settingsScreen.OnBack = a.showDashboard
 		a.settingsScreen.OnEditFavourites = a.showFavourites
 		a.settingsScreen.OnCodeRepos = a.showCodeRepos
+		a.settingsScreen.OnCalendarSettings = a.showCalendarSettings
 		a.settingsScreen.OnLogout = a.handleLogout
 	}
 
 	a.setContent(a.settingsScreen.Container)
+}
+
+func (a *App) showCalendarSettings() {
+	a.currentScreen = "calendarsettings"
+
+	if a.calendarSettingsScreen == nil {
+		a.calendarSettingsScreen = screens.NewCalendarSettingsScreen(a.window)
+		a.calendarSettingsScreen.OnBack = a.showSettings
+	}
+
+	a.setContent(a.calendarSettingsScreen.Container)
+	a.calendarSettingsScreen.Refresh()
 }
 
 func (a *App) showFavourites() {
@@ -372,6 +532,7 @@ func (a *App) handleLogout() {
 	a.codeReposScreen = nil
 	a.officeScreen = nil
 	a.aiAssistantScreen = nil
+	a.calendarSettingsScreen = nil
 	a.loginScreen = nil
 
 	// Show login

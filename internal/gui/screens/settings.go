@@ -22,10 +22,11 @@ type SettingsScreen struct {
 	window fyne.Window
 
 	// Callbacks
-	OnBack           func()
-	OnEditFavourites func()
-	OnCodeRepos      func()
-	OnLogout         func()
+	OnBack             func()
+	OnEditFavourites   func()
+	OnCodeRepos        func()
+	OnCalendarSettings func()
+	OnLogout           func()
 }
 
 // NewSettingsScreen creates a new settings screen
@@ -55,6 +56,12 @@ func (s *SettingsScreen) build() {
 	codeReposBtn := widget.NewButton("Code Repositories", func() {
 		if s.OnCodeRepos != nil {
 			s.OnCodeRepos()
+		}
+	})
+
+	calendarBtn := widget.NewButton("Google Calendar", func() {
+		if s.OnCalendarSettings != nil {
+			s.OnCalendarSettings()
 		}
 	})
 
@@ -100,6 +107,8 @@ func (s *SettingsScreen) build() {
 		container.NewCenter(favBtn),
 		layout.NewSpacer(),
 		container.NewCenter(codeReposBtn),
+		layout.NewSpacer(),
+		container.NewCenter(calendarBtn),
 		layout.NewSpacer(),
 		container.NewCenter(importCSVBtn),
 		layout.NewSpacer(),
