@@ -1938,3 +1938,27 @@ Completely rewrote `internal/gui/screens/history.go` to implement a master-detai
 ### Files Modified:
 - `internal/gui/screens/history.go` - Complete rewrite with two-column layout
 
+2026-03-27 23:40:27 - User: the history view should let you scroll horizontally to the left to see all the way to the start of the month if applicable (Note: User clarified they meant the GAPS view, not history view)
+
+================================================================================
+Date: 2026-03-28
+Session: Fix Cannot Submit Dialog
+
+Prompt:
+The cannot submit dialog needs to have white text for the entries and you should be able to click on the items to open their timesheets to edit
+
+Action Taken:
+- Modified `showMissingDescriptionsDialog()` in `internal/gui/screens/history.go`
+- Changed text color from dark gray (#333333) to white for better visibility on dark background
+- Changed entry items from static text to clickable buttons
+- When clicked, entries now:
+  1. Close the dialog
+  2. Select the entry in the list
+  3. Update the detail panel
+  4. Open the entry edit form
+- Added helper function `findEntryIndex()` to locate entries by ID
+- Increased dialog size slightly to accommodate clickable buttons
+- Verified code compiles successfully
+
+### Files Modified:
+- `internal/gui/screens/history.go` - Updated showMissingDescriptionsDialog() for white text and clickable entries

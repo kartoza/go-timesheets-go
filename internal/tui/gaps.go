@@ -26,7 +26,7 @@ type Segment struct {
 	Project *service.ProjectHourData // nil for gap segments
 }
 
-// GapsView displays a 14-day gap analysis with vertical bars
+// GapsView displays a gap analysis with vertical bars and horizontal scrolling
 type GapsView struct {
 	apiClient   *api.Client
 	gapsService *service.GapsService
@@ -34,11 +34,13 @@ type GapsView struct {
 	height      int
 	headerState *HeaderState
 
-	// Data
+	// Data - contains all days from start of month to today
 	dayData         []service.DayData
 	daySegments     [][]Segment // Segments per day for navigation
-	selectedDay     int         // Currently selected day (0-13)
+	selectedDay     int         // Currently selected day index in dayData
 	selectedSegment int         // Currently selected segment within day (0 = gap or first project)
+	viewportOffset  int         // Offset for viewport scrolling (0 = showing most recent days)
+	visibleDays     int         // Number of days visible in viewport (default 14)
 	isLoading       bool
 	err             error
 	statusMessage   string
@@ -47,9 +49,10 @@ type GapsView struct {
 // NewGapsView creates a new gaps view
 func NewGapsView(apiClient *api.Client) *GapsView {
 	return &GapsView{
-		apiClient:   apiClient,
-		gapsService: service.NewGapsService(8.0), // 8-hour target
-		selectedDay: 13,                          // Select today by default (rightmost)
+		apiClient:      apiClient,
+		gapsService:    service.NewGapsService(8.0), // 8-hour target
+		visibleDays:    14,                          // Show 14 days at a time
+		viewportOffset: 0,                           // Start at the end (most recent days)
 	}
 }
 
@@ -110,6 +113,14 @@ func (g *GapsView) Update(msg tea.Msg) (*GapsView, tea.Cmd) {
 			if g.selectedDay > 0 {
 				g.selectedDay--
 				g.selectedSegment = 0 // Reset to first segment
+				// Scroll viewport if needed
+				viewStart := len(g.dayData) - g.visibleDays - g.viewportOffset
+				if viewStart < 0 {
+					viewStart = 0
+				}
+				if g.selectedDay < viewStart {
+					g.viewportOffset++
+				}
 			}
 			return g, nil
 
@@ -117,7 +128,34 @@ func (g *GapsView) Update(msg tea.Msg) (*GapsView, tea.Cmd) {
 			if g.selectedDay < len(g.dayData)-1 {
 				g.selectedDay++
 				g.selectedSegment = 0 // Reset to first segment
+				// Scroll viewport if needed
+				viewEnd := len(g.dayData) - g.viewportOffset
+				if g.selectedDay >= viewEnd {
+					g.viewportOffset--
+					if g.viewportOffset < 0 {
+						g.viewportOffset = 0
+					}
+				}
 			}
+			return g, nil
+
+		case "home":
+			// Jump to start of data (beginning of month)
+			g.selectedDay = 0
+			g.selectedSegment = 0
+			// Scroll viewport to show start
+			maxOffset := len(g.dayData) - g.visibleDays
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			g.viewportOffset = maxOffset
+			return g, nil
+
+		case "end":
+			// Jump to end of data (today)
+			g.selectedDay = len(g.dayData) - 1
+			g.selectedSegment = 0
+			g.viewportOffset = 0
 			return g, nil
 
 		case "up", "k":
@@ -174,6 +212,9 @@ func (g *GapsView) Update(msg tea.Msg) (*GapsView, tea.Cmd) {
 			g.dayData = msg.dayData
 			g.buildDaySegments()
 			g.err = nil
+			// Select today (rightmost visible day) by default
+			g.selectedDay = len(g.dayData) - 1
+			g.viewportOffset = 0
 		}
 		return g, nil
 	}
@@ -265,8 +306,32 @@ func (g *GapsView) renderHeader() string {
 	return RenderHeader("Time Gaps", &HeaderState{})
 }
 
+// getVisibleDays returns the slice of days currently in the viewport
+func (g *GapsView) getVisibleDays() ([]service.DayData, int) {
+	if len(g.dayData) == 0 {
+		return nil, 0
+	}
+
+	// Calculate viewport bounds
+	viewEnd := len(g.dayData) - g.viewportOffset
+	viewStart := viewEnd - g.visibleDays
+	if viewStart < 0 {
+		viewStart = 0
+	}
+	if viewEnd > len(g.dayData) {
+		viewEnd = len(g.dayData)
+	}
+
+	return g.dayData[viewStart:viewEnd], viewStart
+}
+
 func (g *GapsView) renderBars() string {
 	if len(g.dayData) == 0 {
+		return "No data available"
+	}
+
+	visibleDays, viewStart := g.getVisibleDays()
+	if len(visibleDays) == 0 {
 		return "No data available"
 	}
 
@@ -276,23 +341,38 @@ func (g *GapsView) renderBars() string {
 	// Build rows from top to bottom
 	var rows []string
 
-	// Title row
+	// Title row showing date range
+	firstDay := visibleDays[0].Date
+	lastDay := visibleDays[len(visibleDays)-1].Date
+	titleText := fmt.Sprintf("%s - %s", firstDay.Format("Jan 02"), lastDay.Format("Jan 02"))
+
+	// Add scroll indicators
+	canScrollLeft := viewStart > 0
+	canScrollRight := g.viewportOffset > 0
+	if canScrollLeft {
+		titleText = "← " + titleText
+	}
+	if canScrollRight {
+		titleText = titleText + " →"
+	}
+
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Bold(true).
 		Align(lipgloss.Center).
-		Width(len(g.dayData) * (barWidth + 1))
-	rows = append(rows, titleStyle.Render("Last 14 Days - Time Gaps"))
+		Width(len(visibleDays) * (barWidth + 1))
+	rows = append(rows, titleStyle.Render(titleText))
 	rows = append(rows, "")
 
 	// Hours labels row (top)
 	var hoursRow strings.Builder
-	for i, day := range g.dayData {
+	for i, day := range visibleDays {
+		actualIndex := viewStart + i
 		style := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9A9EA0")).
 			Width(barWidth).
 			Align(lipgloss.Center)
-		if i == g.selectedDay {
+		if actualIndex == g.selectedDay {
 			style = style.Foreground(lipgloss.Color("#DDA036")).Bold(true)
 		}
 		hoursRow.WriteString(style.Render(fmt.Sprintf("%.1f", day.TotalHours)))
@@ -303,9 +383,10 @@ func (g *GapsView) renderBars() string {
 	// Build the bars row by row (from top to bottom)
 	for row := 0; row < barHeight; row++ {
 		var barRow strings.Builder
-		for i, day := range g.dayData {
+		for i, day := range visibleDays {
+			actualIndex := viewStart + i
 			char := g.getBarChar(day, row, barHeight)
-			style := g.getBarStyle(day, row, barHeight, i == g.selectedDay, i)
+			style := g.getBarStyle(day, row, barHeight, actualIndex == g.selectedDay, actualIndex)
 			barRow.WriteString(style.Width(barWidth).Align(lipgloss.Center).Render(char))
 			barRow.WriteString(" ")
 		}
@@ -314,12 +395,13 @@ func (g *GapsView) renderBars() string {
 
 	// Date labels row
 	var dateRow strings.Builder
-	for i, day := range g.dayData {
+	for i, day := range visibleDays {
+		actualIndex := viewStart + i
 		style := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
 			Width(barWidth).
 			Align(lipgloss.Center)
-		if i == g.selectedDay {
+		if actualIndex == g.selectedDay {
 			style = style.Foreground(lipgloss.Color("#DDA036")).Bold(true)
 		}
 		dateRow.WriteString(style.Render(day.Date.Format("02")))
@@ -329,12 +411,13 @@ func (g *GapsView) renderBars() string {
 
 	// Day of week labels row
 	var dowRow strings.Builder
-	for i, day := range g.dayData {
+	for i, day := range visibleDays {
+		actualIndex := viewStart + i
 		style := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9A9EA0")).
 			Width(barWidth).
 			Align(lipgloss.Center)
-		if i == g.selectedDay {
+		if actualIndex == g.selectedDay {
 			style = style.Foreground(lipgloss.Color("#DDA036"))
 		}
 		dowRow.WriteString(style.Render(day.Date.Format("Mon")[:2]))
@@ -586,7 +669,7 @@ func (g *GapsView) renderHelp() string {
 		Italic(true).
 		Align(lipgloss.Center)
 
-	return helpStyle.Render("←/→: Select day • ↑/↓: Select segment • Enter: Fill gap • R: Refresh • Esc: Back")
+	return helpStyle.Render("←/→: Navigate days • Home/End: Jump to start/end • ↑/↓: Select segment • Enter: Fill gap • R: Refresh • Esc: Back")
 }
 
 func (g *GapsView) loadData() tea.Cmd {
@@ -596,7 +679,17 @@ func (g *GapsView) loadData() tea.Cmd {
 			return gapsDataLoadedMsg{err: err}
 		}
 
-		dayData := g.gapsService.CalculateGaps(entries, 14)
+		// Calculate days from start of month to today
+		now := time.Now()
+		startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		daysInPeriod := int(now.Sub(startOfMonth).Hours()/24) + 1 // +1 to include today
+
+		// Ensure at least 14 days are shown
+		if daysInPeriod < 14 {
+			daysInPeriod = 14
+		}
+
+		dayData := g.gapsService.CalculateGaps(entries, daysInPeriod)
 		return gapsDataLoadedMsg{dayData: dayData}
 	}
 }

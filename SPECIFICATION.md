@@ -258,8 +258,9 @@ This document provides a complete specification of the Go Timesheets Go applicat
 
 ### 4.5 Gaps Analysis
 
-**US-GAP-01**: As a user, I want to see a visualization of my logged hours vs target for the last 14 days so that I can identify gaps in my timesheet.
+**US-GAP-01**: As a user, I want to see a visualization of my logged hours vs target from the start of the current month to today so that I can identify gaps in my timesheet.
 - Acceptance: Bar chart with daily hours, target line at 8 hours
+- Acceptance: Shows all days from month start to today (minimum 14 days if early in month)
 
 **US-GAP-02**: As a user, I want to click on a gap to create a new entry for that day so that I can fill missing time quickly.
 - Acceptance: Click opens entry form pre-filled with date and calculated times
@@ -276,6 +277,12 @@ This document provides a complete specification of the Go Timesheets Go applicat
 
 **US-GAP-06**: As a user, I want the gaps view to refresh after creating or editing entries so that I see current data.
 - Acceptance: Automatic refresh after any entry modification
+
+**US-GAP-07**: As a user, I want to scroll horizontally in the gaps view to see earlier days in the month so that I can review and fill gaps from earlier in the month.
+- Acceptance (TUI): Left/right arrows scroll the viewport when cursor reaches the edge
+- Acceptance (TUI): Home/End keys jump to start/end of the data
+- Acceptance (GUI): Horizontal scroll bar allows scrolling through all days
+- Acceptance: Title displays the date range of visible days with scroll indicators
 
 ### 4.6 Proof of Work (POW)
 
@@ -355,7 +362,7 @@ This document provides a complete specification of the Go Timesheets Go applicat
 | History | View entries | Browse, select for detail |
 | Entry Detail | View/edit entry | Edit fields, delete, play POW |
 | Timesheet Creator | Create entry | Select project/task/activity, set times |
-| Gaps View | 14-day analysis | Navigate days, create entries |
+| Gaps View | Month gap analysis | Navigate/scroll days, create entries |
 | Settings | Configuration | Navigate to sub-screens |
 | Favourites Editor | Configure favourites | Edit slots, set properties |
 | Code Repos | Manage git links | Add/edit/remove associations |
@@ -368,7 +375,7 @@ This document provides a complete specification of the Go Timesheets Go applicat
 | Login | Authentication | Enter credentials, submit |
 | Dashboard | Main hub | View timer, navigate, use favourites |
 | History | View entries | Browse cards, click for detail |
-| Gaps View | 14-day analysis | Click bars, create entries |
+| Gaps View | Month gap analysis | Scroll bars, click to create entries |
 | Settings | Configuration | Navigate to sub-screens |
 | Favourites | Configure favourites | Click slots to edit |
 | Code Repos | Manage git links | Add/edit/remove associations |
@@ -525,20 +532,29 @@ This document provides a complete specification of the Go Timesheets Go applicat
 
 ### 9.1 Gaps Analysis
 
-**Purpose**: Visualize missing hours over 14 days
+**Purpose**: Visualize missing hours from start of month to today
 
 **Components**:
-- Bar chart with daily hour totals
+- Horizontally scrollable bar chart with daily hour totals
 - Target line at configurable hours (default 8)
 - Color coding: Green (met), White (gap)
 - Project segments within each bar
 - Warning indicators for missing descriptions
+- Date range title with scroll indicators (← →)
+
+**Viewport**:
+- Shows 14 days at a time in the visible viewport
+- Loads all days from start of current month to today
+- Minimum 14 days shown (extends into previous month if early in month)
+- Auto-scrolls to show most recent days on load
 
 **Interactions**:
 - Click gap segment: Create entry with pre-filled times
 - Click project segment: Edit existing entries
-- Navigate left/right: Select different days
+- Navigate left/right: Select different days, scrolls viewport at edges
 - Navigate up/down: Select different segments within day
+- Home/End: Jump to start/end of available data (TUI)
+- Horizontal scroll: Navigate through all days (GUI)
 
 **Calculations**:
 - Gap hours = Target hours - Total logged hours
@@ -717,8 +733,10 @@ This document provides a complete specification of the Go Timesheets Go applicat
 
 | Key | Action |
 |-----|--------|
-| `←/→` | Navigate days |
-| `↑/↓` | Navigate segments |
+| `←/→` | Navigate days (scrolls viewport at edges) |
+| `↑/↓` | Navigate segments within day |
+| `Home` | Jump to start of month |
+| `End` | Jump to today |
 | `Enter` | Create/edit entry |
 | `r` | Refresh |
 | `Esc` | Back |

@@ -21,7 +21,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/service"
 )
 
-// GapsScreen shows a 14-day view with vertical bars representing logged hours
+// GapsScreen shows a scrollable view with vertical bars representing logged hours
 type GapsScreen struct {
 	Container fyne.CanvasObject
 
@@ -31,9 +31,11 @@ type GapsScreen struct {
 
 	// Widgets
 	barContainer  *fyne.Container
+	barScroll     *container.Scroll
 	detailPanel   *fyne.Container
 	statusLabel   *canvas.Text
 	loadingBar    *widget.ProgressBarInfinite
+	titleLabel    *canvas.Text
 
 	// Detail panel labels
 	detailProject     *canvas.Text
@@ -64,11 +66,11 @@ func NewGapsScreen(apiClient *api.Client, window fyne.Window) *GapsScreen {
 }
 
 func (s *GapsScreen) build() {
-	// Title
-	title := canvas.NewText("Time Gaps - Last 14 Days", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
-	title.TextSize = 24
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	title.Alignment = fyne.TextAlignCenter
+	// Title (will be updated when data loads to show date range)
+	s.titleLabel = canvas.NewText("Time Gaps", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
+	s.titleLabel.TextSize = 24
+	s.titleLabel.TextStyle = fyne.TextStyle{Bold: true}
+	s.titleLabel.Alignment = fyne.TextAlignCenter
 
 	// Back button
 	backButton := widget.NewButton("< Back", func() {
@@ -78,7 +80,7 @@ func (s *GapsScreen) build() {
 	})
 
 	// Header row
-	header := container.NewBorder(nil, nil, backButton, nil, container.NewCenter(title))
+	header := container.NewBorder(nil, nil, backButton, nil, container.NewCenter(s.titleLabel))
 
 	// Status label
 	s.statusLabel = canvas.NewText("", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
@@ -89,8 +91,10 @@ func (s *GapsScreen) build() {
 	s.loadingBar = widget.NewProgressBarInfinite()
 	s.loadingBar.Hide()
 
-	// Bar container - will hold the 14 vertical bars
+	// Bar container - will hold the vertical bars (scrollable horizontally)
 	s.barContainer = container.NewHBox()
+	s.barScroll = container.NewHScroll(s.barContainer)
+	s.barScroll.SetMinSize(fyne.NewSize(600, 280))
 
 	// Detail panel - shows info about hovered segment
 	s.detailProject = canvas.NewText("", color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF})
@@ -148,7 +152,7 @@ func (s *GapsScreen) build() {
 	)
 
 	// Instructions
-	instructions := canvas.NewText("Hover over segments to see details. Click red gaps to fill them.", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
+	instructions := canvas.NewText("Hover over segments to see details. Click gaps to fill them. Scroll left to see earlier days.", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
 	instructions.TextSize = 11
 	instructions.Alignment = fyne.TextAlignCenter
 
@@ -168,7 +172,7 @@ func (s *GapsScreen) build() {
 		),
 		nil,
 		nil,
-		container.NewCenter(container.NewPadded(s.barContainer)),
+		container.NewCenter(container.NewPadded(s.barScroll)),
 	)
 }
 
@@ -276,9 +280,38 @@ func (s *GapsScreen) Refresh() {
 				s.setStatus("Error loading data: " + err.Error())
 				return
 			}
-			s.dayData = s.gapsService.CalculateGaps(entries, 14)
+
+			// Calculate days from start of month to today
+			now := time.Now()
+			startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+			daysInPeriod := int(now.Sub(startOfMonth).Hours()/24) + 1 // +1 to include today
+
+			// Ensure at least 14 days are shown
+			if daysInPeriod < 14 {
+				daysInPeriod = 14
+			}
+
+			s.dayData = s.gapsService.CalculateGaps(entries, daysInPeriod)
 			s.buildBars()
-			s.setStatus(fmt.Sprintf("Showing %d days of data", len(s.dayData)))
+
+			// Update title with date range
+			if len(s.dayData) > 0 {
+				firstDay := s.dayData[0].Date
+				lastDay := s.dayData[len(s.dayData)-1].Date
+				s.titleLabel.Text = fmt.Sprintf("Time Gaps: %s - %s", firstDay.Format("Jan 02"), lastDay.Format("Jan 02"))
+				s.titleLabel.Refresh()
+			}
+
+			s.setStatus(fmt.Sprintf("Showing %d days of data (scroll left to see earlier days)", len(s.dayData)))
+
+			// Scroll to the right to show most recent days
+			// Calculate the offset to show the rightmost content
+			contentSize := s.barContainer.MinSize()
+			scrollSize := s.barScroll.Size()
+			if contentSize.Width > scrollSize.Width {
+				s.barScroll.Offset = fyne.NewPos(contentSize.Width-scrollSize.Width, 0)
+				s.barScroll.Refresh()
+			}
 		},
 	)
 }

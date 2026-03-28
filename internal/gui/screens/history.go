@@ -1062,7 +1062,7 @@ func (s *HistoryScreen) doSubmit(entries []api.TimelogEntry) {
 // showMissingDescriptionsDialog shows an error dialog when entries are missing descriptions
 func (s *HistoryScreen) showMissingDescriptionsDialog(entries []api.TimelogEntry) {
 	redColor := color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF}
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+	grayColor := color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
 
 	titleText := canvas.NewText("Cannot Submit", redColor)
 	titleText.TextSize = 18
@@ -1075,11 +1075,13 @@ func (s *HistoryScreen) showMissingDescriptionsDialog(entries []api.TimelogEntry
 			}
 			return "ies are"
 		}()),
-		darkGray,
+		color.White,
 	)
 	messageText.TextSize = 14
 
-	// Build list of entries without descriptions (max 5)
+	var d dialog.Dialog
+
+	// Build list of clickable entries without descriptions (max 5)
 	var entryList []fyne.CanvasObject
 	maxShow := 5
 	if len(entries) < maxShow {
@@ -1087,25 +1089,34 @@ func (s *HistoryScreen) showMissingDescriptionsDialog(entries []api.TimelogEntry
 	}
 	for i := 0; i < maxShow; i++ {
 		e := entries[i]
+		entryIndex := s.findEntryIndex(e.ID)
 		fromTime, _ := e.GetFromTimeAsTime()
-		entryText := canvas.NewText(
-			fmt.Sprintf("• %s - %s (%s)",
-				e.ProjectName,
-				fromTime.Local().Format("Mon Jan 02"),
-				fmt.Sprintf("%.1fh", e.Hours)),
-			darkGray,
-		)
-		entryText.TextSize = 12
-		entryList = append(entryList, entryText)
+		entryLabel := fmt.Sprintf("• %s - %s (%.1fh)",
+			e.ProjectName,
+			fromTime.Local().Format("Mon Jan 02"),
+			e.Hours)
+
+		// Create a clickable button styled as text
+		btn := widget.NewButton(entryLabel, func() {
+			d.Hide()
+			if entryIndex >= 0 {
+				s.selectedIndex = entryIndex
+				s.entryList.Select(widget.ListItemID(entryIndex))
+				s.updateDetailPanel()
+				s.showEntryDetail(entryIndex)
+			}
+		})
+		btn.Importance = widget.LowImportance
+		entryList = append(entryList, btn)
 	}
 	if len(entries) > 5 {
-		moreText := canvas.NewText(fmt.Sprintf("... and %d more", len(entries)-5), darkGray)
+		moreText := canvas.NewText(fmt.Sprintf("... and %d more", len(entries)-5), grayColor)
 		moreText.TextSize = 12
 		moreText.TextStyle = fyne.TextStyle{Italic: true}
 		entryList = append(entryList, moreText)
 	}
 
-	helpText := canvas.NewText("Click on each entry to add a description.", darkGray)
+	helpText := canvas.NewText("Click on each entry to add a description.", grayColor)
 	helpText.TextSize = 12
 	helpText.TextStyle = fyne.TextStyle{Italic: true}
 
@@ -1121,7 +1132,6 @@ func (s *HistoryScreen) showMissingDescriptionsDialog(entries []api.TimelogEntry
 	content.Add(widget.NewSeparator())
 	content.Add(container.NewCenter(helpText))
 
-	var d dialog.Dialog
 	okBtn := widget.NewButton("OK", func() {
 		d.Hide()
 	})
@@ -1130,6 +1140,16 @@ func (s *HistoryScreen) showMissingDescriptionsDialog(entries []api.TimelogEntry
 	fullContent := container.NewVBox(content, widget.NewSeparator(), buttons)
 
 	d = dialog.NewCustomWithoutButtons("", fullContent, s.window)
-	d.Resize(fyne.NewSize(400, 300))
+	d.Resize(fyne.NewSize(450, 350))
 	d.Show()
+}
+
+// findEntryIndex finds the index of an entry by ID in s.entries
+func (s *HistoryScreen) findEntryIndex(entryID int) int {
+	for i, e := range s.entries {
+		if e.ID == entryID {
+			return i
+		}
+	}
+	return -1
 }
