@@ -30,12 +30,12 @@ type GapsScreen struct {
 	gapsService *service.GapsService
 
 	// Widgets
-	barContainer  *fyne.Container
-	barScroll     *container.Scroll
-	detailPanel   *fyne.Container
-	statusLabel   *canvas.Text
-	loadingBar    *widget.ProgressBarInfinite
-	titleLabel    *canvas.Text
+	barContainer *fyne.Container
+	barScroll    *container.Scroll
+	detailPanel  *fyne.Container
+	statusLabel  *canvas.Text
+	loadingBar   *widget.ProgressBarInfinite
+	titleLabel   *canvas.Text
 
 	// Detail panel labels
 	detailProject     *canvas.Text
@@ -50,8 +50,8 @@ type GapsScreen struct {
 	// Callbacks
 	OnBack              func()
 	OnStartTimesheetFor func(date time.Time, startTime time.Time, endTime time.Time) // Called when clicking a gap
-	OnEditEntry         func(entry *api.TimelogEntry)                                 // Called when clicking an entry
-	OnEntryChanged      func()                                                        // Called when an entry is created/edited
+	OnEditEntry         func(entry *api.TimelogEntry)                                // Called when clicking an entry
+	OnEntryChanged      func()                                                       // Called when an entry is created/edited
 }
 
 // NewGapsScreen creates a new gaps screen
@@ -714,6 +714,7 @@ func (s *GapsScreen) showEntryEditForm(entry *api.TimelogEntry) {
 		ShowActivity:    true,
 		ReadOnly:        false,
 		PreFill:         preFill,
+		Favourites:      widgets.LoadEntryFormFavourites(),
 		ExtraContent:    extraItems,
 		Buttons: []widgets.EntryFormButton{
 			{

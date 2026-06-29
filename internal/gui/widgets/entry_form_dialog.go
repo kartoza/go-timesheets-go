@@ -36,6 +36,12 @@ type EntryFormConfig struct {
 	// Pre-fill data (nil = empty form)
 	PreFill *EntryFormData
 
+	// Favourites (optional). When non-empty, these projects are pinned to the top
+	// of the project picker dropdown so the user can quickly pick a configured
+	// favourite without typing a filter. Picking a favourite also auto-fills the
+	// associated task and activity (when present and visible).
+	Favourites []EntryFormFavourite
+
 	// Extra content inserted after the standard fields
 	ExtraContent fyne.CanvasObject
 
@@ -52,6 +58,17 @@ type EntryFormConfig struct {
 	// Callback to update start/end times from calendar event
 	// If set, this will be called with pointers to the date/time entry widgets
 	OnCalendarTimeUpdate func(startDateEntry, startTimeEntry, endDateEntry, endTimeEntry *widget.Entry)
+}
+
+// EntryFormFavourite is a quick-pick entry pinned to the top of the project picker.
+// When the user picks one, project, task and activity are all auto-populated.
+type EntryFormFavourite struct {
+	ProjectID    int
+	ProjectName  string
+	TaskID       int
+	TaskName     string
+	ActivityID   int
+	ActivityName string
 }
 
 // EntryFormData is both the pre-fill input and the output from the form.
@@ -145,8 +162,27 @@ func ShowEntryFormDialog(cfg *EntryFormConfig) {
 		}
 	}
 
+	// Favourites lookup: project ID → full favourite (so picking a favourite project
+	// can also auto-fill the configured task and activity).
+	favByProject := make(map[int]EntryFormFavourite, len(cfg.Favourites))
+	for _, fav := range cfg.Favourites {
+		if fav.ProjectID > 0 {
+			favByProject[fav.ProjectID] = fav
+		}
+	}
+
 	// --- Project picker (always shown) ---
 	projectPicker := NewProjectPicker()
+	// Pin favourites to the top of the dropdown (visible before any filter is typed).
+	if len(cfg.Favourites) > 0 {
+		favItems := make([]SelectItem, 0, len(cfg.Favourites))
+		for _, fav := range cfg.Favourites {
+			if fav.ProjectID > 0 {
+				favItems = append(favItems, SelectItem{ID: fav.ProjectID, Label: fav.ProjectName})
+			}
+		}
+		projectPicker.SetFavourites(favItems)
+	}
 	if preFill.ProjectID > 0 {
 		projectPicker.SetSelected(&SelectItem{ID: preFill.ProjectID, Label: preFill.ProjectName})
 	}
@@ -198,32 +234,62 @@ func ShowEntryFormDialog(cfg *EntryFormConfig) {
 		}
 	}
 
-	// Wire project picker OnChanged to load tasks
+	// Wire project picker OnChanged to load tasks (and auto-fill task/activity
+	// when the chosen project matches a configured favourite).
 	projectPicker.OnChanged = func(item *SelectItem) {
-		if item != nil {
-			selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
-			if cfg.ShowTask && cfg.APIClient != nil {
-				util.RunAsync(
-					func() ([]api.TaskListItem, error) {
-						return cfg.APIClient.GetTasks(fmt.Sprintf("%d", item.ID))
-					},
-					func(result []api.TaskListItem, err error) {
-						if err == nil {
-							tasks = result
-							options := make([]string, len(tasks))
-							for i, t := range tasks {
-								options[i] = t.Label
-							}
-							taskSelect.SetOptions(options)
-						}
-					},
-				)
-			}
-		} else {
+		if item == nil {
 			selectedProject = nil
 			if taskSelect != nil {
 				taskSelect.SetOptions([]string{})
 			}
+			return
+		}
+		selectedProject = &api.ProjectListItem{ID: item.ID, Label: item.Label}
+
+		fav, isFav := favByProject[item.ID]
+
+		// Auto-fill the activity from the favourite if activities are already loaded.
+		// (Activities load once at dialog open; in practice they're ready before the
+		// user clicks a favourite. If not, the user can re-pick or set it manually.)
+		if isFav && fav.ActivityID > 0 && cfg.ShowActivity && activitySelect != nil {
+			for i := range activities {
+				if activities[i].ID == fav.ActivityID {
+					a := activities[i]
+					selectedActivity = &a
+					activitySelect.SetSelected(a.Label)
+					break
+				}
+			}
+		}
+
+		if cfg.ShowTask && cfg.APIClient != nil {
+			util.RunAsync(
+				func() ([]api.TaskListItem, error) {
+					return cfg.APIClient.GetTasks(fmt.Sprintf("%d", item.ID))
+				},
+				func(result []api.TaskListItem, err error) {
+					if err != nil {
+						return
+					}
+					tasks = result
+					options := make([]string, len(tasks))
+					for i, t := range tasks {
+						options[i] = t.Label
+					}
+					taskSelect.SetOptions(options)
+					// Auto-fill task from the favourite once tasks have loaded.
+					if isFav && fav.TaskID > 0 {
+						for i := range tasks {
+							if tasks[i].ID == fav.TaskID {
+								t := tasks[i]
+								selectedTask = &t
+								taskSelect.SetSelected(t.Label)
+								break
+							}
+						}
+					}
+				},
+			)
 		}
 	}
 

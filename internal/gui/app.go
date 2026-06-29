@@ -178,7 +178,7 @@ func (a *App) navigateBack() {
 		a.showDashboard()
 	case "aiassistant":
 		a.showDashboard()
-	// login and dashboard have no back navigation
+		// login and dashboard have no back navigation
 	}
 }
 
@@ -228,7 +228,6 @@ func (a *App) onTimerStatusChange(running bool, projectName, taskName, activityN
 		a.systrayManager.SetTimerStopped()
 	}
 }
-
 
 func (a *App) showHistory() {
 	a.currentScreen = "history"
@@ -315,6 +314,7 @@ func (a *App) showTimesheetDialogWithCalendar(date time.Time, startTime time.Tim
 		ShowTask:        true,
 		ShowActivity:    true,
 		PreFill:         preFill,
+		Favourites:      widgets.LoadEntryFormFavourites(),
 		CalendarPanel:   calendarPanel.Container,
 		OnCalendarTimeUpdate: func(sd, st, ed, et *widget.Entry) {
 			startDateEntry = sd

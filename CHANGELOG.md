@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Favourites Quick-Pick in Gaps Backfill
+- **Project picker pins your favourites at the top** — When you click a gap (or edit an entry) the project dropdown shows your configured favourite projects first, marked with a ★, visible without typing a filter
+- **Filter applies to both halves** — Typing in the filter narrows both the favourites and the API search results with the same string
+- **One-click prefill of project + task + activity** — Picking a favourite auto-populates the task and activity fields from the favourite's saved associations, so backfilling a gap is project click → adjust time → describe → save
+- **TUI parity** — Same behaviour in the TUI's new-entry screen: favourites pinned at the top of the project popover, filter applies to both, picking a favourite pre-positions the task and activity cursors on the configured defaults
+- **Shared loader** — New `widgets.LoadEntryFormFavourites()` helper so future entry-form callers can opt in without duplicating storage code
+
 ---
 
 ## [0.13.0] - 2026-02-19
