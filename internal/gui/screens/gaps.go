@@ -561,15 +561,16 @@ func (s *GapsScreen) onProjectClicked(dayIndex int, proj *service.ProjectHourDat
 }
 
 func (s *GapsScreen) showEntrySelectionDialog(projectName string, entries []service.EntryDetail) {
+	// The app theme is dark, so secondary text must be light to be readable.
+	// (Previously this used #333333, which rendered as unreadable dark-on-dark.)
 	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
 	redColor := color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF}
 
 	titleText := canvas.NewText("Select Entry to Edit", goldColor)
 	titleText.TextSize = 18
 	titleText.TextStyle = fyne.TextStyle{Bold: true}
 
-	projText := canvas.NewText(projectName, darkGray)
+	projText := canvas.NewText(projectName, color.White)
 	projText.TextSize = 14
 
 	// Build a list of entries
@@ -583,7 +584,8 @@ func (s *GapsScreen) showEntrySelectionDialog(projectName string, entries []serv
 			label = fmt.Sprintf("%.1fh - %s (%s)", e.Hours, e.ActivityName, e.TaskName)
 		}
 
-		// Add warning icon if missing description
+		// Add warning icon if missing description. ⚠ is in the BMP, covered
+		// by the bundled Noto Sans Regular.
 		var btnContent fyne.CanvasObject
 		if e.Description == "" {
 			warnIcon := canvas.NewText("⚠", redColor)

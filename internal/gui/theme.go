@@ -111,15 +111,15 @@ func (t *KartozaTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant
 	}
 }
 
-// Font returns the font for the specified text style. Returns the bundled
-// DejaVu Sans Regular for the normal (non-bold, non-italic, non-monospace)
-// style so iconography glyphs render; falls back to the Fyne default for
-// styled variants and when the font hasn't been provisioned yet.
+// Font returns the bundled DejaVu Sans Regular for all text styles so the
+// iconography glyphs in button labels render consistently. We don't have
+// dedicated Bold / Italic / Monospace TTFs bundled, so for those styles we
+// fall through to DejaVu Sans Regular too — Fyne will synthesise weight /
+// slant. The only fallback to the Fyne default is when fetch-fonts hasn't
+// been run yet (font is nil), so the app still builds without the font.
 func (t *KartozaTheme) Font(style fyne.TextStyle) fyne.Resource {
-	if !style.Bold && !style.Italic && !style.Monospace {
-		if font := bundledTextFont(); font != nil {
-			return font
-		}
+	if font := bundledTextFont(); font != nil {
+		return font
 	}
 	return theme.DefaultTheme().Font(style)
 }
