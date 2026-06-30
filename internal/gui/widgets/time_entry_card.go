@@ -29,10 +29,10 @@ type TimeEntryData struct {
 type TimeEntryCard struct {
 	widget.BaseWidget
 
-	Data      TimeEntryData
-	OnEdit    func()
-	OnDelete  func()
-	OnView    func()
+	Data     TimeEntryData
+	OnEdit   func()
+	OnDelete func()
+	OnView   func()
 
 	bg           *canvas.Rectangle
 	projectLabel *canvas.Text
@@ -148,14 +148,15 @@ func (r *timeEntryCardRenderer) Refresh() {
 	d := r.card.Data
 
 	r.projectLabel.Text = d.ProjectName
-	r.taskLabel.Text = "📋 " + d.TaskName
+	r.taskLabel.Text = "▸ " + d.TaskName
 	r.dateLabel.Text = d.StartTime.Local().Format("2006-01-02")
 	r.hoursLabel.Text = fmt.Sprintf("%.1fh", d.Hours)
 
-	// Status
+	// Status — BMP Unicode symbols + colour. The bundled Noto Sans font
+	// covers these glyphs cleanly.
 	statusText := ""
 	if d.EndTime == nil {
-		statusText = "🟢 Running"
+		statusText = "● Running"
 		r.statusLabel.Color = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF}
 		r.bg.StrokeColor = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF}
 	} else if d.IsSubmitted {
@@ -168,7 +169,7 @@ func (r *timeEntryCardRenderer) Refresh() {
 		r.bg.StrokeColor = color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
 	}
 	if d.HasPOW {
-		statusText = "🎬 " + statusText
+		statusText = "▶ " + statusText
 	}
 	r.statusLabel.Text = statusText
 

@@ -524,8 +524,25 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case refreshProjectsRequestMsg:
+		// Trigger the ERPNext sync off the UI goroutine and feed the result
+		// back to the settings view so it can show "synced" / "failed".
+		client := a.apiClient
+		return a, func() tea.Msg {
+			if client == nil {
+				return refreshProjectsResultMsg{err: fmt.Errorf("not authenticated")}
+			}
+			return refreshProjectsResultMsg{err: client.PullProjects()}
+		}
+
 	case settingsLogoutConfirmedMsg:
-		// Logout confirmed from settings, delete token and quit
+		// Best-effort server-side token invalidation before quitting. We never
+		// block local logout on the network call — the user has already
+		// confirmed they want out, so we fire-and-forget on a goroutine.
+		if a.apiClient != nil {
+			client := a.apiClient
+			go func() { _ = client.Logout() }()
+		}
 		_ = config.DeleteToken()
 		return a, tea.Quit
 

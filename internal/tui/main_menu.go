@@ -24,27 +24,31 @@ const blinkInterval = 1 * time.Second
 type MainMenuItem int
 
 const (
-	MenuSettings MainMenuItem = iota
-	MenuOpenMonitor // Only visible in debug builds
-	MenuViewAPILog  // Only visible in debug builds
+	MenuSettings    MainMenuItem = iota
+	MenuOpenMonitor              // Only visible in debug builds
+	MenuViewAPILog               // Only visible in debug builds
 )
 
 // MainMenuModel represents the main menu screen
 type MainMenuModel struct {
-	apiClient              *api.Client
-	username               string
-	activeTimer            *api.TimelogEntry
-	monthlyHours           float64
-	todayHours             float64
-	selectedItem           int
-	menuItems              []menuItem
-	width     int
-	height    int
-	err       error
-	statusMsg string // Informational status message (not an error)
-	dashboard *TimerDashboard
-	timerStartTime         time.Time
-	blinkOn                bool // Blink state for timer indicators
+	apiClient   *api.Client
+	username    string
+	activeTimer *api.TimelogEntry
+	// pausedTimer is the most recently paused timesheet entry (if any).
+	// Rendered as the dashboard's PAUSED state with a Resume button; the
+	// 's' shortcut routes to Resume while this is set.
+	pausedTimer    *api.TimelogEntry
+	monthlyHours   float64
+	todayHours     float64
+	selectedItem   int
+	menuItems      []menuItem
+	width          int
+	height         int
+	err            error
+	statusMsg      string // Informational status message (not an error)
+	dashboard      *TimerDashboard
+	timerStartTime time.Time
+	blinkOn        bool // Blink state for timer indicators
 
 	// Stop timer confirmation dialog state
 	confirmStopTimer          bool
@@ -55,11 +59,15 @@ type MainMenuModel struct {
 	powCapturer *pow.Capturer
 
 	// Favourites grid state (embedded in main menu)
-	favourites         *models.FavouriteAssociations
-	favSelectedSlot    int  // 0-8 for the 3x3 grid
-	favStorage         *storage.Storage
-	favSuccessMessage  string
-	favStatusMessage   string
+	favourites        *models.FavouriteAssociations
+	favSelectedSlot   int // 0-8 for the 3x3 grid
+	favStorage        *storage.Storage
+	favSuccessMessage string
+	favStatusMessage  string
+
+	// Motivational quote shown under the header. Loaded lazily on Init;
+	// empty until the API responds (and stays empty on any failure).
+	quote string
 }
 
 type menuItem struct {
@@ -100,7 +108,20 @@ func (m *MainMenuModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadActiveTimer(),
 		m.loadHoursData(), // Single call for both monthly and today hours
+		m.loadQuote(),
 	)
+}
+
+// loadQuote fetches a motivational quote from the backend. Failures are
+// silent: the quote line just stays empty.
+func (m *MainMenuModel) loadQuote() tea.Cmd {
+	return func() tea.Msg {
+		quote, err := m.apiClient.GetRandomQuote()
+		if err != nil || quote.Text == "" {
+			return quoteLoadedMsg{}
+		}
+		return quoteLoadedMsg{text: quote.Text, author: quote.Author}
+	}
 }
 
 // Update handles messages for the main menu
@@ -228,6 +249,13 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Start/Stop timer shortcut
 			return m, m.handleDashboardButtonClick()
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("z"))):
+			// Pause running timer. No-op when no timer is running.
+			if m.activeTimer != nil {
+				return m, m.performPauseTimer()
+			}
+			return m, nil
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("h"))):
 			// History shortcut
 			return m, func() tea.Msg { return launchHistoryViewMsg{} }
@@ -272,6 +300,13 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case activeTimerLoadedMsg:
 		previousTimer := m.activeTimer
 		m.activeTimer = msg.timer
+		// If there's a running timer, the paused entry is logically void;
+		// the backend cleared is_paused when create() ran.
+		if msg.timer != nil {
+			m.pausedTimer = nil
+		} else {
+			m.pausedTimer = msg.paused
+		}
 		m.updateMenuItems()
 		m.updateDashboard()
 		// If timer was stopped and we were on "Stop Running Timer", move focus to "Create New Timer"
@@ -319,6 +354,12 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadActiveTimer(),
 			m.loadHoursData(), // Single call for both monthly and today hours
 		)
+
+	case quoteLoadedMsg:
+		if msg.text != "" {
+			m.quote = fmt.Sprintf("\"%s\" — %s", msg.text, msg.author)
+		}
+		return m, nil
 
 	case stopTimerDescriptionReadyMsg:
 		// Auto-generated description is ready, show confirmation dialog
@@ -449,8 +490,16 @@ func (m *MainMenuModel) View() string {
 	help := m.renderHelp()
 
 	// Combine main content (without help)
-	// Layout: header -> dashboard -> favourites grid -> menu
-	parts := []string{header, "", dashboard, "", favouritesGrid, "", mainContent}
+	// Layout: header -> [quote] -> dashboard -> favourites grid -> menu
+	parts := []string{header}
+	if m.quote != "" {
+		quoteStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Italic(true).
+			Align(lipgloss.Center)
+		parts = append(parts, quoteStyle.Render(m.quote))
+	}
+	parts = append(parts, "", dashboard, "", favouritesGrid, "", mainContent)
 	if messageContent != "" {
 		parts = append(parts, "", messageContent)
 	}
@@ -550,7 +599,11 @@ func (m *MainMenuModel) renderHelp() string {
 	if m.powCapturer != nil && m.powCapturer.IsEnabled() {
 		powStatus = "on"
 	}
-	return helpStyle.Render(fmt.Sprintf("s: Start/Stop • h: History • g: Gaps • a: AI • 1-9: Quick start • p: POW (%s) • q: Quit", powStatus))
+	startStopLabel := "s: Start/Stop"
+	if m.pausedTimer != nil && m.activeTimer == nil {
+		startStopLabel = "s: Resume"
+	}
+	return helpStyle.Render(fmt.Sprintf("%s • z: Pause • h: History • g: Gaps • a: AI • 1-9: Quick start • p: POW (%s) • q: Quit", startStopLabel, powStatus))
 }
 
 // getMenuItemFromMousePosition calculates which menu item was clicked based on mouse coordinates
@@ -642,14 +695,24 @@ func (m *MainMenuModel) handleMenuSelection() tea.Cmd {
 	return nil
 }
 
-// loadActiveTimer loads the currently active timer
+// loadActiveTimer loads the currently active OR paused timer. The server can
+// have at most one of each; if a running timer exists, paused is irrelevant.
 func (m *MainMenuModel) loadActiveTimer() tea.Cmd {
 	return func() tea.Msg {
 		timer, err := m.apiClient.GetActiveTimesheet()
 		if err != nil {
 			return errorMsg(err)
 		}
-		return activeTimerLoadedMsg{timer: timer}
+		if timer != nil {
+			return activeTimerLoadedMsg{timer: timer}
+		}
+		paused, perr := m.apiClient.GetPausedTimesheet()
+		if perr != nil {
+			// Treat the paused fetch failure as "no paused" — we still want
+			// the running-timer load to succeed even if this branch errored.
+			return activeTimerLoadedMsg{timer: nil}
+		}
+		return activeTimerLoadedMsg{timer: nil, paused: paused}
 	}
 }
 
@@ -780,6 +843,24 @@ func (m *MainMenuModel) performStopTimerWithDescription(description string) tea.
 			}
 		}
 
+		return timerStoppedMsg{}
+	}
+}
+
+// performPauseTimer pauses the active timer via the backend. The server
+// stops the running timelog and marks its root ancestor is_paused=True. A
+// later Start on the same project/task/activity will be attached as a child
+// timelog on the server side, so "Resume" is just the regular Start flow.
+func (m *MainMenuModel) performPauseTimer() tea.Cmd {
+	return func() tea.Msg {
+		if m.activeTimer == nil {
+			return nil
+		}
+		if _, err := m.apiClient.PauseTimesheet(m.activeTimer.ID, ""); err != nil {
+			return errorMsg(err)
+		}
+		// Reuse the existing post-stop message so the UI refreshes hours and
+		// the timer state without us inventing a new pause-specific code path.
 		return timerStoppedMsg{}
 	}
 }
@@ -1044,14 +1125,14 @@ func (m *MainMenuModel) updateDashboard() {
 	m.dashboard.TodayWorked = m.todayHours
 	m.dashboard.ShiftTarget = 8.0
 
-	if m.activeTimer != nil {
+	switch {
+	case m.activeTimer != nil:
 		menuDebugLog.Printf("updateDashboard: activeTimer found")
 		menuDebugLog.Printf("  ProjectName: '%s'", m.activeTimer.ProjectName)
 		menuDebugLog.Printf("  TaskName: '%s'", m.activeTimer.TaskName)
-		menuDebugLog.Printf("  Project: '%s'", m.activeTimer.Project)
-		menuDebugLog.Printf("  Task: '%s'", m.activeTimer.Task)
 
 		m.dashboard.IsActive = true
+		m.dashboard.IsPaused = false
 		m.dashboard.ProjectName = m.activeTimer.ProjectName
 		m.dashboard.TaskName = m.activeTimer.TaskName
 
@@ -1066,9 +1147,22 @@ func (m *MainMenuModel) updateDashboard() {
 			// Add current timer's elapsed time to today's worked hours
 			m.dashboard.TodayWorked = m.todayHours + elapsed.Hours()
 		}
-	} else {
-		menuDebugLog.Printf("updateDashboard: no active timer")
+
+	case m.pausedTimer != nil:
+		menuDebugLog.Printf("updateDashboard: paused timer %s", m.pausedTimer.ProjectName)
 		m.dashboard.IsActive = false
+		m.dashboard.IsPaused = true
+		m.dashboard.ProjectName = m.pausedTimer.ProjectName
+		m.dashboard.TaskName = m.pausedTimer.TaskName
+		// Frozen elapsed time = the paused entry's accumulated hours.
+		totalMinutes := int(m.pausedTimer.AllHours * 60)
+		m.dashboard.Hours = totalMinutes / 60
+		m.dashboard.Minutes = totalMinutes % 60
+
+	default:
+		menuDebugLog.Printf("updateDashboard: idle")
+		m.dashboard.IsActive = false
+		m.dashboard.IsPaused = false
 		m.dashboard.Hours = 0
 		m.dashboard.Minutes = 0
 		m.dashboard.ProjectName = ""
@@ -1206,8 +1300,8 @@ func (m *MainMenuModel) isFavSlotRunning(slotIndex int) bool {
 // getFavSlotFromMousePosition calculates which favourite slot was clicked
 func (m *MainMenuModel) getFavSlotFromMousePosition(x, y int) int {
 	// Grid layout constants (must match renderFavButton)
-	buttonWidth := 18 + 2  // width + margin
-	buttonHeight := 3 + 2  // height + borders (rounded border adds 2)
+	buttonWidth := 18 + 2 // width + margin
+	buttonHeight := 3 + 2 // height + borders (rounded border adds 2)
 
 	// Calculate grid dimensions
 	gridWidth := buttonWidth * 3
@@ -1381,15 +1475,34 @@ func (m *MainMenuModel) isClickOnDashboardButton(x, y int) bool {
 	return false
 }
 
-// handleDashboardButtonClick handles clicking the Start/Stop button in the dashboard
+// handleDashboardButtonClick handles clicking the Start/Stop/Resume button in
+// the dashboard. The button's role is three-way based on timer state:
+//   - running: stops the active timer
+//   - paused: resumes the paused timer (server attaches new timer as child)
+//   - idle: opens the timer creation flow
 func (m *MainMenuModel) handleDashboardButtonClick() tea.Cmd {
-	if m.activeTimer != nil {
-		// Stop the timer
+	switch {
+	case m.activeTimer != nil:
 		return m.stopActiveTimer()
+	case m.pausedTimer != nil:
+		return m.performResumeTimer()
+	default:
+		return func() tea.Msg { return launchTimerCreationMsg{} }
 	}
-	// Start a new timer - launch timer creation
+}
+
+// performResumeTimer starts a new running timer chained to the paused entry.
+// The server links it as a child of the paused root and clears is_paused, so
+// the next loadActiveTimer naturally returns the new running timer.
+func (m *MainMenuModel) performResumeTimer() tea.Cmd {
 	return func() tea.Msg {
-		return launchTimerCreationMsg{}
+		if m.pausedTimer == nil {
+			return nil
+		}
+		if err := m.apiClient.ResumeTimesheet(m.pausedTimer); err != nil {
+			return errorMsg(err)
+		}
+		return timerStoppedMsg{} // triggers loadActiveTimer + loadHoursData
 	}
 }
 
@@ -1424,7 +1537,8 @@ func (m *MainMenuModel) isClickOnHistoryButton(x, y int) bool {
 
 // Message types
 type activeTimerLoadedMsg struct {
-	timer *api.TimelogEntry
+	timer  *api.TimelogEntry
+	paused *api.TimelogEntry // non-nil only when timer == nil and a paused entry exists
 }
 
 type monthlyHoursLoadedMsg struct {
@@ -1442,6 +1556,13 @@ type hoursDataLoadedMsg struct {
 }
 
 type timerStoppedMsg struct{}
+
+// quoteLoadedMsg delivers a random motivational quote to the main menu.
+// Empty fields = no quote available (network error or empty response).
+type quoteLoadedMsg struct {
+	text   string
+	author string
+}
 
 type blinkTickMsg struct{}
 

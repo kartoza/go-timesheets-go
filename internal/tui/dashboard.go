@@ -393,13 +393,20 @@ func (d *DonutChart) Render() string {
 	return result
 }
 
-// TimerDashboard combines the LCD timer and progress chart
+// TimerDashboard combines the LCD timer and progress chart.
+//
+// Three visual states:
+//   - IsActive=true: timer is running (green/orange, blinking, "Stop" button)
+//   - IsPaused=true (IsActive=false): a paused entry waiting to be resumed
+//     (amber, no blink, "PAUSED" status, "Resume <Project>" button)
+//   - both false: idle ("No Active Timer", "Start Timer" button)
 type TimerDashboard struct {
 	Hours                 int
 	Minutes               int
 	TodayWorked           float64
 	ShiftTarget           float64
 	IsActive              bool
+	IsPaused              bool
 	ProjectName           string
 	TaskName              string
 	BlinkOn               bool // For blinking colon and status dot
@@ -418,7 +425,7 @@ func NewTimerDashboard() *TimerDashboard {
 func (td *TimerDashboard) Render() string {
 	// Consistent dimensions for both boxes
 	boxWidth := 40
-	boxHeight := 14 // Increased to accommodate button
+	boxHeight := 14              // Increased to accommodate button
 	contentWidth := boxWidth - 6 // Account for border and padding
 
 	// Container style with fixed dimensions
@@ -429,12 +436,16 @@ func (td *TimerDashboard) Render() string {
 		Width(boxWidth).
 		Height(boxHeight)
 
-	// Determine color based on active state
+	// Determine color and status text based on three-way state.
 	timerColor := lipgloss.Color("#9A9EA0")
 	statusText := "No Active Timer"
-	if td.IsActive {
+	switch {
+	case td.IsActive:
 		timerColor = lipgloss.Color("#DDA036")
 		statusText = "Timer Running"
+	case td.IsPaused:
+		timerColor = lipgloss.Color("#DDA036")
+		statusText = "PAUSED"
 	}
 
 	// Status indicator
@@ -445,18 +456,22 @@ func (td *TimerDashboard) Render() string {
 		Width(contentWidth)
 
 	var statusIndicator string
-	if td.IsActive {
+	switch {
+	case td.IsActive:
 		// Blink the dot when timer is running
 		if td.BlinkOn {
 			statusIndicator = statusStyle.Render("● " + statusText)
 		} else {
 			statusIndicator = statusStyle.Render("○ " + statusText)
 		}
-	} else {
+	case td.IsPaused:
+		// Steady amber dot — no blink because nothing is actively ticking.
+		statusIndicator = statusStyle.Render("|| " + statusText)
+	default:
 		statusIndicator = statusStyle.Render("○ " + statusText)
 	}
 
-	// LCD Time display (blink colon only when active)
+	// LCD Time display (blink colon only when actively running, not paused)
 	blinkColon := !td.IsActive || td.BlinkOn
 	lcdTime := RenderLCDTime(td.Hours, td.Minutes, timerColor, blinkColon)
 
@@ -474,7 +489,7 @@ func (td *TimerDashboard) Render() string {
 		Width(contentWidth)
 
 	var projectInfo string
-	if td.IsActive && (td.ProjectName != "" || td.TaskName != "") {
+	if (td.IsActive || td.IsPaused) && (td.ProjectName != "" || td.TaskName != "") {
 		info := td.ProjectName
 		if td.TaskName != "" {
 			info += " / " + td.TaskName
@@ -489,12 +504,20 @@ func (td *TimerDashboard) Render() string {
 		projectInfo = infoStyle.Render(" ")
 	}
 
-	// Start/Stop button
-	buttonText := "▶ Start Timer"
+	// Start/Stop/Resume button. ASCII text only — the glyphs ▶ ■ render as
+	// "?" on systems whose terminal font lacks them; colour conveys the role.
+	buttonText := "Start Timer"
 	buttonColor := lipgloss.Color("#2ECC71") // Green for start
-	if td.IsActive {
-		buttonText = "■ Stop Timer"
+	switch {
+	case td.IsActive:
+		buttonText = "Stop Timer"
 		buttonColor = lipgloss.Color("#E74C3C") // Red for stop
+	case td.IsPaused:
+		buttonText = "Resume"
+		if td.ProjectName != "" {
+			buttonText = "Resume " + td.ProjectName
+		}
+		buttonColor = lipgloss.Color("#DDA036") // Amber for resume
 	}
 
 	buttonStyle := lipgloss.NewStyle().

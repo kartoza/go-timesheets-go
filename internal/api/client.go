@@ -55,12 +55,12 @@ type Client struct {
 	metrics    *monitoring.Metrics
 
 	// Request deduplication
-	cacheMu      sync.RWMutex
-	cache        map[string]*cachedResponse // Short-lived cache for responses
-	cacheTTL     time.Duration              // How long to cache successful responses
-	errorCacheTTL time.Duration             // How long to cache error responses (backoff)
-	inflightMu   sync.Mutex
-	inflight     map[string]*inflight       // In-progress requests
+	cacheMu       sync.RWMutex
+	cache         map[string]*cachedResponse // Short-lived cache for responses
+	cacheTTL      time.Duration              // How long to cache successful responses
+	errorCacheTTL time.Duration              // How long to cache error responses (backoff)
+	inflightMu    sync.Mutex
+	inflight      map[string]*inflight // In-progress requests
 }
 
 // Config holds configuration for the API client
@@ -315,8 +315,8 @@ func (c *Client) authenticate() error {
 
 	// Perform login
 	loginData := url.Values{
-		"username":      {c.username},
-		"password":      {c.password},
+		"username":            {c.username},
+		"password":            {c.password},
 		"csrfmiddlewaretoken": {c.csrfToken},
 	}
 
@@ -526,27 +526,28 @@ func (fi *FlexibleInt) UnmarshalJSON(data []byte) error {
 // TimelogEntry represents a timesheet entry from the API
 // This struct matches the complete API response from /api/timelog/
 type TimelogEntry struct {
-	ID            int          `json:"id"`
-	Description   *string      `json:"description"` // nullable in API
-	ActivityType  string       `json:"activity_type"`
-	Owner         string       `json:"owner"`
-	ProjectName   string       `json:"project_name"`
-	Project       string       `json:"project"`
-	ProjectID     int          `json:"project_id"`
-	Task          string       `json:"task"`
-	TaskName      string       `json:"task_name"`
-	TaskID        FlexibleInt  `json:"task_id"`
-	ActivityID    int          `json:"activity_id"`
-	FromTime      string       `json:"from_time"`
-	ToTime        string       `json:"to_time"`
-	Hours         float64      `json:"hours"`
-	Submitted     bool         `json:"submitted"`
-	Timezone      string       `json:"timezone"`
-	Parent        *int         `json:"parent"` // nullable in API
-	TotalChildren FlexibleInt  `json:"total_children"`
-	AllFromTime   string       `json:"all_from_time"`
-	AllToTime     string       `json:"all_to_time"`
-	AllHours      float64      `json:"all_hours"`
+	ID            int         `json:"id"`
+	Description   *string     `json:"description"` // nullable in API
+	ActivityType  string      `json:"activity_type"`
+	Owner         string      `json:"owner"`
+	ProjectName   string      `json:"project_name"`
+	Project       string      `json:"project"`
+	ProjectID     int         `json:"project_id"`
+	Task          string      `json:"task"`
+	TaskName      string      `json:"task_name"`
+	TaskID        FlexibleInt `json:"task_id"`
+	ActivityID    int         `json:"activity_id"`
+	FromTime      string      `json:"from_time"`
+	ToTime        string      `json:"to_time"`
+	Hours         float64     `json:"hours"`
+	Submitted     bool        `json:"submitted"`
+	Timezone      string      `json:"timezone"`
+	Parent        *int        `json:"parent"` // nullable in API
+	TotalChildren FlexibleInt `json:"total_children"`
+	AllFromTime   string      `json:"all_from_time"`
+	AllToTime     string      `json:"all_to_time"`
+	AllHours      float64     `json:"all_hours"`
+	IsPaused      bool        `json:"is_paused"`
 }
 
 // GetFromTimeAsTime parses the from_time string to time.Time
@@ -606,15 +607,15 @@ func (t *TimelogEntry) IsSubmitted() bool {
 
 // TimesheetCreateRequest represents the request body for creating a timesheet
 type TimesheetCreateRequest struct {
-	Description string                      `json:"description"` // HTML supported
-	StartTime   string                      `json:"start_time"`  // datetime
-	EndTime     *string                     `json:"end_time,omitempty"`
-	Task        TimesheetObjectReference    `json:"task"`
-	Project     TimesheetObjectReference    `json:"project"`
-	Activity    TimesheetObjectReference    `json:"activity"`
-	Timezone    string                      `json:"timezone"`
-	Parent      int                         `json:"parent,omitempty"` // default: 0
-	User        *TimesheetObjectReference   `json:"user,omitempty"`
+	Description string                    `json:"description"` // HTML supported
+	StartTime   string                    `json:"start_time"`  // datetime
+	EndTime     *string                   `json:"end_time,omitempty"`
+	Task        TimesheetObjectReference  `json:"task"`
+	Project     TimesheetObjectReference  `json:"project"`
+	Activity    TimesheetObjectReference  `json:"activity"`
+	Timezone    string                    `json:"timezone"`
+	Parent      int                       `json:"parent,omitempty"` // default: 0
+	User        *TimesheetObjectReference `json:"user,omitempty"`
 }
 
 // TimesheetObjectReference represents an object reference in the API (task, project, activity, user)
@@ -1309,4 +1310,170 @@ func (c *Client) GetUnsubmittedTimesheets() ([]TimelogEntry, error) {
 	}
 
 	return unsubmitted, nil
+}
+
+// GetPausedTimesheet returns the user's currently-paused timesheet, if any.
+// Paused entries have end_time set (so GetActiveTimesheet doesn't see them)
+// and is_paused=True on the root. There is at most one paused entry per user
+// at any time (the backend clears the flag on others when pausing or starting).
+func (c *Client) GetPausedTimesheet() (*TimelogEntry, error) {
+	timelogs, err := c.GetTimelogs()
+	if err != nil {
+		return nil, err
+	}
+	for i := range timelogs {
+		if timelogs[i].IsPaused {
+			entry := timelogs[i]
+			return &entry, nil
+		}
+	}
+	return nil, nil
+}
+
+// ResumeTimesheet starts a new running timer that continues a previously-paused
+// session. The new entry inherits project/task/activity from the paused entry
+// and is linked as a child of its root via the API's `parent` field, so the
+// server reconstructs the chain. The backend create() method also clears
+// is_paused=False on any paused entries as a side-effect.
+func (c *Client) ResumeTimesheet(paused *TimelogEntry) error {
+	if paused == nil {
+		return fmt.Errorf("paused entry cannot be nil")
+	}
+
+	apiEntry := map[string]interface{}{
+		"project":    map[string]interface{}{"id": paused.ProjectID},
+		"activity":   map[string]interface{}{"id": paused.ActivityID},
+		"start_time": time.Now().UTC().Format(time.RFC3339),
+		"timezone":   "UTC",
+		"parent":     paused.ID,
+	}
+	if paused.TaskID.Value > 0 {
+		apiEntry["task"] = map[string]interface{}{"id": paused.TaskID.Value}
+	} else {
+		apiEntry["task"] = map[string]interface{}{"id": "-"}
+	}
+	// Carry the existing description forward so the resumed entry inherits
+	// the context the user had typed before pausing.
+	if paused.Description != nil && *paused.Description != "" {
+		apiEntry["description"] = *paused.Description
+	}
+
+	resp, err := c.makeRequest("POST", "/api/timesheet/", apiEntry)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to resume timesheet (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	c.invalidateCache("GET:/api/timelog/")
+	return nil
+}
+
+// PauseTimesheet pauses a running timesheet without ending the work session.
+// The server ends the current timelog (setting end_time to now) and marks the
+// root ancestor is_paused=True. A subsequent CreateTimesheet call for the same
+// project/task/activity will be attached as a child timelog by the server.
+//
+// Pass description="" to leave the existing description unchanged; pass a
+// non-empty string to update the description on the paused entry (and all
+// related timelogs in the chain).
+func (c *Client) PauseTimesheet(timelogID int, description string) (*TimelogEntry, error) {
+	body := map[string]interface{}{"id": timelogID}
+	if description != "" {
+		body["description"] = description
+	}
+
+	resp, err := c.makeRequest("POST", "/api/pause-timesheet/", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to pause timesheet (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var entry TimelogEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entry); err != nil {
+		return nil, fmt.Errorf("failed to decode pause-timesheet response: %w", err)
+	}
+
+	// Pausing ends the running timelog, so the timelog list cache is stale.
+	c.invalidateCache("GET:/api/timelog/")
+	return &entry, nil
+}
+
+// Logout invalidates the current auth token on the server. Best-effort: the
+// caller should still clear local credentials regardless of the returned error
+// (the user expects "logged out" to always feel terminal locally).
+func (c *Client) Logout() error {
+	resp, err := c.makeRequest("POST", "/api/logout/", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("logout failed (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
+}
+
+// PullProjects asks the backend to re-sync the user's project list from
+// ERPNext. Returns when the server-side sync completes; the local project
+// cache is invalidated so the next picker open fetches fresh data.
+func (c *Client) PullProjects() error {
+	resp, err := c.makeRequest("POST", "/api/pull-projects/", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("pull-projects failed (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Any cached project / task / activity lists could be stale after a sync.
+	c.invalidateCache("GET:/api/project-list/")
+	c.invalidateCache("GET:/api/activity-list/")
+	return nil
+}
+
+// Quote is a single random motivational quote returned by /api/quotes/.
+// The backend proxies zenquotes.io which returns an array of one object with
+// keys q (quote text), a (author), h (rendered html — unused here).
+type Quote struct {
+	Text   string `json:"q"`
+	Author string `json:"a"`
+}
+
+// GetRandomQuote returns a random motivational quote from the server's
+// upstream quote source. Returns an empty Quote (no error) when the upstream
+// is unreachable, so callers can render nothing without special-casing.
+func (c *Client) GetRandomQuote() (Quote, error) {
+	resp, err := c.makeRequest("GET", "/api/quotes/", nil)
+	if err != nil {
+		return Quote{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return Quote{}, fmt.Errorf("get-quote failed (status %d)", resp.StatusCode)
+	}
+
+	var quotes []Quote
+	if err := json.NewDecoder(resp.Body).Decode(&quotes); err != nil {
+		return Quote{}, fmt.Errorf("failed to decode quote response: %w", err)
+	}
+	if len(quotes) == 0 {
+		return Quote{}, nil
+	}
+	return quotes[0], nil
 }

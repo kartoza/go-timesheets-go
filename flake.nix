@@ -458,6 +458,40 @@
             '';
           };
 
+          # Provision Noto Sans Regular from nixpkgs into the project so
+          # //go:embed can bundle it at compile time. The bundled Fyne default
+          # font lacks coverage for many BMP Unicode symbols (★ ✓ ⚠ ▶ ■ ⚙ ●
+          # ○ ▥ ☰ ⌂ ✦ ↑ ⤴ etc.) which we use as iconography; Noto Sans
+          # Regular covers them all.
+          #
+          # Run: nix run .#fetch-fonts
+          fetch-fonts = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellScriptBin "fetch-fonts" ''
+              #!/usr/bin/env bash
+              set -euo pipefail
+
+              DEST_DIR="internal/gui/resources/fonts"
+              mkdir -p "$DEST_DIR"
+
+              SRC=$(find ${pkgs.noto-fonts}/share -name "NotoSans-Regular.ttf" -print -quit 2>/dev/null || true)
+              if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
+                echo "ERROR: NotoSans-Regular.ttf not found in ${pkgs.noto-fonts}" >&2
+                exit 1
+              fi
+
+              install -m 0644 "$SRC" "$DEST_DIR/NotoSans-Regular.ttf"
+
+              # SIL Open Font License is required for redistribution.
+              LICENSE_SRC=$(find ${pkgs.noto-fonts}/share -iname "LICENSE*" -o -iname "OFL*" 2>/dev/null | head -1 || true)
+              if [ -n "$LICENSE_SRC" ] && [ -f "$LICENSE_SRC" ]; then
+                install -m 0644 "$LICENSE_SRC" "$DEST_DIR/NotoSans-LICENSE.txt"
+              fi
+
+              echo "Installed:"
+              ls -la "$DEST_DIR/"
+            '';
+          };
+
           # Build release artifacts for all platforms
           release = flake-utils.lib.mkApp {
             drv = pkgs.writeShellScriptBin "release" ''

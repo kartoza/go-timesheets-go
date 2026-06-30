@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Pause/Resume Timer
+- **Pause button** — A new "Pause" button appears next to the Start/Stop button on the dashboard whenever a timer is running; tap it to freeze the active timesheet without committing a stop (the backend ends the running timelog and marks its root ancestor `is_paused=True`). The TUI gets the same behaviour via a new `z` keyboard shortcut on the main menu.
+- **Paused entry stays visible with Resume button** — After pausing, the timer display does not go back to idle: it shows the paused entry's project and task in amber with a "PAUSED" header and frozen elapsed time, and the Start/Stop button becomes "▶ Resume &lt;Project&gt;" so the user always has an obvious way to continue. The TUI dashboard mirrors this with the same amber palette and Resume label, and the `s` shortcut resumes when paused.
+- **Resume chains the entry server-side** — Clicking Resume calls `/api/timesheet/` with the paused root's ID as `parent`, so the backend attaches the new running timer as a child of the paused chain and clears `is_paused`. Starting any other timer also clears the paused state automatically.
+
+#### Server-side Logout
+- **Logout invalidates the server token** — Both the GUI Settings "Log Out" action and the TUI settings dialog now POST to `/api/logout/` (best-effort, non-blocking) before discarding local credentials, so the auth token is properly revoked on the backend instead of lingering until manually deleted.
+
+#### Refresh Projects from ERPNext
+- **Sync Projects button (GUI)** — New "Sync Projects from ERPNext" action in the Settings screen that triggers `/api/pull-projects/` and reports completion via a status line. Project/activity caches are invalidated so the next project picker open fetches fresh data.
+- **Sync Projects (TUI)** — Same action available in the TUI settings menu with an inline status message under the menu.
+
+#### Motivational Quote on Dashboard
+- **Quote line under the welcome header** — The dashboard fetches a random motivational quote from `/api/quotes/` and renders it as a subtle italic line under the welcome label. Same behaviour added under the header in the TUI main menu. Failures are silent — the line just stays empty.
+
+### Fixed
+
+- **Crash on pause/resume cycle (GUI)** — Pausing then resuming a timer could panic in the systray icon-rotation goroutine with `nil pointer dereference`. The goroutine read `s.rotationTicker.C` through the struct field every iteration; `StopIconRotation` nilled the field, so the next select iteration crashed. Both the icon-rotation and tooltip-update goroutines now capture their ticker/stop channels into locals and use `close` (not a non-blocking send) so the stop signal is never dropped.
+- **Iconography renders cleanly via bundled Noto Sans Regular** — The Fyne default font lacks glyphs for many of the Unicode symbols used as iconography across the GUI, so things like `▶ Start Timer`, `■ Stop Timer`, `⚠`, `✓`, `○`, `⚙`, `★` rendered as `?`. The GUI theme now embeds Noto Sans Regular via `//go:embed` and returns it from `KartozaTheme.Font()` for the normal (non-bold/non-italic) style; Noto Sans covers the full BMP symbol blocks we use (Geometric Shapes, Misc Symbols, Dingbats, Arrows). The font is provisioned reproducibly via `nix run .#fetch-fonts` (from nixpkgs `noto-fonts`); the build falls back to the Fyne default if the font hasn't been fetched.
+- **Iconography restored across dashboard, history, time entries** — Replaced the previous color-emoji icons (`🟢 🎬 📋 📤 📊 📸 🏢 🤖`) with BMP equivalents that the new bundled font renders cleanly: `●` for running, `✓` for submitted, `○` for pending, `⚠` for warnings, `▶`/`■`/`⏸` for play/stop/pause, `☰` History, `▥` Gaps, `⚙` Settings, `◉` POW, `⌂` Office, `✦` AI, `↑` Submit, `▸` task-list bullet.
+- **Dark-on-dark text in delete-entry and submit-entries confirmations** — Two custom dialogs in `history.go` hardcoded `#333333` dark gray text intended for a light background. Switched to white; the entry-selection dialog in `gaps.go` had the same hardcoded dark gray and is now also white.
+
 ---
 
 ## [0.13.0] - 2026-02-19

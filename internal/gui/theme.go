@@ -1,11 +1,46 @@
 package gui
 
 import (
+	"embed"
 	"image/color"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 )
+
+// Bundled fonts. The directory is always present (a .gitkeep keeps it in git)
+// but the .ttf files are provisioned by `nix run .#fetch-fonts` so we keep
+// the source tree clean of binary blobs.
+//
+// We embed the directory rather than a specific file pattern so the build
+// works even before fetch-fonts runs — at runtime we fall back to the Fyne
+// default font when no TTF is present.
+//
+//go:embed resources/fonts
+var fontsFS embed.FS
+
+var (
+	loadFontOnce sync.Once
+	loadedFont   fyne.Resource // nil when no TTF is embedded
+)
+
+// notoSansRegular returns the bundled Noto Sans Regular font, or nil if
+// fetch-fonts hasn't been run yet. The lookup is cached.
+//
+// Noto Sans covers the BMP Unicode symbol blocks we use for iconography
+// (Geometric Shapes, Misc Symbols, Dingbats, Arrows), which the Fyne
+// default font does not — without it, glyphs like ★ ✓ ⚠ ▶ ■ render as "?".
+func notoSansRegular() fyne.Resource {
+	loadFontOnce.Do(func() {
+		data, err := fontsFS.ReadFile("resources/fonts/NotoSans-Regular.ttf")
+		if err != nil {
+			return
+		}
+		loadedFont = fyne.NewStaticResource("NotoSans-Regular.ttf", data)
+	})
+	return loadedFont
+}
 
 // Brand colors matching TUI (from internal/tui/widgets.go)
 var (
@@ -74,8 +109,16 @@ func (t *KartozaTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant
 	}
 }
 
-// Font returns the font for the specified text style
+// Font returns the font for the specified text style. Returns the bundled
+// Noto Sans Regular for the normal (non-bold, non-italic, non-monospace)
+// style so iconography glyphs render; falls back to the Fyne default for
+// styled variants and when the font hasn't been provisioned yet.
 func (t *KartozaTheme) Font(style fyne.TextStyle) fyne.Resource {
+	if !style.Bold && !style.Italic && !style.Monospace {
+		if font := notoSansRegular(); font != nil {
+			return font
+		}
+	}
 	return theme.DefaultTheme().Font(style)
 }
 

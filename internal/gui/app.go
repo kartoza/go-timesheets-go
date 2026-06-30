@@ -11,6 +11,7 @@ import (
 	"fyne.io/systray"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
+	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/gui/screens"
 	"github.com/kartoza/go-timesheets-go/internal/gui/util"
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
@@ -178,7 +179,7 @@ func (a *App) navigateBack() {
 		a.showDashboard()
 	case "aiassistant":
 		a.showDashboard()
-	// login and dashboard have no back navigation
+		// login and dashboard have no back navigation
 	}
 }
 
@@ -228,7 +229,6 @@ func (a *App) onTimerStatusChange(running bool, projectName, taskName, activityN
 		a.systrayManager.SetTimerStopped()
 	}
 }
-
 
 func (a *App) showHistory() {
 	a.currentScreen = "history"
@@ -420,9 +420,32 @@ func (a *App) showSettings() {
 		a.settingsScreen.OnCodeRepos = a.showCodeRepos
 		a.settingsScreen.OnCalendarSettings = a.showCalendarSettings
 		a.settingsScreen.OnLogout = a.handleLogout
+		a.settingsScreen.OnRefreshProjects = a.refreshProjects
 	}
 
 	a.setContent(a.settingsScreen.Container)
+}
+
+// refreshProjects triggers a server-side ERPNext re-sync of the user's
+// project list and reports completion back to the caller. Runs the network
+// call off the Fyne UI goroutine via util.RunAsync.
+func (a *App) refreshProjects(done func(err error)) {
+	if a.apiClient == nil {
+		if done != nil {
+			done(fmt.Errorf("not authenticated"))
+		}
+		return
+	}
+	util.RunAsync(
+		func() (bool, error) {
+			return true, a.apiClient.PullProjects()
+		},
+		func(_ bool, err error) {
+			if done != nil {
+				done(err)
+			}
+		},
+	)
 }
 
 func (a *App) showCalendarSettings() {
@@ -520,6 +543,26 @@ func (a *App) startTimerFromAI(projectID, taskID, activityID int, projectName st
 }
 
 func (a *App) handleLogout() {
+	// Best-effort server-side token invalidation. We never block the local
+	// logout on this: if the server is unreachable or returns an error, the
+	// user still expects the UI to return to the login screen. We just fire
+	// and forget on a goroutine.
+	if a.apiClient != nil {
+		client := a.apiClient
+		go func() {
+			if err := client.Logout(); err != nil {
+				debugLogout("server-side logout failed (ignored): %v", err)
+			}
+		}()
+	}
+
+	// Drop the saved token so the next app start does not auto-login with
+	// stale credentials. Ignore errors — if the file is already gone or
+	// unwritable, the worst case is one stale auto-login attempt.
+	if err := config.DeleteToken(); err != nil {
+		debugLogout("could not delete saved token (ignored): %v", err)
+	}
+
 	// Clear API client
 	a.apiClient = nil
 
@@ -537,6 +580,12 @@ func (a *App) handleLogout() {
 
 	// Show login
 	a.showLogin()
+}
+
+// debugLogout is a tiny helper so the package compiles cleanly without us
+// pulling in a full logging dependency for one fire-and-forget call.
+func debugLogout(format string, args ...any) {
+	fmt.Printf("[logout] "+format+"\n", args...)
 }
 
 func (a *App) setContent(content fyne.CanvasObject) {
