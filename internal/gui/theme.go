@@ -25,19 +25,21 @@ var (
 	loadedFont   fyne.Resource // nil when no TTF is embedded
 )
 
-// notoSansRegular returns the bundled Noto Sans Regular font, or nil if
+// bundledTextFont returns the bundled DejaVu Sans Regular font, or nil if
 // fetch-fonts hasn't been run yet. The lookup is cached.
 //
-// Noto Sans covers the BMP Unicode symbol blocks we use for iconography
-// (Geometric Shapes, Misc Symbols, Dingbats, Arrows), which the Fyne
-// default font does not — without it, glyphs like ★ ✓ ⚠ ▶ ■ render as "?".
-func notoSansRegular() fyne.Resource {
+// DejaVu Sans covers the full BMP Unicode symbol blocks we use as
+// iconography (Geometric Shapes, Misc Symbols, Dingbats, Arrows, Misc
+// Technical, Yijing Hexagrams), which neither the Fyne default font nor
+// the standard NotoSans-Regular do — without it, glyphs like ⚙ ☰ ▥ ◉ ⌂ ✦
+// render as the fallback "?" character.
+func bundledTextFont() fyne.Resource {
 	loadFontOnce.Do(func() {
-		data, err := fontsFS.ReadFile("resources/fonts/NotoSans-Regular.ttf")
+		data, err := fontsFS.ReadFile("resources/fonts/DejaVuSans.ttf")
 		if err != nil {
 			return
 		}
-		loadedFont = fyne.NewStaticResource("NotoSans-Regular.ttf", data)
+		loadedFont = fyne.NewStaticResource("DejaVuSans.ttf", data)
 	})
 	return loadedFont
 }
@@ -110,12 +112,12 @@ func (t *KartozaTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant
 }
 
 // Font returns the font for the specified text style. Returns the bundled
-// Noto Sans Regular for the normal (non-bold, non-italic, non-monospace)
+// DejaVu Sans Regular for the normal (non-bold, non-italic, non-monospace)
 // style so iconography glyphs render; falls back to the Fyne default for
 // styled variants and when the font hasn't been provisioned yet.
 func (t *KartozaTheme) Font(style fyne.TextStyle) fyne.Resource {
 	if !style.Bold && !style.Italic && !style.Monospace {
-		if font := notoSansRegular(); font != nil {
+		if font := bundledTextFont(); font != nil {
 			return font
 		}
 	}
