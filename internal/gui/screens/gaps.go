@@ -19,6 +19,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/service"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // GapsScreen shows a scrollable view with vertical bars representing logged hours
@@ -30,12 +31,12 @@ type GapsScreen struct {
 	gapsService *service.GapsService
 
 	// Widgets
-	barContainer  *fyne.Container
-	barScroll     *container.Scroll
-	detailPanel   *fyne.Container
-	statusLabel   *canvas.Text
-	loadingBar    *widget.ProgressBarInfinite
-	titleLabel    *canvas.Text
+	barContainer *fyne.Container
+	barScroll    *container.Scroll
+	detailPanel  *fyne.Container
+	statusLabel  *canvas.Text
+	loadingBar   *widget.ProgressBarInfinite
+	titleLabel   *canvas.Text
 
 	// Detail panel labels
 	detailProject     *canvas.Text
@@ -50,8 +51,8 @@ type GapsScreen struct {
 	// Callbacks
 	OnBack              func()
 	OnStartTimesheetFor func(date time.Time, startTime time.Time, endTime time.Time) // Called when clicking a gap
-	OnEditEntry         func(entry *api.TimelogEntry)                                 // Called when clicking an entry
-	OnEntryChanged      func()                                                        // Called when an entry is created/edited
+	OnEditEntry         func(entry *api.TimelogEntry)                                // Called when clicking an entry
+	OnEntryChanged      func()                                                       // Called when an entry is created/edited
 }
 
 // NewGapsScreen creates a new gaps screen
@@ -716,6 +717,7 @@ func (s *GapsScreen) showEntryEditForm(entry *api.TimelogEntry) {
 		ShowActivity:    true,
 		ReadOnly:        false,
 		PreFill:         preFill,
+		Favourites:      widgets.LoadEntryFormFavourites(),
 		ExtraContent:    extraItems,
 		Buttons: []widgets.EntryFormButton{
 			{
@@ -745,10 +747,9 @@ func (s *GapsScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, setEr
 		return
 	}
 
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start date/time")
+		setError("Invalid start date/time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
@@ -756,10 +757,9 @@ func (s *GapsScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, setEr
 	var endTimePtr *time.Time
 	var duration float64
 	if data.EndDate != "" && data.EndTime != "" {
-		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 		if err != nil {
-			setError("Invalid end date/time")
+			setError("Invalid end date/time: " + err.Error())
 			return
 		}
 		endParsed = endParsed.UTC()

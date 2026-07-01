@@ -19,6 +19,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/pow"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // DashboardScreen represents the main dashboard screen
@@ -402,18 +403,16 @@ func (s *DashboardScreen) doStopTimer(data *widgets.EntryFormData, setError func
 		return
 	}
 
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start date/time")
+		setError("Invalid start date/time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
 
-	endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+	endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 	if err != nil {
-		setError("Invalid end date/time")
+		setError("Invalid end date/time: " + err.Error())
 		return
 	}
 	endParsed = endParsed.UTC()
@@ -610,11 +609,10 @@ func (s *DashboardScreen) doCreateEntryWithCallback(data *widgets.EntryFormData,
 		return
 	}
 
-	// Parse start date/time
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	// Parse start date/time (accepts HH:MM, 17h00, 5:55pm etc.)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start time (use HH:MM format)")
+		setError("Invalid start time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
@@ -623,10 +621,9 @@ func (s *DashboardScreen) doCreateEntryWithCallback(data *widgets.EntryFormData,
 	var endTimePtr *time.Time
 	var duration float64
 	if data.EndTime != "" {
-		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 		if err != nil {
-			setError("Invalid end time (use HH:MM format)")
+			setError("Invalid end time: " + err.Error())
 			return
 		}
 		endParsed = endParsed.UTC()

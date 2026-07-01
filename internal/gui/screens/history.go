@@ -20,6 +20,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // HistoryScreen represents the history screen with two-column layout
@@ -606,10 +607,9 @@ func (s *HistoryScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, se
 		return
 	}
 
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start date/time")
+		setError("Invalid start date/time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
@@ -617,10 +617,9 @@ func (s *HistoryScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, se
 	var endTimePtr *time.Time
 	var duration float64
 	if data.EndDate != "" && data.EndTime != "" {
-		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 		if err != nil {
-			setError("Invalid end date/time")
+			setError("Invalid end date/time: " + err.Error())
 			return
 		}
 		endParsed = endParsed.UTC()
