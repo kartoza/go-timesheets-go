@@ -41,6 +41,7 @@ type App struct {
 	codeReposScreen        *screens.CodeReposScreen
 	officeScreen           *screens.OfficeScreen
 	aiAssistantScreen      *screens.AIAssistantScreen
+	teamUpdatesScreen      *screens.TeamUpdatesScreen
 	calendarSettingsScreen *screens.CalendarSettingsScreen
 
 	// Navigation
@@ -180,6 +181,8 @@ func (a *App) navigateBack() {
 		a.showDashboard()
 	case "aiassistant":
 		a.showDashboard()
+	case "teamupdates":
+		a.showDashboard()
 		// login and dashboard have no back navigation
 	}
 }
@@ -211,6 +214,7 @@ func (a *App) showDashboard() {
 		a.dashboardScreen.OnGaps = a.showGaps
 		a.dashboardScreen.OnOffice = a.showOffice
 		a.dashboardScreen.OnAIAssistant = a.showAIAssistant
+		a.dashboardScreen.OnTeamUpdates = a.showTeamUpdates
 		a.dashboardScreen.OnTimerStatusChange = a.onTimerStatusChange
 	}
 
@@ -499,6 +503,18 @@ func (a *App) showOffice() {
 	a.officeScreen.StartAnimation()
 }
 
+func (a *App) showTeamUpdates() {
+	a.currentScreen = "teamupdates"
+
+	if a.teamUpdatesScreen == nil {
+		a.teamUpdatesScreen = screens.NewTeamUpdatesScreen(a.apiClient, a.window)
+		a.teamUpdatesScreen.OnBack = a.showDashboard
+	}
+
+	a.setContent(a.teamUpdatesScreen.Container)
+	a.teamUpdatesScreen.Refresh()
+}
+
 func (a *App) showAIAssistant() {
 	a.currentScreen = "aiassistant"
 
@@ -575,6 +591,7 @@ func (a *App) handleLogout() {
 	a.codeReposScreen = nil
 	a.officeScreen = nil
 	a.aiAssistantScreen = nil
+	a.teamUpdatesScreen = nil
 	a.calendarSettingsScreen = nil
 	a.loginScreen = nil
 

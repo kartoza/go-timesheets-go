@@ -1454,6 +1454,164 @@ type Quote struct {
 	Author string `json:"a"`
 }
 
+// ==== Microblog / Team Updates ====
+
+// MicroblogTag is a tag attached to a MicroblogPost. Names have any leading
+// "#" stripped by the server; the client should treat Name as raw.
+type MicroblogTag struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// MicroblogPost is a single team-update post as returned by the backend.
+// Nullable datetime fields come as *string in RFC3339 form.
+type MicroblogPost struct {
+	ID            int            `json:"id"`
+	AuthorName    string         `json:"authorName"`
+	AuthorHandle  string         `json:"authorHandle"`
+	AvatarURL     *string        `json:"avatarUrl"`
+	Content       string         `json:"content"`
+	CreatedAt     string         `json:"createdAt"`
+	IsPinned      bool           `json:"isPinned"`
+	PinValidUntil *string        `json:"pinValidUntil"`
+	PeriodStart   *string        `json:"periodStart"`
+	PeriodEnd     *string        `json:"periodEnd"`
+	Tags          []MicroblogTag `json:"tags"`
+	LikesCount    int            `json:"likesCount"`
+	Liked         bool           `json:"liked"`
+	IsOwner       bool           `json:"isOwner"`
+	Type          string         `json:"type"`
+}
+
+// MicroblogPostsResponse is the paginated envelope returned by ListMicroblogPosts.
+type MicroblogPostsResponse struct {
+	Results []MicroblogPost `json:"results"`
+	Count   int             `json:"count"`
+	Next    bool            `json:"next"`
+}
+
+// MicroblogWriteRequest is the payload for creating or updating a post. All
+// fields are optional on update (PATCH semantics); Content is required on create.
+// IsPinned/PinValidUntil require staff permissions server-side.
+type MicroblogWriteRequest struct {
+	Content       string   `json:"content,omitempty"`
+	Type          string   `json:"type,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	IsPinned      *bool    `json:"is_pinned,omitempty"`
+	PinValidUntil *string  `json:"pin_valid_until,omitempty"`
+	PeriodStart   *string  `json:"period_start,omitempty"`
+	PeriodEnd     *string  `json:"period_end,omitempty"`
+}
+
+// ListMicroblogPosts fetches a page of team-update posts. page is 1-based;
+// pass 1 to get the first page. Server page size is fixed at 10.
+func (c *Client) ListMicroblogPosts(page int) (*MicroblogPostsResponse, error) {
+	if page < 1 {
+		page = 1
+	}
+	endpoint := fmt.Sprintf("/api/microblog/posts/?page=%d", page)
+	resp, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to list microblog posts (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var out MicroblogPostsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("failed to decode microblog posts response: %w", err)
+	}
+	return &out, nil
+}
+
+// CreateMicroblogPost creates a new team-update post authored by the
+// authenticated user.
+func (c *Client) CreateMicroblogPost(req MicroblogWriteRequest) (*MicroblogPost, error) {
+	resp, err := c.makeRequest("POST", "/api/microblog/posts/create/", req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to create microblog post (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var post MicroblogPost
+	if err := json.NewDecoder(resp.Body).Decode(&post); err != nil {
+		return nil, fmt.Errorf("failed to decode created microblog post: %w", err)
+	}
+	return &post, nil
+}
+
+// UpdateMicroblogPost partially updates a post. Only the post author can update;
+// server returns 404 for non-owned posts.
+func (c *Client) UpdateMicroblogPost(id int, req MicroblogWriteRequest) (*MicroblogPost, error) {
+	endpoint := fmt.Sprintf("/api/microblog/posts/%d/update/", id)
+	resp, err := c.makeRequest("PATCH", endpoint, req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to update microblog post (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var post MicroblogPost
+	if err := json.NewDecoder(resp.Body).Decode(&post); err != nil {
+		return nil, fmt.Errorf("failed to decode updated microblog post: %w", err)
+	}
+	return &post, nil
+}
+
+// DeleteMicroblogPost deletes a post. Only the post author can delete.
+func (c *Client) DeleteMicroblogPost(id int) error {
+	endpoint := fmt.Sprintf("/api/microblog/posts/%d/delete/", id)
+	resp, err := c.makeRequest("DELETE", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete microblog post (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
+}
+
+// LikeMicroblogPost toggles the current user's like on the given post.
+// Returns the new liked state and updated like count.
+func (c *Client) LikeMicroblogPost(id int) (liked bool, count int, err error) {
+	endpoint := fmt.Sprintf("/api/microblog/posts/%d/like/", id)
+	resp, err := c.makeRequest("POST", endpoint, nil)
+	if err != nil {
+		return false, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return false, 0, fmt.Errorf("failed to like microblog post (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var out struct {
+		Liked      bool `json:"liked"`
+		LikesCount int  `json:"likesCount"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, 0, fmt.Errorf("failed to decode like response: %w", err)
+	}
+	return out.Liked, out.LikesCount, nil
+}
+
 // GetRandomQuote returns a random motivational quote from the server's
 // upstream quote source. Returns an empty Quote (no error) when the upstream
 // is unreachable, so callers can render nothing without special-casing.

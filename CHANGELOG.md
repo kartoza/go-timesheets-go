@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Motivational Quote on Dashboard
 - **Quote line under the welcome header** — The dashboard fetches a random motivational quote from `/api/quotes/` and renders it as a subtle italic line under the welcome label. Same behaviour added under the header in the TUI main menu. Failures are silent — the line just stays empty.
 
+#### Team Updates (Microblog)
+- **New Team Updates screen (GUI)** — Accessed from a new "✎ Updates" nav button on the dashboard. Shows a paginated feed of team posts with author, timestamp, tags, and like counts. Compose box at the top with a 666-character counter (matches the backend limit). Own posts have inline Edit + Delete buttons; every post has a like/unlike toggle. Loads 10 posts per page; a "Load older…" button appears when more are available.
+- **Team Updates in the TUI** — Same feature reachable from the main menu with the new `u` shortcut. Arrow keys navigate the feed, `c` focuses the compose textarea, `Ctrl+Enter` submits, `l` or space toggles like, `e`/`d` edit or delete own posts, `m` loads older, `r` refreshes, `Esc/q` returns to the main menu.
+- **API client methods** — `ListMicroblogPosts(page)`, `CreateMicroblogPost`, `UpdateMicroblogPost` (PATCH), `DeleteMicroblogPost`, `LikeMicroblogPost` (toggle). Types `MicroblogPost`, `MicroblogTag`, `MicroblogPostsResponse`, `MicroblogWriteRequest` on `api.Client`.
+
 #### Flexible Time Input
 - **Time fields accept multiple formats** — Start Time and End Time entries in every timesheet form (dashboard new-entry, gap backfill, gap edit, history edit, and both TUI equivalents) now accept a range of user-friendly formats instead of requiring strict `HH:MM`: `17:30`, `17h30`, `17h` (hour-only), `5pm`, `5:55pm`, `5:55 PM`, `12am`, `12pm`, bare `9` (→ `09:00`). Times are still stored and displayed as canonical `HH:MM`. New `internal/timefmt` package with `NormalizeTimeInput` and `ParseFlexibleDateTime` helpers backs the parsing across both GUI and TUI; covered by unit tests.
 

@@ -73,6 +73,7 @@ type DashboardScreen struct {
 	OnGaps              func()
 	OnOffice            func()
 	OnAIAssistant       func()
+	OnTeamUpdates       func()
 	OnTimerStatusChange func(running bool, projectName, taskName, activityName string, startTime time.Time)
 }
 
@@ -243,6 +244,13 @@ func (s *DashboardScreen) build() {
 		}
 	})
 
+	// Team Updates (microblog) button
+	updatesButton := widget.NewButton("✎ Updates", func() {
+		if s.OnTeamUpdates != nil {
+			s.OnTeamUpdates()
+		}
+	})
+
 	// POW status label
 	s.powStatusLabel = canvas.NewText("", color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF})
 	s.powStatusLabel.TextSize = 10
@@ -251,6 +259,7 @@ func (s *DashboardScreen) build() {
 	// Button row with minimum height to prevent overlap with favourites grid
 	buttonRow := container.NewHBox(
 		layout.NewSpacer(),
+		updatesButton,
 		aiButton,
 		s.powButton,
 		s.officeButton,

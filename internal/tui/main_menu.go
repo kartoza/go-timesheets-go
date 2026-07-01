@@ -268,6 +268,10 @@ func (m *MainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// AI Assistant shortcut
 			return m, func() tea.Msg { return launchAIAssistantMsg{} }
 
+		case key.Matches(msg, key.NewBinding(key.WithKeys("u"))):
+			// Team Updates (microblog) shortcut
+			return m, func() tea.Msg { return launchTeamUpdatesMsg{} }
+
 		case key.Matches(msg, key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"))):
 			// Quick select favourite slot by number
 			slotNum := int(msg.String()[0] - '0')
@@ -603,7 +607,7 @@ func (m *MainMenuModel) renderHelp() string {
 	if m.pausedTimer != nil && m.activeTimer == nil {
 		startStopLabel = "s: Resume"
 	}
-	return helpStyle.Render(fmt.Sprintf("%s • z: Pause • h: History • g: Gaps • a: AI • 1-9: Quick start • p: POW (%s) • q: Quit", startStopLabel, powStatus))
+	return helpStyle.Render(fmt.Sprintf("%s • z: Pause • h: History • g: Gaps • a: AI • u: Updates • 1-9: Quick start • p: POW (%s) • q: Quit", startStopLabel, powStatus))
 }
 
 // getMenuItemFromMousePosition calculates which menu item was clicked based on mouse coordinates
