@@ -43,12 +43,12 @@
             mesa
 
             # X11
-            xorg.libX11
-            xorg.libXcursor
-            xorg.libXrandr
-            xorg.libXinerama
-            xorg.libXi
-            xorg.libXxf86vm
+            libx11
+            libxcursor
+            libxrandr
+            libxinerama
+            libxi
+            libxxf86vm
 
             # Wayland
             wayland
@@ -210,14 +210,14 @@
           libGL
           libGL.dev
           mesa
-          xorg.libX11
-          xorg.libX11.dev
-          xorg.libXcursor
-          xorg.libXrandr
-          xorg.libXinerama
-          xorg.libXi
-          xorg.libXxf86vm
-          xorg.xorgproto
+          libx11
+          libx11.dev
+          libxcursor
+          libxrandr
+          libxinerama
+          libxi
+          libxxf86vm
+          xorgproto
           wayland
           wayland.dev
           wayland-protocols
@@ -330,20 +330,20 @@
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
             libGL
             mesa
-            xorg.libX11
-            xorg.libXcursor
-            xorg.libXrandr
-            xorg.libXinerama
-            xorg.libXi
-            xorg.libXxf86vm
+            libx11
+            libxcursor
+            libxrandr
+            libxinerama
+            libxi
+            libxxf86vm
             wayland
             libxkbcommon
             glfw
           ]);
 
           # Include paths for C headers
-          CGO_CFLAGS = "-I${pkgs.xorg.libX11.dev}/include -I${pkgs.xorg.xorgproto}/include -I${pkgs.libGL.dev}/include";
-          CGO_LDFLAGS = "-L${pkgs.xorg.libX11}/lib -L${pkgs.libGL}/lib";
+          CGO_CFLAGS = "-I${pkgs.libx11.dev}/include -I${pkgs.xorgproto}/include -I${pkgs.libGL.dev}/include";
+          CGO_LDFLAGS = "-L${pkgs.libx11}/lib -L${pkgs.libGL}/lib";
 
           shellHook = ''
             echo "🚀 Kartoza Timesheet App Development Environment"
