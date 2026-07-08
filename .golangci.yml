@@ -1,0 +1,64 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+  settings:
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*os.File).Seek
+        - (*net/http.Response.Body).Close
+        - (io.ReadCloser).Close
+        - fmt.Fprint
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - fmt.Sscanf
+        - os.Setenv
+        - os.Unsetenv
+        - os.Remove
+        - os.RemoveAll
+        - os.MkdirAll
+    staticcheck:
+      checks:
+        - all
+        - -SA1019
+        - -ST1000
+        - -ST1005
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1001
+        - -QF1003
+        - -QF1008
+        - -QF1012
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+      - text: "S1009: should omit nil check"
+        linters:
+          - staticcheck
+      - text: "S1000: should use a simple channel send/receive"
+        linters:
+          - staticcheck
+      - text: "SA9003: empty branch"
+        linters:
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
