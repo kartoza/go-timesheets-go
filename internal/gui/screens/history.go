@@ -20,6 +20,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // HistoryScreen represents the history screen with two-column layout
@@ -114,7 +115,7 @@ func (s *HistoryScreen) build() {
 		}
 	})
 
-	s.submitButton = widget.NewButton("📤 Submit All Pending", s.submitPendingEntries)
+	s.submitButton = widget.NewButton("↑ Submit All Pending", s.submitPendingEntries)
 	s.submitButton.Importance = widget.HighImportance
 
 	// Status label
@@ -223,7 +224,7 @@ func (s *HistoryScreen) buildDetailPanel() {
 	s.detailDeleteBtn.Importance = widget.DangerImportance
 	s.detailDeleteBtn.Hide()
 
-	s.detailPowBtn = widget.NewButton("🎬 Play POW", func() {
+	s.detailPowBtn = widget.NewButton("▶ Play POW", func() {
 		if s.selectedIndex >= 0 && s.selectedIndex < len(s.entries) {
 			entry := s.entries[s.selectedIndex]
 			if videoPath, ok := s.powVideoMap[entry.ID]; ok {
@@ -348,9 +349,12 @@ func (s *HistoryScreen) updateDetailPanel() {
 	s.detailHours.Text = fmt.Sprintf("%.2f hours", entry.Hours)
 	s.detailHours.Refresh()
 
-	// Status
+	// Status — BMP Unicode symbols + colour. The bundled Noto Sans font
+	// covers these glyphs cleanly (we previously used color emoji which
+	// the font lacks; now we use ● for the running indicator, ✓ for
+	// submitted, and ○ for pending).
 	if entry.ToTime == "" {
-		s.detailStatus.Text = "🟢 Running"
+		s.detailStatus.Text = "● Running"
 		s.detailStatus.Color = greenColor
 	} else if entry.Submitted {
 		s.detailStatus.Text = "✓ Submitted"
@@ -447,16 +451,17 @@ func (s *HistoryScreen) updateCompactEntryRow(id widget.ListItemID, obj fyne.Can
 	}
 	row2.Objects[0].(*widget.Label).SetText(taskText)
 
-	// Build status text with icons
+	// Build status text. BMP Unicode iconography rendered by the bundled
+	// Noto Sans (replaces color emoji that the font does not cover).
 	statusText := ""
 
-	// Add POW icon if has video
+	// POW prefix if has video
 	videoPath, hasPOW := s.powVideoMap[entry.ID]
 	if hasPOW && videoPath != "" {
-		statusText = "🎬 "
+		statusText = "▶ "
 	}
 
-	// Add warning icon if missing description (only for pending entries)
+	// Warning prefix if missing description (only for pending entries)
 	if !entry.Submitted && entry.ToTime != "" {
 		desc := entry.GetDescriptionString()
 		if desc == "" {
@@ -464,9 +469,8 @@ func (s *HistoryScreen) updateCompactEntryRow(id widget.ListItemID, obj fyne.Can
 		}
 	}
 
-	// Add status
 	if entry.ToTime == "" {
-		statusText += "🟢 Running"
+		statusText += "● Running"
 	} else if entry.Submitted {
 		statusText += "✓ Submitted"
 	} else {
@@ -603,10 +607,9 @@ func (s *HistoryScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, se
 		return
 	}
 
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start date/time")
+		setError("Invalid start date/time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
@@ -614,10 +617,9 @@ func (s *HistoryScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, se
 	var endTimePtr *time.Time
 	var duration float64
 	if data.EndDate != "" && data.EndTime != "" {
-		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 		if err != nil {
-			setError("Invalid end date/time")
+			setError("Invalid end date/time: " + err.Error())
 			return
 		}
 		endParsed = endParsed.UTC()
@@ -816,15 +818,16 @@ func (s *HistoryScreen) playPOWVideo(videoPath string) {
 }
 
 func (s *HistoryScreen) confirmDelete(index int) {
-	// Custom confirmation dialog with dark text for light background
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+	// The app theme is dark, so the message text must be light to be
+	// readable. (Previously this used #333333, intended for a light
+	// background, and rendered as unreadable dark-on-dark.)
 	redColor := color.NRGBA{R: 0xC0, G: 0x39, B: 0x2B, A: 0xFF}
 
 	titleText := canvas.NewText("Delete Entry", redColor)
 	titleText.TextSize = 18
 	titleText.TextStyle = fyne.TextStyle{Bold: true}
 
-	messageText := canvas.NewText("Are you sure you want to delete this entry?", darkGray)
+	messageText := canvas.NewText("Are you sure you want to delete this entry?", color.White)
 	messageText.TextSize = 14
 
 	content := container.NewVBox(
@@ -985,15 +988,16 @@ func (s *HistoryScreen) submitPendingEntries() {
 		return
 	}
 
-	// Custom confirmation dialog with dark text for light background
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
+	// The app theme is dark, so the message text must be light to be
+	// readable. (Previously this used #333333, intended for a light
+	// background, and rendered as unreadable dark-on-dark.)
 	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
 
 	titleText := canvas.NewText("Submit Timesheets", goldColor)
 	titleText.TextSize = 18
 	titleText.TextStyle = fyne.TextStyle{Bold: true}
 
-	messageText := canvas.NewText(fmt.Sprintf("Submit %d pending entries?", len(pendingEntries)), darkGray)
+	messageText := canvas.NewText(fmt.Sprintf("Submit %d pending entries?", len(pendingEntries)), color.White)
 	messageText.TextSize = 14
 
 	content := container.NewVBox(

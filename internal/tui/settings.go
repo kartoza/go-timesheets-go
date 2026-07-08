@@ -14,6 +14,7 @@ const (
 	SettingsCodeRepos
 	SettingsCalendar
 	SettingsImportCSV
+	SettingsRefreshProjects
 	SettingsLogOut
 	SettingsBack
 )
@@ -29,6 +30,9 @@ type SettingsModel struct {
 	// Logout confirmation
 	confirmLogout          bool
 	logoutConfirmSelection int // 0 = Yes, 1 = No
+
+	// Transient status message shown beneath the menu (e.g. "Syncing…").
+	statusMessage string
 }
 
 type settingsMenuItem struct {
@@ -58,6 +62,14 @@ func (m *SettingsModel) Update(msg tea.Msg) (*SettingsModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case refreshProjectsResultMsg:
+		if msg.err != nil {
+			m.statusMessage = "Sync failed: " + msg.err.Error()
+		} else {
+			m.statusMessage = "Projects synced."
+		}
 		return m, nil
 
 	case tea.MouseMsg:
@@ -218,6 +230,14 @@ func (m *SettingsModel) renderMenu() string {
 		items = append(items, rendered)
 	}
 
+	if m.statusMessage != "" {
+		statusStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Italic(true).
+			Padding(1, 2)
+		items = append(items, "", statusStyle.Render(m.statusMessage))
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left, items...)
 }
 
@@ -339,6 +359,7 @@ func (m *SettingsModel) updateMenuItems() {
 		{label: "Manage Code Repos", action: SettingsCodeRepos},
 		{label: "Google Calendar", action: SettingsCalendar},
 		{label: "Import CSV History", action: SettingsImportCSV},
+		{label: "Sync Projects from ERPNext", action: SettingsRefreshProjects},
 		{label: "Log Out", action: SettingsLogOut},
 		{label: "← Back to Main Menu", action: SettingsBack},
 	}
@@ -365,6 +386,10 @@ func (m *SettingsModel) handleMenuSelection() (*SettingsModel, tea.Cmd) {
 	case SettingsImportCSV:
 		return m, func() tea.Msg { return launchImportCSVMsg{} }
 
+	case SettingsRefreshProjects:
+		m.statusMessage = "Syncing projects from ERPNext…"
+		return m, func() tea.Msg { return refreshProjectsRequestMsg{} }
+
 	case SettingsLogOut:
 		m.confirmLogout = true
 		m.logoutConfirmSelection = 1 // Default to "No"
@@ -381,3 +406,13 @@ func (m *SettingsModel) handleMenuSelection() (*SettingsModel, tea.Cmd) {
 type settingsLogoutConfirmedMsg struct{}
 type launchImportCSVMsg struct{}
 type launchCalendarSettingsMsg struct{}
+
+// refreshProjectsRequestMsg is emitted when the user picks "Sync Projects
+// from ERPNext"; the parent app handles it by calling the API client.
+type refreshProjectsRequestMsg struct{}
+
+// refreshProjectsResultMsg carries the outcome back to the settings model
+// so it can render a status line.
+type refreshProjectsResultMsg struct {
+	err error
+}

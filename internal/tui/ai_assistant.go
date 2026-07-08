@@ -346,14 +346,14 @@ func (m *AIAssistantModel) renderMatches() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorOrange).
 		Foreground(ColorWhite).
-		Width(containerWidth - 4).
+		Width(containerWidth-4).
 		Padding(0, 1)
 
 	normalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorDarkGray).
 		Foreground(ColorGray).
-		Width(containerWidth - 4).
+		Width(containerWidth-4).
 		Padding(0, 1)
 
 	header := headerStyle.Render(fmt.Sprintf("Found %d match(es) - use arrows to select, Enter to start timer:", len(m.result.Matches)))

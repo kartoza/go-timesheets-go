@@ -2,8 +2,8 @@ package models
 
 // FavouriteAssociation represents a single favourite button with preset project/task/activity
 type FavouriteAssociation struct {
-	SlotNumber   int    `json:"slot_number"`   // 1-9 (3x3 grid)
-	Name         string `json:"name"`          // User-defined name for the favourite
+	SlotNumber   int    `json:"slot_number"` // 1-9 (3x3 grid)
+	Name         string `json:"name"`        // User-defined name for the favourite
 	ProjectID    int    `json:"project_id,omitempty"`
 	ProjectName  string `json:"project_name,omitempty"`
 	TaskID       int    `json:"task_id,omitempty"`

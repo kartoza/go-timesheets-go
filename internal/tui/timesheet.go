@@ -14,6 +14,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // formatTaskLabel formats a task label for display by splitting the budget info onto a new line
@@ -121,6 +122,14 @@ type TimesheetCreator struct {
 	// Last used activity for smart defaults
 	lastUsedActivityID int
 
+	// Quick-pick favourites: pinned to the top of the project list, visible without
+	// typing a filter, and filtered locally when one is. Picking a favourite also
+	// pre-positions the task and activity cursors on the favourite's task/activity.
+	favourites       []models.FavouriteAssociation
+	favByProjectID   map[int]*models.FavouriteAssociation
+	projectIsFav     []bool // parallel to t.projects: true when entry came from favourites
+	pendingFavTaskID int    // task ID to auto-select once tasks for the chosen favourite project finish loading
+
 	// State
 	err            error
 	successMessage string
@@ -139,7 +148,7 @@ func NewTimesheetCreator(apiClient *api.Client, username string) *TimesheetCreat
 	// Description input
 	description := textinput.New()
 	description.Placeholder = "What are you working on?"
-	description.CharLimit = 2000  // Allow longer descriptions for commit messages
+	description.CharLimit = 2000 // Allow longer descriptions for commit messages
 	description.Width = 50
 
 	// Date input
@@ -162,7 +171,7 @@ func NewTimesheetCreator(apiClient *api.Client, username string) *TimesheetCreat
 	endTime.CharLimit = 5
 	endTime.Width = 8
 
-	return &TimesheetCreator{
+	t := &TimesheetCreator{
 		apiClient:             apiClient,
 		username:              username,
 		focusedField:          FieldProject,
@@ -177,6 +186,71 @@ func NewTimesheetCreator(apiClient *api.Client, username string) *TimesheetCreat
 		taskCache:             make(map[int][]api.TaskListItem),
 		taskCacheInFlight:     make(map[int]bool),
 	}
+	t.loadFavourites()
+	// Seed the project popover with favourites so they're visible before the user types.
+	t.projects, t.projectIsFav = t.rebuildProjectList(nil, "")
+	return t
+}
+
+// loadFavourites reads the user's configured favourite associations from storage and
+// caches them on the creator for use as quick-picks in the project popover. Silently
+// no-ops on error: the popover simply renders without favourites.
+func (t *TimesheetCreator) loadFavourites() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return
+	}
+	store, err := storage.New(cfg.GetStorageDir())
+	if err != nil {
+		return
+	}
+	favs, err := store.LoadFavouriteAssociations()
+	if err != nil || favs == nil {
+		return
+	}
+	t.favByProjectID = make(map[int]*models.FavouriteAssociation, len(favs.Associations))
+	for i := range favs.Associations {
+		fav := &favs.Associations[i]
+		if fav.ProjectID <= 0 {
+			continue
+		}
+		t.favourites = append(t.favourites, *fav)
+		t.favByProjectID[fav.ProjectID] = fav
+	}
+}
+
+// rebuildProjectList combines the favourites pinned at the top with API search
+// results, deduped by project ID, with the current filter applied to both halves.
+// Returns the combined project list and a parallel slice marking favourite entries.
+func (t *TimesheetCreator) rebuildProjectList(apiProjects []api.ProjectListItem, query string) ([]api.ProjectListItem, []bool) {
+	queryLower := strings.ToLower(query)
+	matches := func(label string) bool {
+		if queryLower == "" {
+			return true
+		}
+		return strings.Contains(strings.ToLower(label), queryLower)
+	}
+
+	seen := make(map[int]bool, len(t.favourites)+len(apiProjects))
+	combined := make([]api.ProjectListItem, 0, len(t.favourites)+len(apiProjects))
+	isFav := make([]bool, 0, len(t.favourites)+len(apiProjects))
+
+	for _, fav := range t.favourites {
+		if seen[fav.ProjectID] || !matches(fav.ProjectName) {
+			continue
+		}
+		seen[fav.ProjectID] = true
+		combined = append(combined, api.ProjectListItem{ID: fav.ProjectID, Label: fav.ProjectName})
+		isFav = append(isFav, true)
+	}
+	for _, p := range apiProjects {
+		if seen[p.ID] {
+			continue
+		}
+		combined = append(combined, p)
+		isFav = append(isFav, false)
+	}
+	return combined, isFav
 }
 
 // Init initializes the timesheet creator
@@ -291,7 +365,7 @@ func (t *TimesheetCreator) Update(msg tea.Msg) (*TimesheetCreator, tea.Cmd) {
 				t.projectCache[msg.CacheKey] = msg.AllProjects
 			}
 		}
-		t.projects = msg.Projects
+		t.projects, t.projectIsFav = t.rebuildProjectList(msg.Projects, t.projectSearchInput.Value())
 		t.popoverCursor = 0
 
 	case timesheetTasksLoadedMsg:
@@ -302,6 +376,16 @@ func (t *TimesheetCreator) Update(msg tea.Msg) (*TimesheetCreator, tea.Cmd) {
 		}
 		t.tasks = tasks
 		t.popoverCursor = 0
+		// Pre-position the cursor on the favourite's task so the user just hits Enter.
+		if t.pendingFavTaskID > 0 {
+			for i := range t.tasks {
+				if t.tasks[i].ID == t.pendingFavTaskID {
+					t.popoverCursor = i
+					break
+				}
+			}
+			t.pendingFavTaskID = 0
+		}
 
 	case timesheetActivitiesLoadedMsg:
 		activities := []api.ActivityListItem(msg)
@@ -528,9 +612,16 @@ func (t *TimesheetCreator) renderForm() string {
 	projectRow := lipgloss.JoinHorizontal(lipgloss.Top, projectLabel, "  ", inputStyle.Render(projectValue))
 	rows = append(rows, projectRow)
 
-	// Project popover
+	// Project popover. Favourites are pinned at the top and marked with ★ so the
+	// user can distinguish them from regular API search results.
 	if t.showProjectPopover && len(t.projects) > 0 {
-		popover := t.renderPopover(t.projects, func(i int) string { return t.projects[i].Label })
+		popover := t.renderPopover(t.projects, func(i int) string {
+			label := t.projects[i].Label
+			if i < len(t.projectIsFav) && t.projectIsFav[i] {
+				return "★ " + label
+			}
+			return label
+		})
 		rows = append(rows, popover)
 	}
 
@@ -859,6 +950,19 @@ func (t *TimesheetCreator) handleEnter() (*TimesheetCreator, tea.Cmd) {
 	// Handle popover selection
 	if t.showProjectPopover && len(t.projects) > 0 {
 		t.selectedProject = &t.projects[t.popoverCursor]
+		// If the chosen project is one of the user's favourites, pre-load its
+		// task and activity defaults so the next two popovers open with the cursor
+		// already on the right item.
+		if t.popoverCursor < len(t.projectIsFav) && t.projectIsFav[t.popoverCursor] {
+			if fav, ok := t.favByProjectID[t.selectedProject.ID]; ok {
+				if fav.TaskID > 0 {
+					t.pendingFavTaskID = fav.TaskID
+				}
+				if fav.ActivityID > 0 {
+					t.lastUsedActivityID = fav.ActivityID
+				}
+			}
+		}
 		t.showProjectPopover = false
 		t.popoverCursor = 0
 		// Auto-advance to task selection
@@ -929,13 +1033,15 @@ func (t *TimesheetCreator) handleTextInput(msg tea.KeyMsg) tea.Cmd {
 	case FieldProject:
 		if t.showProjectPopover {
 			t.projectSearchInput, cmd = t.projectSearchInput.Update(msg)
-			// Trigger search
+			// Trigger search. Favourites stay visible at all filter lengths.
 			query := t.projectSearchInput.Value()
 			if len(query) >= 2 {
 				return t.searchProjects(query)
-			} else if len(query) == 0 {
-				t.projects = nil
 			}
+			// query is 0 or 1 char: no API call yet, but re-filter favourites locally
+			// so they stay current with what the user has typed.
+			t.projects, t.projectIsFav = t.rebuildProjectList(nil, query)
+			t.popoverCursor = 0
 		}
 	case FieldDescription:
 		t.descriptionInput, cmd = t.descriptionInput.Update(msg)
@@ -1106,8 +1212,7 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 			startTime = time.Now().UTC()
 			tuiDebugLog.Printf("  Using current time as start time: %s", startTime.Format(time.RFC3339))
 		} else {
-			startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-			startTime, err = time.ParseInLocation("2006-01-02 15:04", startStr, time.Local)
+			startTime, err = timefmt.ParseFlexibleDateTime(dateStr, startTimeStr, time.Local)
 			if err != nil {
 				tuiDebugLog.Printf("  Invalid start time: %v", err)
 				return timesheetSubmitErrorMsg{err: fmt.Errorf("invalid start time: %w", err)}
@@ -1120,8 +1225,7 @@ func (t *TimesheetCreator) submitEntry() (*TimesheetCreator, tea.Cmd) {
 		var duration float64
 
 		if endTimeStr != "" {
-			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-			endTime, err := time.ParseInLocation("2006-01-02 15:04", endStr, time.Local)
+			endTime, err := timefmt.ParseFlexibleDateTime(dateStr, endTimeStr, time.Local)
 			if err != nil {
 				tuiDebugLog.Printf("  Invalid end time: %v", err)
 				return timesheetSubmitErrorMsg{err: fmt.Errorf("invalid end time: %w", err)}
@@ -1221,8 +1325,7 @@ func (t *TimesheetCreator) fetchCommitsForDescription() tea.Cmd {
 		var err error
 
 		if startTimeStr != "" {
-			startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-			startTime, err = time.ParseInLocation("2006-01-02 15:04", startStr, time.Local)
+			startTime, err = timefmt.ParseFlexibleDateTime(dateStr, startTimeStr, time.Local)
 			if err != nil {
 				return timesheetCommitsLoadedMsg{noCommitsFound: true}
 			}
@@ -1232,8 +1335,7 @@ func (t *TimesheetCreator) fetchCommitsForDescription() tea.Cmd {
 		}
 
 		if endTimeStr != "" {
-			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-			endTime, err = time.ParseInLocation("2006-01-02 15:04", endStr, time.Local)
+			endTime, err = timefmt.ParseFlexibleDateTime(dateStr, endTimeStr, time.Local)
 			if err != nil {
 				endTime = time.Now().UTC()
 			} else {

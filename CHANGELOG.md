@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Pause/Resume Timer
+- **Pause button** — A new "Pause" button appears next to the Start/Stop button on the dashboard whenever a timer is running; tap it to freeze the active timesheet without committing a stop (the backend ends the running timelog and marks its root ancestor `is_paused=True`). The TUI gets the same behaviour via a new `z` keyboard shortcut on the main menu.
+- **Paused entry stays visible with Resume button** — After pausing, the timer display does not go back to idle: it shows the paused entry's project and task in amber with a "PAUSED" header and frozen elapsed time, and the Start/Stop button becomes "▶ Resume &lt;Project&gt;" so the user always has an obvious way to continue. The TUI dashboard mirrors this with the same amber palette and Resume label, and the `s` shortcut resumes when paused.
+- **Resume chains the entry server-side** — Clicking Resume calls `/api/timesheet/` with the paused root's ID as `parent`, so the backend attaches the new running timer as a child of the paused chain and clears `is_paused`. Starting any other timer also clears the paused state automatically.
+
+#### Server-side Logout
+- **Logout invalidates the server token** — Both the GUI Settings "Log Out" action and the TUI settings dialog now POST to `/api/logout/` (best-effort, non-blocking) before discarding local credentials, so the auth token is properly revoked on the backend instead of lingering until manually deleted.
+
+#### Refresh Projects from ERPNext
+- **Sync Projects button (GUI)** — New "Sync Projects from ERPNext" action in the Settings screen that triggers `/api/pull-projects/` and reports completion via a status line. Project/activity caches are invalidated so the next project picker open fetches fresh data.
+- **Sync Projects (TUI)** — Same action available in the TUI settings menu with an inline status message under the menu.
+
+#### Motivational Quote on Dashboard
+- **Quote line under the welcome header** — The dashboard fetches a random motivational quote from `/api/quotes/` and renders it as a subtle italic line under the welcome label. Same behaviour added under the header in the TUI main menu. Failures are silent — the line just stays empty.
+
+#### Team Updates (Microblog)
+- **New Team Updates screen (GUI)** — Accessed from a new "✎ Updates" nav button on the dashboard. Shows a paginated feed of team posts with author, timestamp, tags, and like counts. Compose box at the top with a 666-character counter (matches the backend limit). Own posts have inline Edit + Delete buttons; every post has a like/unlike toggle. Loads 10 posts per page; a "Load older…" button appears when more are available.
+- **Team Updates in the TUI** — Same feature reachable from the main menu with the new `u` shortcut. Arrow keys navigate the feed, `c` focuses the compose textarea, `Ctrl+Enter` submits, `l` or space toggles like, `e`/`d` edit or delete own posts, `m` loads older, `r` refreshes, `Esc/q` returns to the main menu.
+- **API client methods** — `ListMicroblogPosts(page)`, `CreateMicroblogPost`, `UpdateMicroblogPost` (PATCH), `DeleteMicroblogPost`, `LikeMicroblogPost` (toggle). Types `MicroblogPost`, `MicroblogTag`, `MicroblogPostsResponse`, `MicroblogWriteRequest` on `api.Client`.
+
+#### Flexible Time Input
+- **Time fields accept multiple formats** — Start Time and End Time entries in every timesheet form (dashboard new-entry, gap backfill, gap edit, history edit, and both TUI equivalents) now accept a range of user-friendly formats instead of requiring strict `HH:MM`: `17:30`, `17h30`, `17h` (hour-only), `5pm`, `5:55pm`, `5:55 PM`, `12am`, `12pm`, bare `9` (→ `09:00`). Times are still stored and displayed as canonical `HH:MM`. New `internal/timefmt` package with `NormalizeTimeInput` and `ParseFlexibleDateTime` helpers backs the parsing across both GUI and TUI; covered by unit tests.
+
+#### Favourites Quick-Pick in Gaps Backfill
+- **Project picker pins your favourites at the top** — When you click a gap (or edit an entry) the project dropdown shows your configured favourite projects first, marked with a ★, visible without typing a filter
+- **Filter applies to both halves** — Typing in the filter narrows both the favourites and the API search results with the same string
+- **One-click prefill of project + task + activity** — Picking a favourite auto-populates the task and activity fields from the favourite's saved associations, so backfilling a gap is project click → adjust time → describe → save
+- **TUI parity** — Same behaviour in the TUI's new-entry screen: favourites pinned at the top of the project popover, filter applies to both, picking a favourite pre-positions the task and activity cursors on the configured defaults
+- **Shared loader** — New `widgets.LoadEntryFormFavourites()` helper so future entry-form callers can opt in without duplicating storage code
+
+### Fixed
+
+- **Crash on pause/resume cycle (GUI)** — Pausing then resuming a timer could panic in the systray icon-rotation goroutine with `nil pointer dereference`. The goroutine read `s.rotationTicker.C` through the struct field every iteration; `StopIconRotation` nilled the field, so the next select iteration crashed. Both the icon-rotation and tooltip-update goroutines now capture their ticker/stop channels into locals and use `close` (not a non-blocking send) so the stop signal is never dropped.
+- **Iconography renders cleanly via bundled DejaVu Sans Regular** — The Fyne default font lacks glyphs for many of the Unicode symbols used as iconography across the GUI, so things like `▶ Start Timer`, `■ Stop Timer`, `⚠`, `✓`, `○`, `⚙`, `★`, `☰`, `▥`, `◉` rendered as `?`. The GUI theme now embeds DejaVu Sans Regular via `//go:embed` and returns it from `KartozaTheme.Font()` for **all** text styles (regular, bold, italic, monospace) so iconography stays consistent across button labels and headings — Fyne synthesises weight/slant on the regular font. DejaVu Sans is the long-standing benchmark for comprehensive BMP coverage (Geometric Shapes, Misc Symbols, Dingbats, Arrows, Misc Technical, Yijing Hexagrams). The font is provisioned reproducibly via `nix run .#fetch-fonts` (from nixpkgs `dejavu_fonts`); the build falls back to the Fyne default if the font hasn't been fetched. (First attempt used `noto-fonts`, but its standalone Regular variant has gaps in the symbol blocks.)
+- **Iconography restored across dashboard, history, time entries** — Replaced the previous color-emoji icons (`🟢 🎬 📋 📤 📊 📸 🏢 🤖`) with BMP equivalents that the new bundled font renders cleanly: `●` for running, `✓` for submitted, `○` for pending, `⚠` for warnings, `▶`/`■`/`⏸` for play/stop/pause, `☰` History, `▥` Gaps, `⚙` Settings, `◉` POW, `⌂` Office, `✦` AI, `↑` Submit, `▸` task-list bullet.
+- **Dark-on-dark text in delete-entry and submit-entries confirmations** — Two custom dialogs in `history.go` hardcoded `#333333` dark gray text intended for a light background. Switched to white; the entry-selection dialog in `gaps.go` had the same hardcoded dark gray and is now also white.
+
 ---
 
 ## [0.13.0] - 2026-02-19

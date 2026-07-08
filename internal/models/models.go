@@ -142,7 +142,6 @@ func NewTimeEntry(userID, projectID, activityID string, taskID *string, descript
 	}
 }
 
-
 // Stop stops the time entry by setting the end time and calculating duration
 func (te *TimeEntry) Stop() {
 	if te.EndTime == nil {

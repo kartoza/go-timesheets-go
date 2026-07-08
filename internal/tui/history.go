@@ -16,6 +16,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // HistoryViewMode represents the current mode of the history view
@@ -33,7 +34,7 @@ type HistoryView struct {
 	username    string
 	width       int
 	height      int
-	headerState *HeaderState // Shared header state
+	headerState *HeaderState     // Shared header state
 	store       *storage.Storage // For persistent cache
 
 	// Data
@@ -66,13 +67,13 @@ type HistoryView struct {
 	loading bool
 
 	// Submit all pending
-	confirmSubmit       bool
-	isSubmitting        bool
-	submitSuccess       string
-	pendingCount        int
-	hasRunningEntry     bool
-	missingDescCount    int  // Count of pending entries without descriptions
-	showMissingDescErr  bool // Show error about missing descriptions
+	confirmSubmit      bool
+	isSubmitting       bool
+	submitSuccess      string
+	pendingCount       int
+	hasRunningEntry    bool
+	missingDescCount   int  // Count of pending entries without descriptions
+	showMissingDescErr bool // Show error about missing descriptions
 }
 
 // NewHistoryView creates a new history view
@@ -80,7 +81,7 @@ func NewHistoryView(apiClient *api.Client, username string) *HistoryView {
 	// Initialize edit fields
 	descInput := textinput.New()
 	descInput.Placeholder = "Description..."
-	descInput.CharLimit = 2000  // Allow longer descriptions for commit messages
+	descInput.CharLimit = 2000 // Allow longer descriptions for commit messages
 	descInput.Width = 50
 
 	dateInput := textinput.New()
@@ -263,7 +264,7 @@ func (h *HistoryView) Update(msg tea.Msg) (*HistoryView, tea.Cmd) {
 		h.submitSuccess = fmt.Sprintf("Successfully submitted %d timesheet(s)!", h.pendingCount)
 		// Launch fireworks celebration for 10 seconds, then reload history
 		return h, tea.Batch(
-			FireworksCelebrationCmd(10*time.Second),
+			FireworksCelebrationCmd(10 * time.Second),
 		)
 
 	case fireworksCompleteMsg:
@@ -542,8 +543,7 @@ func (h *HistoryView) saveEntry() tea.Cmd {
 		startTimeStr := h.editFields.startTime.Value()
 		endTimeStr := h.editFields.endTime.Value()
 
-		startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-		startTime, err := time.ParseInLocation("2006-01-02 15:04", startStr, time.Local)
+		startTime, err := timefmt.ParseFlexibleDateTime(dateStr, startTimeStr, time.Local)
 		if err != nil {
 			return historyUpdateErrorMsg{err: fmt.Errorf("invalid start time: %w", err)}
 		}
@@ -553,8 +553,7 @@ func (h *HistoryView) saveEntry() tea.Cmd {
 		var duration float64
 
 		if endTimeStr != "" {
-			endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-			endTime, err := time.ParseInLocation("2006-01-02 15:04", endStr, time.Local)
+			endTime, err := timefmt.ParseFlexibleDateTime(dateStr, endTimeStr, time.Local)
 			if err != nil {
 				return historyUpdateErrorMsg{err: fmt.Errorf("invalid end time: %w", err)}
 			}
@@ -593,8 +592,13 @@ func (h *HistoryView) saveEntry() tea.Cmd {
 			entryID:     h.selectedEntry.ID,
 			description: h.editFields.description.Value(),
 			fromTime:    startTime.Format(time.RFC3339),
-			toTime:      func() string { if endTimePtr != nil { return endTimePtr.Format(time.RFC3339) }; return "" }(),
-			hours:       duration,
+			toTime: func() string {
+				if endTimePtr != nil {
+					return endTimePtr.Format(time.RFC3339)
+				}
+				return ""
+			}(),
+			hours: duration,
 		}
 	}
 }
@@ -1452,10 +1456,10 @@ func (h *HistoryView) getTableColumnWidths() (projectW, activityW, dateW, timesW
 	}
 
 	// Fixed width columns
-	dateW = 10       // "Mon 01-02" format
-	hoursW = 7       // "12.5h" format
-	statusW = 10     // Status with icons
-	timesW = 14      // "09:00 - 17:30" format
+	dateW = 10   // "Mon 01-02" format
+	hoursW = 7   // "12.5h" format
+	statusW = 10 // Status with icons
+	timesW = 14  // "09:00 - 17:30" format
 
 	// Show times only when we have enough width (>110 chars)
 	showTimes = availableWidth > 110
@@ -1484,8 +1488,9 @@ func (h *HistoryView) getTableColumnWidths() (projectW, activityW, dateW, timesW
 
 // renderScrollableTable renders the visible portion of the history table
 // Layout: Row 1: Project | Activity | Date | [Times] | Hours | Status
-//         Row 2: Task name (indented, if present)
-//         Row 3: Description (indented)
+//
+//	Row 2: Task name (indented, if present)
+//	Row 3: Description (indented)
 func (h *HistoryView) renderScrollableTable() string {
 	visibleCount := h.getVisibleCount()
 	totalEntries := len(h.allHistory)
@@ -1891,15 +1896,13 @@ func (h *HistoryView) fetchCommitsForEntry() tea.Cmd {
 			endTimeStr := h.editFields.endTime.Value()
 
 			if startTimeStr != "" {
-				startStr := fmt.Sprintf("%s %s", dateStr, startTimeStr)
-				if parsed, err := time.ParseInLocation("2006-01-02 15:04", startStr, time.Local); err == nil {
+				if parsed, err := timefmt.ParseFlexibleDateTime(dateStr, startTimeStr, time.Local); err == nil {
 					startTime = parsed.UTC()
 				}
 			}
 
 			if endTimeStr != "" {
-				endStr := fmt.Sprintf("%s %s", dateStr, endTimeStr)
-				if parsed, err := time.ParseInLocation("2006-01-02 15:04", endStr, time.Local); err == nil {
+				if parsed, err := timefmt.ParseFlexibleDateTime(dateStr, endTimeStr, time.Local); err == nil {
 					endTime = parsed.UTC()
 				}
 			} else {
@@ -1984,12 +1987,12 @@ func (h *HistoryView) playPowVideo() tea.Cmd {
 			name string
 			args []string
 		}{
-			{"xdg-open", []string{videoPath}},   // Linux default
-			{"mpv", []string{videoPath}},        // MPV player
-			{"vlc", []string{videoPath}},        // VLC
-			{"totem", []string{videoPath}},      // GNOME Videos
-			{"celluloid", []string{videoPath}},  // Celluloid (MPV frontend)
-			{"open", []string{videoPath}},       // macOS default
+			{"xdg-open", []string{videoPath}},  // Linux default
+			{"mpv", []string{videoPath}},       // MPV player
+			{"vlc", []string{videoPath}},       // VLC
+			{"totem", []string{videoPath}},     // GNOME Videos
+			{"celluloid", []string{videoPath}}, // Celluloid (MPV frontend)
+			{"open", []string{videoPath}},      // macOS default
 		}
 
 		for _, player := range players {

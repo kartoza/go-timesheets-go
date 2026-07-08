@@ -30,19 +30,19 @@ type IsometricOffice struct {
 }
 
 type guiWorker struct {
-	x, y       float32
-	targetX    float32
-	targetY    float32
-	deskX      float32 // Original desk position
-	deskY      float32
-	color      color.Color
-	skinColor  color.Color
-	state      int // 0=working, 1=walking, 2=idle
-	frame      int
-	speed      float32
-	name       string
-	role       string
-	activity   string
+	x, y      float32
+	targetX   float32
+	targetY   float32
+	deskX     float32 // Original desk position
+	deskY     float32
+	color     color.Color
+	skinColor color.Color
+	state     int // 0=working, 1=walking, 2=idle
+	frame     int
+	speed     float32
+	name      string
+	role      string
+	activity  string
 }
 
 type guiFurniture struct {

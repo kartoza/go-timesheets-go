@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/kartoza/go-timesheets-go/internal/office"
+	"github.com/spf13/cobra"
 )
 
 // officeCmd represents the office command

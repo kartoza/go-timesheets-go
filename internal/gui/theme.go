@@ -1,11 +1,48 @@
 package gui
 
 import (
+	"embed"
 	"image/color"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 )
+
+// Bundled fonts. The directory is always present (a .gitkeep keeps it in git)
+// but the .ttf files are provisioned by `nix run .#fetch-fonts` so we keep
+// the source tree clean of binary blobs.
+//
+// We embed the directory rather than a specific file pattern so the build
+// works even before fetch-fonts runs — at runtime we fall back to the Fyne
+// default font when no TTF is present.
+//
+//go:embed resources/fonts
+var fontsFS embed.FS
+
+var (
+	loadFontOnce sync.Once
+	loadedFont   fyne.Resource // nil when no TTF is embedded
+)
+
+// bundledTextFont returns the bundled DejaVu Sans Regular font, or nil if
+// fetch-fonts hasn't been run yet. The lookup is cached.
+//
+// DejaVu Sans covers the full BMP Unicode symbol blocks we use as
+// iconography (Geometric Shapes, Misc Symbols, Dingbats, Arrows, Misc
+// Technical, Yijing Hexagrams), which neither the Fyne default font nor
+// the standard NotoSans-Regular do — without it, glyphs like ⚙ ☰ ▥ ◉ ⌂ ✦
+// render as the fallback "?" character.
+func bundledTextFont() fyne.Resource {
+	loadFontOnce.Do(func() {
+		data, err := fontsFS.ReadFile("resources/fonts/DejaVuSans.ttf")
+		if err != nil {
+			return
+		}
+		loadedFont = fyne.NewStaticResource("DejaVuSans.ttf", data)
+	})
+	return loadedFont
+}
 
 // Brand colors matching TUI (from internal/tui/widgets.go)
 var (
@@ -74,8 +111,16 @@ func (t *KartozaTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant
 	}
 }
 
-// Font returns the font for the specified text style
+// Font returns the bundled DejaVu Sans Regular for all text styles so the
+// iconography glyphs in button labels render consistently. We don't have
+// dedicated Bold / Italic / Monospace TTFs bundled, so for those styles we
+// fall through to DejaVu Sans Regular too — Fyne will synthesise weight /
+// slant. The only fallback to the Fyne default is when fetch-fonts hasn't
+// been run yet (font is nil), so the app still builds without the font.
 func (t *KartozaTheme) Font(style fyne.TextStyle) fyne.Resource {
+	if font := bundledTextFont(); font != nil {
+		return font
+	}
 	return theme.DefaultTheme().Font(style)
 }
 

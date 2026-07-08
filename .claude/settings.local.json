@@ -22,7 +22,11 @@
       "Bash(xargs:*)",
       "Bash(cat:*)",
       "Bash(go mod tidy:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(kill %1)",
+      "Bash(jobs)",
+      "Bash(go version *)",
+      "Bash(go test *)"
     ],
     "deny": [],
     "ask": []

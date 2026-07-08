@@ -11,12 +11,14 @@ import (
 	"fyne.io/systray"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
+	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/gui/screens"
 	"github.com/kartoza/go-timesheets-go/internal/gui/util"
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/pow"
 	"github.com/kartoza/go-timesheets-go/internal/service"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // App represents the main GUI application
@@ -39,6 +41,7 @@ type App struct {
 	codeReposScreen        *screens.CodeReposScreen
 	officeScreen           *screens.OfficeScreen
 	aiAssistantScreen      *screens.AIAssistantScreen
+	teamUpdatesScreen      *screens.TeamUpdatesScreen
 	calendarSettingsScreen *screens.CalendarSettingsScreen
 
 	// Navigation
@@ -178,7 +181,9 @@ func (a *App) navigateBack() {
 		a.showDashboard()
 	case "aiassistant":
 		a.showDashboard()
-	// login and dashboard have no back navigation
+	case "teamupdates":
+		a.showDashboard()
+		// login and dashboard have no back navigation
 	}
 }
 
@@ -209,6 +214,7 @@ func (a *App) showDashboard() {
 		a.dashboardScreen.OnGaps = a.showGaps
 		a.dashboardScreen.OnOffice = a.showOffice
 		a.dashboardScreen.OnAIAssistant = a.showAIAssistant
+		a.dashboardScreen.OnTeamUpdates = a.showTeamUpdates
 		a.dashboardScreen.OnTimerStatusChange = a.onTimerStatusChange
 	}
 
@@ -228,7 +234,6 @@ func (a *App) onTimerStatusChange(running bool, projectName, taskName, activityN
 		a.systrayManager.SetTimerStopped()
 	}
 }
-
 
 func (a *App) showHistory() {
 	a.currentScreen = "history"
@@ -315,6 +320,7 @@ func (a *App) showTimesheetDialogWithCalendar(date time.Time, startTime time.Tim
 		ShowTask:        true,
 		ShowActivity:    true,
 		PreFill:         preFill,
+		Favourites:      widgets.LoadEntryFormFavourites(),
 		CalendarPanel:   calendarPanel.Container,
 		OnCalendarTimeUpdate: func(sd, st, ed, et *widget.Entry) {
 			startDateEntry = sd
@@ -351,10 +357,9 @@ func (a *App) createTimesheetEntry(data *widgets.EntryFormData, setError func(st
 		return
 	}
 
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start date/time")
+		setError("Invalid start date/time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
@@ -362,10 +367,9 @@ func (a *App) createTimesheetEntry(data *widgets.EntryFormData, setError func(st
 	var endTimePtr *time.Time
 	var duration float64
 	if data.EndDate != "" && data.EndTime != "" {
-		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 		if err != nil {
-			setError("Invalid end date/time")
+			setError("Invalid end date/time: " + err.Error())
 			return
 		}
 		endParsed = endParsed.UTC()
@@ -420,9 +424,32 @@ func (a *App) showSettings() {
 		a.settingsScreen.OnCodeRepos = a.showCodeRepos
 		a.settingsScreen.OnCalendarSettings = a.showCalendarSettings
 		a.settingsScreen.OnLogout = a.handleLogout
+		a.settingsScreen.OnRefreshProjects = a.refreshProjects
 	}
 
 	a.setContent(a.settingsScreen.Container)
+}
+
+// refreshProjects triggers a server-side ERPNext re-sync of the user's
+// project list and reports completion back to the caller. Runs the network
+// call off the Fyne UI goroutine via util.RunAsync.
+func (a *App) refreshProjects(done func(err error)) {
+	if a.apiClient == nil {
+		if done != nil {
+			done(fmt.Errorf("not authenticated"))
+		}
+		return
+	}
+	util.RunAsync(
+		func() (bool, error) {
+			return true, a.apiClient.PullProjects()
+		},
+		func(_ bool, err error) {
+			if done != nil {
+				done(err)
+			}
+		},
+	)
 }
 
 func (a *App) showCalendarSettings() {
@@ -476,6 +503,18 @@ func (a *App) showOffice() {
 	a.officeScreen.StartAnimation()
 }
 
+func (a *App) showTeamUpdates() {
+	a.currentScreen = "teamupdates"
+
+	if a.teamUpdatesScreen == nil {
+		a.teamUpdatesScreen = screens.NewTeamUpdatesScreen(a.apiClient, a.window)
+		a.teamUpdatesScreen.OnBack = a.showDashboard
+	}
+
+	a.setContent(a.teamUpdatesScreen.Container)
+	a.teamUpdatesScreen.Refresh()
+}
+
 func (a *App) showAIAssistant() {
 	a.currentScreen = "aiassistant"
 
@@ -520,6 +559,26 @@ func (a *App) startTimerFromAI(projectID, taskID, activityID int, projectName st
 }
 
 func (a *App) handleLogout() {
+	// Best-effort server-side token invalidation. We never block the local
+	// logout on this: if the server is unreachable or returns an error, the
+	// user still expects the UI to return to the login screen. We just fire
+	// and forget on a goroutine.
+	if a.apiClient != nil {
+		client := a.apiClient
+		go func() {
+			if err := client.Logout(); err != nil {
+				debugLogout("server-side logout failed (ignored): %v", err)
+			}
+		}()
+	}
+
+	// Drop the saved token so the next app start does not auto-login with
+	// stale credentials. Ignore errors — if the file is already gone or
+	// unwritable, the worst case is one stale auto-login attempt.
+	if err := config.DeleteToken(); err != nil {
+		debugLogout("could not delete saved token (ignored): %v", err)
+	}
+
 	// Clear API client
 	a.apiClient = nil
 
@@ -532,11 +591,18 @@ func (a *App) handleLogout() {
 	a.codeReposScreen = nil
 	a.officeScreen = nil
 	a.aiAssistantScreen = nil
+	a.teamUpdatesScreen = nil
 	a.calendarSettingsScreen = nil
 	a.loginScreen = nil
 
 	// Show login
 	a.showLogin()
+}
+
+// debugLogout is a tiny helper so the package compiles cleanly without us
+// pulling in a full logging dependency for one fire-and-forget call.
+func debugLogout(format string, args ...any) {
+	fmt.Printf("[logout] "+format+"\n", args...)
 }
 
 func (a *App) setContent(content fyne.CanvasObject) {

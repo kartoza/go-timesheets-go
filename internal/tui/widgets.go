@@ -73,15 +73,15 @@ func (d ComboBoxItemDelegate) Render(w io.Writer, m list.Model, index int, item 
 
 // ComboBox represents a searchable combo box widget
 type ComboBox struct {
-	list        list.Model
-	textInput   textinput.Model
-	items       []ComboBoxItem
+	list          list.Model
+	textInput     textinput.Model
+	items         []ComboBoxItem
 	filteredItems []ComboBoxItem
-	showList    bool
-	placeholder string
-	selected    *ComboBoxItem
-	width       int
-	height      int
+	showList      bool
+	placeholder   string
+	selected      *ComboBoxItem
+	width         int
+	height        int
 }
 
 // NewComboBox creates a new combo box widget
@@ -99,14 +99,14 @@ func NewComboBox(items []ComboBoxItem, placeholder string, width, height int) Co
 	l.SetShowTitle(false)
 
 	cb := ComboBox{
-		list:        l,
-		textInput:   ti,
-		items:       items,
+		list:          l,
+		textInput:     ti,
+		items:         items,
 		filteredItems: items,
-		showList:    false,
-		placeholder: placeholder,
-		width:       width,
-		height:      height,
+		showList:      false,
+		placeholder:   placeholder,
+		width:         width,
+		height:        height,
 	}
 
 	cb.updateList()
@@ -146,11 +146,11 @@ func (cb *ComboBox) Update(msg tea.Msg) (ComboBox, tea.Cmd) {
 		default:
 			cb.textInput, cmd = cb.textInput.Update(msg)
 			cmds = append(cmds, cmd)
-			
+
 			// Filter items as user types
 			cb.filterItems()
 			cb.updateList()
-			
+
 			// Show list when user starts typing
 			if len(cb.textInput.Value()) > 0 && !cb.showList {
 				cb.showList = true
@@ -169,20 +169,20 @@ func (cb *ComboBox) Update(msg tea.Msg) (ComboBox, tea.Cmd) {
 // View renders the combo box
 func (cb *ComboBox) View() string {
 	var b strings.Builder
-	
+
 	// Text input
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(0, 1).
 		Width(cb.width - 2)
-	
+
 	if cb.textInput.Focused() {
 		inputStyle = inputStyle.BorderForeground(lipgloss.Color("#DDA036"))
 	}
-	
+
 	b.WriteString(inputStyle.Render(cb.textInput.View()))
-	
+
 	// List (if shown)
 	if cb.showList && len(cb.filteredItems) > 0 {
 		b.WriteString("\n")
@@ -191,10 +191,10 @@ func (cb *ComboBox) View() string {
 			BorderForeground(lipgloss.Color("#DDA036")).
 			Width(cb.width - 2).
 			Height(cb.height - 3)
-		
+
 		b.WriteString(listStyle.Render(cb.list.View()))
 	}
-	
+
 	return b.String()
 }
 
@@ -202,7 +202,7 @@ func (cb *ComboBox) View() string {
 func (cb *ComboBox) filterItems() {
 	filter := strings.ToLower(cb.textInput.Value())
 	cb.filteredItems = []ComboBoxItem{}
-	
+
 	for _, item := range cb.items {
 		if strings.Contains(strings.ToLower(item.Label), filter) ||
 			strings.Contains(strings.ToLower(item.Description), filter) {
@@ -328,7 +328,7 @@ type RefreshableComboBox struct {
 // NewRefreshableProjectComboBox creates a refreshable project combo box
 func NewRefreshableProjectComboBox(apiClient *api.Client, width, height int) RefreshableComboBox {
 	cb := NewComboBox([]ComboBoxItem{}, "Loading projects...", width, height)
-	
+
 	return RefreshableComboBox{
 		ComboBox:  cb,
 		apiClient: apiClient,
@@ -337,7 +337,7 @@ func NewRefreshableProjectComboBox(apiClient *api.Client, width, height int) Ref
 			if err != nil {
 				return nil, err
 			}
-			
+
 			items := make([]ComboBoxItem, len(projects))
 			for i, project := range projects {
 				items[i] = ComboBoxItem{
@@ -355,7 +355,7 @@ func NewRefreshableProjectComboBox(apiClient *api.Client, width, height int) Ref
 // NewRefreshableActivityComboBox creates a refreshable activity combo box
 func NewRefreshableActivityComboBox(apiClient *api.Client, width, height int) RefreshableComboBox {
 	cb := NewComboBox([]ComboBoxItem{}, "Loading activities...", width, height)
-	
+
 	return RefreshableComboBox{
 		ComboBox:  cb,
 		apiClient: apiClient,
@@ -364,7 +364,7 @@ func NewRefreshableActivityComboBox(apiClient *api.Client, width, height int) Re
 			if err != nil {
 				return nil, err
 			}
-			
+
 			items := make([]ComboBoxItem, len(activities))
 			for i, activity := range activities {
 				items[i] = ComboBoxItem{

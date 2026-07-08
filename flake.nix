@@ -458,6 +458,46 @@
             '';
           };
 
+          # Provision DejaVu Sans Regular from nixpkgs into the project so
+          # //go:embed can bundle it at compile time. The bundled Fyne default
+          # font (and even NotoSans-Regular) lacks coverage for many of the
+          # BMP Unicode symbols we use as iconography (☰ ▥ ◉ ⚙ ⌂ ✦ etc.).
+          # DejaVu Sans is the long-standing benchmark for comprehensive
+          # BMP coverage and renders them all cleanly. Bitstream Vera /
+          # public-domain license, ~750 KB.
+          #
+          # Run: nix run .#fetch-fonts
+          fetch-fonts = flake-utils.lib.mkApp {
+            drv = pkgs.writeShellScriptBin "fetch-fonts" ''
+              #!/usr/bin/env bash
+              set -euo pipefail
+
+              DEST_DIR="internal/gui/resources/fonts"
+              mkdir -p "$DEST_DIR"
+
+              # Wipe any previously-installed font so a stale Noto Sans
+              # doesn't get embedded alongside the new one.
+              rm -f "$DEST_DIR"/*.ttf "$DEST_DIR"/*.otf "$DEST_DIR"/*LICENSE*
+
+              SRC=$(find ${pkgs.dejavu_fonts}/share -name "DejaVuSans.ttf" -print -quit 2>/dev/null || true)
+              if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
+                echo "ERROR: DejaVuSans.ttf not found in ${pkgs.dejavu_fonts}" >&2
+                exit 1
+              fi
+
+              install -m 0644 "$SRC" "$DEST_DIR/DejaVuSans.ttf"
+
+              # Bitstream Vera / public-domain license bundled for compliance.
+              LICENSE_SRC=$(find ${pkgs.dejavu_fonts}/share -iname "LICENSE*" 2>/dev/null | head -1 || true)
+              if [ -n "$LICENSE_SRC" ] && [ -f "$LICENSE_SRC" ]; then
+                install -m 0644 "$LICENSE_SRC" "$DEST_DIR/DejaVuSans-LICENSE.txt"
+              fi
+
+              echo "Installed:"
+              ls -la "$DEST_DIR/"
+            '';
+          };
+
           # Build release artifacts for all platforms
           release = flake-utils.lib.mkApp {
             drv = pkgs.writeShellScriptBin "release" ''

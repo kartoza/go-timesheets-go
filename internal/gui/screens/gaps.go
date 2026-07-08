@@ -19,6 +19,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/gui/widgets"
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/service"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // GapsScreen shows a scrollable view with vertical bars representing logged hours
@@ -30,12 +31,12 @@ type GapsScreen struct {
 	gapsService *service.GapsService
 
 	// Widgets
-	barContainer  *fyne.Container
-	barScroll     *container.Scroll
-	detailPanel   *fyne.Container
-	statusLabel   *canvas.Text
-	loadingBar    *widget.ProgressBarInfinite
-	titleLabel    *canvas.Text
+	barContainer *fyne.Container
+	barScroll    *container.Scroll
+	detailPanel  *fyne.Container
+	statusLabel  *canvas.Text
+	loadingBar   *widget.ProgressBarInfinite
+	titleLabel   *canvas.Text
 
 	// Detail panel labels
 	detailProject     *canvas.Text
@@ -50,8 +51,8 @@ type GapsScreen struct {
 	// Callbacks
 	OnBack              func()
 	OnStartTimesheetFor func(date time.Time, startTime time.Time, endTime time.Time) // Called when clicking a gap
-	OnEditEntry         func(entry *api.TimelogEntry)                                 // Called when clicking an entry
-	OnEntryChanged      func()                                                        // Called when an entry is created/edited
+	OnEditEntry         func(entry *api.TimelogEntry)                                // Called when clicking an entry
+	OnEntryChanged      func()                                                       // Called when an entry is created/edited
 }
 
 // NewGapsScreen creates a new gaps screen
@@ -561,15 +562,16 @@ func (s *GapsScreen) onProjectClicked(dayIndex int, proj *service.ProjectHourDat
 }
 
 func (s *GapsScreen) showEntrySelectionDialog(projectName string, entries []service.EntryDetail) {
+	// The app theme is dark, so secondary text must be light to be readable.
+	// (Previously this used #333333, which rendered as unreadable dark-on-dark.)
 	goldColor := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
-	darkGray := color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF}
 	redColor := color.NRGBA{R: 0xE7, G: 0x4C, B: 0x3C, A: 0xFF}
 
 	titleText := canvas.NewText("Select Entry to Edit", goldColor)
 	titleText.TextSize = 18
 	titleText.TextStyle = fyne.TextStyle{Bold: true}
 
-	projText := canvas.NewText(projectName, darkGray)
+	projText := canvas.NewText(projectName, color.White)
 	projText.TextSize = 14
 
 	// Build a list of entries
@@ -583,7 +585,8 @@ func (s *GapsScreen) showEntrySelectionDialog(projectName string, entries []serv
 			label = fmt.Sprintf("%.1fh - %s (%s)", e.Hours, e.ActivityName, e.TaskName)
 		}
 
-		// Add warning icon if missing description
+		// Add warning icon if missing description. ⚠ is in the BMP, covered
+		// by the bundled Noto Sans Regular.
 		var btnContent fyne.CanvasObject
 		if e.Description == "" {
 			warnIcon := canvas.NewText("⚠", redColor)
@@ -714,6 +717,7 @@ func (s *GapsScreen) showEntryEditForm(entry *api.TimelogEntry) {
 		ShowActivity:    true,
 		ReadOnly:        false,
 		PreFill:         preFill,
+		Favourites:      widgets.LoadEntryFormFavourites(),
 		ExtraContent:    extraItems,
 		Buttons: []widgets.EntryFormButton{
 			{
@@ -743,10 +747,9 @@ func (s *GapsScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, setEr
 		return
 	}
 
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start date/time")
+		setError("Invalid start date/time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
@@ -754,10 +757,9 @@ func (s *GapsScreen) doSaveEntry(entryID int, data *widgets.EntryFormData, setEr
 	var endTimePtr *time.Time
 	var duration float64
 	if data.EndDate != "" && data.EndTime != "" {
-		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 		if err != nil {
-			setError("Invalid end date/time")
+			setError("Invalid end date/time: " + err.Error())
 			return
 		}
 		endParsed = endParsed.UTC()

@@ -33,6 +33,7 @@ const (
 	StateSettings
 	StateCalendarSettings
 	StateAIAssistant
+	StateTeamUpdates
 )
 
 // AppWithAuth is a wrapper app that handles authentication
@@ -48,6 +49,7 @@ type AppWithAuth struct {
 	settingsView         *SettingsModel
 	calendarSettingsView *CalendarSettingsModel
 	aiAssistantView      *AIAssistantModel
+	teamUpdatesView      *TeamUpdatesModel
 	width                int
 	height               int
 	tokenLoaded          bool
@@ -173,6 +175,11 @@ func (a *AppWithAuth) Init() tea.Cmd {
 		if a.aiAssistantView != nil {
 			cmds = append(cmds, a.aiAssistantView.Init())
 		}
+
+	case StateTeamUpdates:
+		if a.teamUpdatesView != nil {
+			cmds = append(cmds, a.teamUpdatesView.Init())
+		}
 	}
 
 	return tea.Batch(cmds...)
@@ -238,6 +245,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.aiAssistantView != nil {
 				model, c := a.aiAssistantView.Update(msg)
 				a.aiAssistantView = model
+				cmds = append(cmds, c)
+			}
+		case StateTeamUpdates:
+			if a.teamUpdatesView != nil {
+				model, c := a.teamUpdatesView.Update(msg)
+				a.teamUpdatesView = model
 				cmds = append(cmds, c)
 			}
 		}
@@ -314,6 +327,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.aiAssistantView = model
 				cmds = append(cmds, c)
 			}
+		case StateTeamUpdates:
+			if a.teamUpdatesView != nil {
+				model, c := a.teamUpdatesView.Update(msg)
+				a.teamUpdatesView = model
+				cmds = append(cmds, c)
+			}
 		}
 
 	case LoginSuccessMsg:
@@ -367,6 +386,7 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.timesheetCreator = nil
 		a.historyView = nil
 		a.aiAssistantView = nil
+		a.teamUpdatesView = nil
 
 		// If we're in settings, just go back to main menu
 		if a.state == StateSettings {
@@ -505,6 +525,16 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = StateAIAssistant
 		return a, a.aiAssistantView.Init()
 
+	case launchTeamUpdatesMsg:
+		// Transition to team updates (microblog) view
+		tuView := NewTeamUpdatesModel(a.apiClient)
+		tuView.width = a.width
+		tuView.height = a.height
+		tuView.SetHeaderState(a.getHeaderState())
+		a.teamUpdatesView = tuView
+		a.state = StateTeamUpdates
+		return a, a.teamUpdatesView.Init()
+
 	case launchCalendarSettingsMsg:
 		// Transition to calendar settings view
 		calendarSettingsView := NewCalendarSettingsModel()
@@ -524,8 +554,25 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case refreshProjectsRequestMsg:
+		// Trigger the ERPNext sync off the UI goroutine and feed the result
+		// back to the settings view so it can show "synced" / "failed".
+		client := a.apiClient
+		return a, func() tea.Msg {
+			if client == nil {
+				return refreshProjectsResultMsg{err: fmt.Errorf("not authenticated")}
+			}
+			return refreshProjectsResultMsg{err: client.PullProjects()}
+		}
+
 	case settingsLogoutConfirmedMsg:
-		// Logout confirmed from settings, delete token and quit
+		// Best-effort server-side token invalidation before quitting. We never
+		// block local logout on the network call — the user has already
+		// confirmed they want out, so we fire-and-forget on a goroutine.
+		if a.apiClient != nil {
+			client := a.apiClient
+			go func() { _ = client.Logout() }()
+		}
 		_ = config.DeleteToken()
 		return a, tea.Quit
 
@@ -596,6 +643,12 @@ func (a *AppWithAuth) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.aiAssistantView != nil {
 				model, c := a.aiAssistantView.Update(msg)
 				a.aiAssistantView = model
+				cmds = append(cmds, c)
+			}
+		case StateTeamUpdates:
+			if a.teamUpdatesView != nil {
+				model, c := a.teamUpdatesView.Update(msg)
+				a.teamUpdatesView = model
 				cmds = append(cmds, c)
 			}
 		}
@@ -693,6 +746,12 @@ func (a *AppWithAuth) View() string {
 			return a.aiAssistantView.View()
 		}
 		return a.renderLoadingScreen("Loading AI assistant")
+
+	case StateTeamUpdates:
+		if a.teamUpdatesView != nil {
+			return a.teamUpdatesView.View()
+		}
+		return a.renderLoadingScreen("Loading team updates")
 	}
 
 	return "Unknown state"
@@ -737,11 +796,11 @@ func (a *AppWithAuth) Run() error {
 	if a.monitoringServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		a.monitoringServer.Stop(ctx)
+		_ = a.monitoringServer.Stop(ctx)
 	}
 
 	if a.metrics != nil {
-		a.metrics.Close()
+		_ = a.metrics.Close()
 	}
 
 	// Show exit splash screen (reverse animation - small to big)

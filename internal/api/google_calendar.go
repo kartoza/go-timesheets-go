@@ -225,9 +225,9 @@ func (c *GoogleCalendarClient) GetEventsForRange(ctx context.Context, start, end
 	params := url.Values{}
 	params.Set("timeMin", start.UTC().Format(time.RFC3339))
 	params.Set("timeMax", end.UTC().Format(time.RFC3339))
-	params.Set("singleEvents", "true")   // Expand recurring events
-	params.Set("orderBy", "startTime")   // Sort by start time
-	params.Set("maxResults", "50")       // Limit results
+	params.Set("singleEvents", "true") // Expand recurring events
+	params.Set("orderBy", "startTime") // Sort by start time
+	params.Set("maxResults", "50")     // Limit results
 
 	fullURL := apiURL + "?" + params.Encode()
 
@@ -360,7 +360,7 @@ func (c *GoogleCalendarClient) StartLocalAuthServer(ctx context.Context) (<-chan
 		// Shutdown server after handling callback
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			server.Shutdown(context.Background())
+			_ = server.Shutdown(context.Background())
 		}()
 	})
 
@@ -373,7 +373,7 @@ func (c *GoogleCalendarClient) StartLocalAuthServer(ctx context.Context) (<-chan
 	// Shutdown on context cancellation
 	go func() {
 		<-ctx.Done()
-		server.Shutdown(context.Background())
+		_ = server.Shutdown(context.Background())
 	}()
 
 	return codeChan, errChan, nil

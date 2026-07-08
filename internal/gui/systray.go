@@ -187,7 +187,14 @@ func (s *SystrayManager) UpdateStatus(status string) {
 	}
 }
 
-// StartIconRotation starts the icon rotation animation
+// StartIconRotation starts the icon rotation animation.
+//
+// The goroutine captures the ticker channel, stop channel, and icon slice
+// into locals before launching so that StopIconRotation can safely nil out
+// the struct fields without racing this goroutine — previously the goroutine
+// read s.rotationTicker.C through the struct field on every select
+// iteration, which crashed with a nil-pointer panic if Stop ran between two
+// iterations (pause/resume cycles made this trigger reliably).
 func (s *SystrayManager) StartIconRotation() {
 	if s.isRotating || len(s.rotatedIcons) == 0 {
 		return
@@ -196,24 +203,35 @@ func (s *SystrayManager) StartIconRotation() {
 	s.isRotating = true
 	s.rotationTicker = time.NewTicker(250 * time.Millisecond) // Rotate every 250ms
 
+	// A fresh stop channel per Start, closed by Stop. Closing (vs sending)
+	// guarantees the goroutine receives the signal even if it's mid-iteration
+	// when Stop fires — the previous non-blocking send could be dropped.
+	s.stopRotation = make(chan struct{})
+
+	tickerC := s.rotationTicker.C
+	stopCh := s.stopRotation
+	icons := s.rotatedIcons
+
 	go func() {
 		iconIndex := 0
 		for {
 			select {
-			case <-s.rotationTicker.C:
+			case <-tickerC:
 				// Set the next rotated icon
-				if iconIndex < len(s.rotatedIcons) && s.rotatedIcons[iconIndex] != nil {
-					systray.SetIcon(s.rotatedIcons[iconIndex])
+				if iconIndex < len(icons) && icons[iconIndex] != nil {
+					systray.SetIcon(icons[iconIndex])
 				}
-				iconIndex = (iconIndex + 1) % len(s.rotatedIcons)
-			case <-s.stopRotation:
+				iconIndex = (iconIndex + 1) % len(icons)
+			case <-stopCh:
 				return
 			}
 		}
 	}()
 }
 
-// StopIconRotation stops the icon rotation and resets to base icon
+// StopIconRotation stops the icon rotation and resets to base icon.
+// Safe to call repeatedly; the close happens at most once because we guard
+// on isRotating.
 func (s *SystrayManager) StopIconRotation() {
 	if !s.isRotating {
 		return
@@ -225,9 +243,11 @@ func (s *SystrayManager) StopIconRotation() {
 		s.rotationTicker = nil
 	}
 
-	select {
-	case s.stopRotation <- struct{}{}:
-	default:
+	// Close (not send) so the running goroutine always exits, even if it
+	// was busy in systray.SetIcon when this fired.
+	if s.stopRotation != nil {
+		close(s.stopRotation)
+		s.stopRotation = nil
 	}
 
 	// Reset to base icon
@@ -286,34 +306,42 @@ func (s *SystrayManager) updateTooltip() {
 	systray.SetTooltip(tooltip)
 }
 
-// startTooltipUpdater starts the periodic tooltip update
+// startTooltipUpdater starts the periodic tooltip update.
+// Captures the ticker/stop channels into locals so stopTooltipUpdater can
+// safely nil the struct fields without racing this goroutine (same pattern
+// as StartIconRotation).
 func (s *SystrayManager) startTooltipUpdater() {
 	if s.tooltipTicker != nil {
 		return
 	}
 
 	s.tooltipTicker = time.NewTicker(30 * time.Second)
+	s.stopTooltip = make(chan struct{})
+
+	tickerC := s.tooltipTicker.C
+	stopCh := s.stopTooltip
+
 	go func() {
 		for {
 			select {
-			case <-s.tooltipTicker.C:
+			case <-tickerC:
 				s.updateTooltip()
-			case <-s.stopTooltip:
+			case <-stopCh:
 				return
 			}
 		}
 	}()
 }
 
-// stopTooltipUpdater stops the periodic tooltip update
+// stopTooltipUpdater stops the periodic tooltip update.
 func (s *SystrayManager) stopTooltipUpdater() {
 	if s.tooltipTicker != nil {
 		s.tooltipTicker.Stop()
 		s.tooltipTicker = nil
 	}
-	select {
-	case s.stopTooltip <- struct{}{}:
-	default:
+	if s.stopTooltip != nil {
+		close(s.stopTooltip)
+		s.stopTooltip = nil
 	}
 }
 

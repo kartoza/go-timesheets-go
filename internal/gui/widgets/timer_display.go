@@ -11,13 +11,20 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// TimerDisplay is a custom widget showing elapsed time in LCD-style format
+// TimerDisplay is a custom widget showing elapsed time in LCD-style format.
+//
+// Three visual states:
+//   - IsActive=true: running timer (green, blinking colon, live time)
+//   - IsPaused=true (IsActive=false): paused timer (amber, frozen time,
+//     "PAUSED — <project>" header)
+//   - both false: idle (grey, "No active timer")
 type TimerDisplay struct {
 	widget.BaseWidget
 
 	Hours       int
 	Minutes     int
 	IsActive    bool
+	IsPaused    bool
 	ProjectName string
 	TaskName    string
 	BlinkOn     bool
@@ -47,9 +54,25 @@ func (t *TimerDisplay) SetTime(hours, minutes int) {
 	t.Refresh()
 }
 
-// SetActive sets whether the timer is running
+// SetActive sets whether the timer is running. Clears any paused state.
 func (t *TimerDisplay) SetActive(active bool, projectName, taskName string) {
 	t.IsActive = active
+	if active {
+		t.IsPaused = false
+	}
+	t.ProjectName = projectName
+	t.TaskName = taskName
+	t.Refresh()
+}
+
+// SetPaused shows the timer in paused state: frozen time, amber colour, and
+// a "PAUSED — <project>" header so the user remembers what they were doing.
+// Pass projectName/taskName to identify the paused work.
+func (t *TimerDisplay) SetPaused(paused bool, projectName, taskName string) {
+	t.IsPaused = paused
+	if paused {
+		t.IsActive = false
+	}
 	t.ProjectName = projectName
 	t.TaskName = taskName
 	t.Refresh()
@@ -155,25 +178,35 @@ func (r *timerDisplayRenderer) MinSize() fyne.Size {
 func (r *timerDisplayRenderer) Refresh() {
 	d := r.display
 
-	// Update time display with blinking colon
+	// Update time display with blinking colon (only blinks when actively running)
 	colon := ":"
 	if d.IsActive && !d.BlinkOn {
 		colon = " "
 	}
 	r.timeLabel.Text = fmt.Sprintf("%02d%s%02d", d.Hours, colon, d.Minutes)
 
-	// Update colors based on active state
-	if d.IsActive {
-		r.timeLabel.Color = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF} // Green
-		r.statusDot.FillColor = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF}
+	// Three-state colour and label scheme.
+	switch {
+	case d.IsActive:
+		green := color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF}
+		r.timeLabel.Color = green
+		r.statusDot.FillColor = green
 		r.projectLabel.Text = d.ProjectName
 		r.projectLabel.Color = color.White
 		r.taskLabel.Text = d.TaskName
-	} else {
-		r.timeLabel.Color = color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF} // Gray
-		r.statusDot.FillColor = color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
+	case d.IsPaused:
+		amber := color.NRGBA{R: 0xDD, G: 0xA0, B: 0x36, A: 0xFF}
+		r.timeLabel.Color = amber
+		r.statusDot.FillColor = amber
+		r.projectLabel.Text = "PAUSED — " + d.ProjectName
+		r.projectLabel.Color = amber
+		r.taskLabel.Text = d.TaskName
+	default:
+		grey := color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
+		r.timeLabel.Color = grey
+		r.statusDot.FillColor = grey
 		r.projectLabel.Text = "No active timer"
-		r.projectLabel.Color = color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF}
+		r.projectLabel.Color = grey
 		r.taskLabel.Text = ""
 	}
 
@@ -191,12 +224,22 @@ func (r *timerDisplayRenderer) Destroy() {
 	r.display.StopBlinking()
 }
 
-// TimerBox creates a complete timer box with border
-func TimerBox(timerDisplay *TimerDisplay, startStopButton *widget.Button) fyne.CanvasObject {
+// TimerBox creates a complete timer box with border. Pass any number of
+// buttons (Start/Stop, Pause, etc.); they are laid out centred in a horizontal
+// row below the timer display.
+func TimerBox(timerDisplay *TimerDisplay, buttons ...*widget.Button) fyne.CanvasObject {
+	buttonObjs := make([]fyne.CanvasObject, 0, len(buttons))
+	for _, b := range buttons {
+		if b != nil {
+			buttonObjs = append(buttonObjs, b)
+		}
+	}
+	buttonRow := container.NewHBox(buttonObjs...)
+
 	content := container.NewVBox(
 		timerDisplay,
 		widget.NewSeparator(),
-		container.NewCenter(startStopButton),
+		container.NewCenter(buttonRow),
 	)
 
 	// Create bordered container

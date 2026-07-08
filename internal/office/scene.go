@@ -159,7 +159,7 @@ func (o *Office) setupFurniture() {
 
 	// Water cooler
 	o.Furniture = append(o.Furniture, Furniture{
-		Type: FurnWaterCooler, X: 3, Y: o.Height/2, Width: 2, Height: 3,
+		Type: FurnWaterCooler, X: 3, Y: o.Height / 2, Width: 2, Height: 3,
 	})
 
 	// Plants in corners

@@ -32,7 +32,7 @@ func (ts *TimesheetService) StartTimeEntry(projectID, activityID string, taskID 
 
 	// Create new time entry
 	entry := models.NewTimeEntry(ts.userID, projectID, activityID, taskID, description)
-	
+
 	// Populate display names
 	if err := ts.populateTimeEntryNames(entry); err != nil {
 		return nil, fmt.Errorf("failed to populate entry names: %w", err)
@@ -133,7 +133,7 @@ func (ts *TimesheetService) GetTodaysEntries() ([]models.TimeEntry, error) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	end := start.Add(24 * time.Hour)
-	
+
 	return ts.GetTimeEntries(start, end)
 }
 
@@ -144,14 +144,14 @@ func (ts *TimesheetService) GetWeeklyEntries() (map[string][]models.TimeEntry, e
 	if weekday == 0 { // Sunday
 		weekday = 7
 	}
-	
+
 	// Start of week (Monday)
 	start := now.AddDate(0, 0, -weekday+1)
 	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
-	
+
 	// End of week (Sunday)
 	end := start.AddDate(0, 0, 7)
-	
+
 	entries, err := ts.GetTimeEntries(start, end)
 	if err != nil {
 		return nil, err
@@ -183,14 +183,14 @@ func (ts *TimesheetService) SubmitTimeEntries(entryIDs []string) (*models.Timesh
 			if entry.ID == entryID && entry.UserID == ts.userID && !entry.IsSubmitted {
 				entry.IsSubmitted = true
 				entries[i] = entry // Update the original slice
-				
+
 				if err := ts.populateTimeEntryNames(&entry); err != nil {
 					continue
 				}
-				
+
 				submissionEntries = append(submissionEntries, entry)
 				totalHours += entry.Duration
-				
+
 				if periodStart.IsZero() || entry.StartTime.Before(periodStart) {
 					periodStart = entry.StartTime
 				}
@@ -290,7 +290,7 @@ func (ts *TimesheetService) GetActivities() ([]models.Activity, error) {
 // CreateProject creates a new project
 func (ts *TimesheetService) CreateProject(name, description string) (*models.Project, error) {
 	project := models.NewProject(name, description)
-	
+
 	if err := ts.storage.SaveProject(project); err != nil {
 		return nil, fmt.Errorf("failed to save project: %w", err)
 	}
@@ -301,7 +301,7 @@ func (ts *TimesheetService) CreateProject(name, description string) (*models.Pro
 // CreateTask creates a new task
 func (ts *TimesheetService) CreateTask(projectID, name, description string, expectedTime float64) (*models.Task, error) {
 	task := models.NewTask(projectID, name, description, expectedTime)
-	
+
 	if err := ts.storage.SaveTask(task); err != nil {
 		return nil, fmt.Errorf("failed to save task: %w", err)
 	}

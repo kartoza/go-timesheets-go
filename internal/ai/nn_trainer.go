@@ -57,7 +57,7 @@ func (t *NNTrainer) loadIfExists() {
 	if tokData, err := os.ReadFile(t.tokPath); err == nil {
 		var tokExport map[string]interface{}
 		if err := json.Unmarshal(tokData, &tokExport); err == nil {
-			t.tokenizer.Import(tokExport)
+			_ = t.tokenizer.Import(tokExport)
 		}
 	}
 

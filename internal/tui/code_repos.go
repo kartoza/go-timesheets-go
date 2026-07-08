@@ -53,16 +53,16 @@ type CodeReposModel struct {
 	associations *models.CodeRepoAssociations
 
 	// UI State for main list
-	selectedRow int
+	selectedRow  int
 	scrollOffset int
 
 	// Edit popup state
-	editMode       CodeRepoEditMode
-	editField      CodeRepoEditField
-	editingIndex   int // -1 for new, otherwise index of association being edited
+	editMode     CodeRepoEditMode
+	editField    CodeRepoEditField
+	editingIndex int // -1 for new, otherwise index of association being edited
 
 	// Edit popup - selection data
-	projects   []api.ProjectListItem
+	projects []api.ProjectListItem
 
 	// Edit popup - selected/entered values
 	editProject  *api.ProjectListItem

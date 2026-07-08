@@ -19,6 +19,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/models"
 	"github.com/kartoza/go-timesheets-go/internal/pow"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
+	"github.com/kartoza/go-timesheets-go/internal/timefmt"
 )
 
 // DashboardScreen represents the main dashboard screen
@@ -35,6 +36,7 @@ type DashboardScreen struct {
 	progressGauge   *widgets.ProgressGauge
 	favButtons      []*widgets.FavouriteButton
 	startStopButton *widget.Button
+	pauseButton     *widget.Button
 	historyButton   *widget.Button
 	gapsButton      *widget.Button
 	settingsButton  *widget.Button
@@ -45,7 +47,13 @@ type DashboardScreen struct {
 	powStatusLabel  *canvas.Text
 
 	// State
-	activeTimer    *api.TimelogEntry
+	activeTimer *api.TimelogEntry
+	// pausedTimer is the most recently paused timesheet entry (if any). The
+	// dashboard renders it in place of a running timer until the user resumes
+	// (which clears it server-side via the create() chain) or starts a
+	// different timer (same effect — the backend's create() clears is_paused
+	// on all paused entries for the user).
+	pausedTimer    *api.TimelogEntry
 	favourites     *models.FavouriteAssociations
 	todayHours     float64
 	weeklyHours    float64
@@ -55,12 +63,17 @@ type DashboardScreen struct {
 	ticker         *time.Ticker
 	stopTicker     chan struct{}
 
+	// Motivational quote shown beneath the welcome line. Loaded lazily after
+	// the dashboard appears; empty until the API responds.
+	quoteLabel *canvas.Text
+
 	// Callbacks
 	OnSettings          func()
 	OnHistory           func()
 	OnGaps              func()
 	OnOffice            func()
 	OnAIAssistant       func()
+	OnTeamUpdates       func()
 	OnTimerStatusChange func(running bool, projectName, taskName, activityName string, startTime time.Time)
 }
 
@@ -122,11 +135,19 @@ func (s *DashboardScreen) build() {
 	s.weeklyLabel = canvas.NewText(fmt.Sprintf("Weekly: %.1fh", s.weeklyHours), color.NRGBA{R: 0x56, G: 0x9F, B: 0xC6, A: 0xFF})
 	s.weeklyLabel.TextSize = 14
 
-	header := container.NewHBox(
+	// Subtle italic quote line under the welcome header. Empty until loadQuote
+	// returns; we don't block the dashboard on the network call.
+	s.quoteLabel = canvas.NewText("", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
+	s.quoteLabel.TextSize = 11
+	s.quoteLabel.TextStyle = fyne.TextStyle{Italic: true}
+
+	headerRow := container.NewHBox(
 		s.headerLabel,
 		layout.NewSpacer(),
 		s.weeklyLabel,
 	)
+	header := container.NewVBox(headerRow, s.quoteLabel)
+	go s.loadQuote()
 
 	// Timer display
 	s.timerDisplay = widgets.NewTimerDisplay()
@@ -135,20 +156,25 @@ func (s *DashboardScreen) build() {
 	s.startStopButton = widget.NewButton("▶ Start Timer", s.onStartStopClicked)
 	s.startStopButton.Importance = widget.HighImportance
 
-	timerBox := widgets.TimerBox(s.timerDisplay, s.startStopButton)
+	// Pause button — hidden by default; shown only while a timer is running so
+	// the user can freeze the current entry without committing a stop.
+	s.pauseButton = widget.NewButton("⏸ Pause", s.onPauseClicked)
+	s.pauseButton.Hide()
+
+	timerBox := widgets.TimerBox(s.timerDisplay, s.startStopButton, s.pauseButton)
 
 	// Progress gauge
 	s.progressGauge = widgets.NewProgressGauge(s.todayHours, 8.0)
 
 	// History button
-	s.historyButton = widget.NewButton("📋 History", func() {
+	s.historyButton = widget.NewButton("☰ History", func() {
 		if s.OnHistory != nil {
 			s.OnHistory()
 		}
 	})
 
 	// Gaps button
-	s.gapsButton = widget.NewButton("📊 Gaps", func() {
+	s.gapsButton = widget.NewButton("▥ Gaps", func() {
 		if s.OnGaps != nil {
 			s.OnGaps()
 		}
@@ -206,15 +232,22 @@ func (s *DashboardScreen) build() {
 	})
 
 	// POW mode button
-	s.powButton = widget.NewButton("📸 POW: OFF", s.togglePowMode)
+	s.powButton = widget.NewButton("◉ POW: OFF", s.togglePowMode)
 
 	// Office mode button
-	s.officeButton = widget.NewButton("🏢 Office", s.showOffice)
+	s.officeButton = widget.NewButton("⌂ Office", s.showOffice)
 
 	// AI Assistant button
-	aiButton := widget.NewButton("🤖 AI", func() {
+	aiButton := widget.NewButton("✦ AI", func() {
 		if s.OnAIAssistant != nil {
 			s.OnAIAssistant()
+		}
+	})
+
+	// Team Updates (microblog) button
+	updatesButton := widget.NewButton("✎ Updates", func() {
+		if s.OnTeamUpdates != nil {
+			s.OnTeamUpdates()
 		}
 	})
 
@@ -226,6 +259,7 @@ func (s *DashboardScreen) build() {
 	// Button row with minimum height to prevent overlap with favourites grid
 	buttonRow := container.NewHBox(
 		layout.NewSpacer(),
+		updatesButton,
 		aiButton,
 		s.powButton,
 		s.officeButton,
@@ -272,11 +306,40 @@ func (s *DashboardScreen) build() {
 }
 
 func (s *DashboardScreen) onStartStopClicked() {
-	if s.activeTimer != nil {
+	switch {
+	case s.activeTimer != nil:
 		s.showStopTimerDialog()
-	} else {
+	case s.pausedTimer != nil:
+		s.onResumeClicked()
+	default:
 		s.ShowNewEntryDialog()
 	}
+}
+
+// onResumeClicked starts a new running timer chained to the currently-paused
+// entry. The server attaches it as a child of the paused root and clears
+// is_paused server-side, so on the next Refresh the dashboard naturally
+// transitions from PAUSED → RUNNING.
+func (s *DashboardScreen) onResumeClicked() {
+	if s.pausedTimer == nil {
+		return
+	}
+	s.setStatus("Resuming " + s.pausedTimer.ProjectName + "…")
+	paused := s.pausedTimer
+
+	util.RunAsync(
+		func() (bool, error) {
+			return true, s.apiClient.ResumeTimesheet(paused)
+		},
+		func(_ bool, err error) {
+			if err != nil {
+				s.setStatus("Resume failed: " + err.Error())
+				return
+			}
+			s.setStatus("Resumed")
+			s.Refresh()
+		},
+	)
 }
 
 func (s *DashboardScreen) showStopTimerDialog() {
@@ -349,18 +412,16 @@ func (s *DashboardScreen) doStopTimer(data *widgets.EntryFormData, setError func
 		return
 	}
 
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start date/time")
+		setError("Invalid start date/time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
 
-	endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+	endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 	if err != nil {
-		setError("Invalid end date/time")
+		setError("Invalid end date/time: " + err.Error())
 		return
 	}
 	endParsed = endParsed.UTC()
@@ -399,6 +460,55 @@ func (s *DashboardScreen) doStopTimer(data *widgets.EntryFormData, setError func
 			s.activeTimer = nil
 			s.updateTimerDisplay()
 			s.setStatus("Timer stopped")
+			s.Refresh()
+		},
+	)
+}
+
+// loadQuote fetches a motivational quote from the backend and renders it
+// under the welcome header. Failures are silent — the line just stays empty,
+// which is fine: it's pure decoration.
+func (s *DashboardScreen) loadQuote() {
+	if s.apiClient == nil || s.quoteLabel == nil {
+		return
+	}
+	quote, err := s.apiClient.GetRandomQuote()
+	if err != nil || quote.Text == "" {
+		return
+	}
+	rendered := fmt.Sprintf("\"%s\" — %s", quote.Text, quote.Author)
+	fyne.Do(func() {
+		if s.quoteLabel == nil {
+			return
+		}
+		s.quoteLabel.Text = rendered
+		s.quoteLabel.Refresh()
+	})
+}
+
+// onPauseClicked pauses the currently running timer via the backend. The
+// server ends the timer (sets end_time) and marks the root timelog
+// is_paused=True. The dashboard does NOT clear activeTimer locally — instead
+// it just calls Refresh, which discovers the running timer is gone and the
+// paused timer is now present, and transitions the UI to PAUSED state with a
+// visible Resume button.
+func (s *DashboardScreen) onPauseClicked() {
+	if s.activeTimer == nil {
+		return
+	}
+	s.setStatus("Pausing timer…")
+	id := s.activeTimer.ID
+
+	util.RunAsync(
+		func() (*api.TimelogEntry, error) {
+			return s.apiClient.PauseTimesheet(id, "")
+		},
+		func(_ *api.TimelogEntry, err error) {
+			if err != nil {
+				s.setStatus("Error pausing: " + err.Error())
+				return
+			}
+			s.setStatus("Paused — click Resume to continue")
 			s.Refresh()
 		},
 	)
@@ -508,11 +618,10 @@ func (s *DashboardScreen) doCreateEntryWithCallback(data *widgets.EntryFormData,
 		return
 	}
 
-	// Parse start date/time
-	startParsed, err := time.ParseInLocation("2006-01-02 15:04",
-		fmt.Sprintf("%s %s", data.StartDate, data.StartTime), time.Local)
+	// Parse start date/time (accepts HH:MM, 17h00, 5:55pm etc.)
+	startParsed, err := timefmt.ParseFlexibleDateTime(data.StartDate, data.StartTime, time.Local)
 	if err != nil {
-		setError("Invalid start time (use HH:MM format)")
+		setError("Invalid start time: " + err.Error())
 		return
 	}
 	startParsed = startParsed.UTC()
@@ -521,10 +630,9 @@ func (s *DashboardScreen) doCreateEntryWithCallback(data *widgets.EntryFormData,
 	var endTimePtr *time.Time
 	var duration float64
 	if data.EndTime != "" {
-		endParsed, err := time.ParseInLocation("2006-01-02 15:04",
-			fmt.Sprintf("%s %s", data.EndDate, data.EndTime), time.Local)
+		endParsed, err := timefmt.ParseFlexibleDateTime(data.EndDate, data.EndTime, time.Local)
 		if err != nil {
-			setError("Invalid end time (use HH:MM format)")
+			setError("Invalid end time: " + err.Error())
 			return
 		}
 		endParsed = endParsed.UTC()
@@ -861,7 +969,9 @@ func (s *DashboardScreen) startFavouriteTimer(fav *models.FavouriteAssociation) 
 }
 
 func (s *DashboardScreen) updateTimerDisplay() {
-	if s.activeTimer != nil {
+	switch {
+	case s.activeTimer != nil:
+		// RUNNING: live elapsed time, green, blinking colon, Stop + Pause buttons.
 		elapsed := time.Since(s.timerStartTime)
 		hours := int(elapsed.Hours())
 		minutes := int(elapsed.Minutes()) % 60
@@ -869,16 +979,39 @@ func (s *DashboardScreen) updateTimerDisplay() {
 		s.timerDisplay.SetActive(true, s.activeTimer.ProjectName, s.activeTimer.TaskName)
 		s.timerDisplay.StartBlinking()
 		s.startStopButton.SetText("■ Stop Timer")
-		// Notify systray of timer status
+		if s.pauseButton != nil {
+			s.pauseButton.Show()
+		}
 		if s.OnTimerStatusChange != nil {
 			s.OnTimerStatusChange(true, s.activeTimer.ProjectName, s.activeTimer.TaskName, s.activeTimer.ActivityType, s.timerStartTime)
 		}
-	} else {
+
+	case s.pausedTimer != nil:
+		// PAUSED: frozen elapsed time (from the paused entry's hours), amber,
+		// no blink, "Resume <Project>" replaces the start/stop button. The
+		// Pause button is hidden — pause is meaningless when nothing is running.
+		s.timerDisplay.StopBlinking()
+		hours := int(s.pausedTimer.AllHours)
+		minutes := int((s.pausedTimer.AllHours - float64(hours)) * 60)
+		s.timerDisplay.SetTime(hours, minutes)
+		s.timerDisplay.SetPaused(true, s.pausedTimer.ProjectName, s.pausedTimer.TaskName)
+		s.startStopButton.SetText("▶ Resume " + s.pausedTimer.ProjectName)
+		if s.pauseButton != nil {
+			s.pauseButton.Hide()
+		}
+		if s.OnTimerStatusChange != nil {
+			s.OnTimerStatusChange(false, "", "", "", time.Time{})
+		}
+
+	default:
+		// IDLE
 		s.timerDisplay.SetTime(0, 0)
 		s.timerDisplay.SetActive(false, "", "")
 		s.timerDisplay.StopBlinking()
 		s.startStopButton.SetText("▶ Start Timer")
-		// Notify systray of timer status
+		if s.pauseButton != nil {
+			s.pauseButton.Hide()
+		}
 		if s.OnTimerStatusChange != nil {
 			s.OnTimerStatusChange(false, "", "", "", time.Time{})
 		}
@@ -917,7 +1050,8 @@ func (s *DashboardScreen) setStatus(msg string) {
 
 // Refresh reloads data from the API
 func (s *DashboardScreen) Refresh() {
-	// Load active timer
+	// Load active timer and paused entry together. Running takes priority —
+	// if a timer is actively going, we never show paused state.
 	util.RunAsync(
 		func() (*api.TimelogEntry, error) {
 			return s.apiClient.GetActiveTimesheet()
@@ -933,8 +1067,26 @@ func (s *DashboardScreen) Refresh() {
 				if parseErr == nil {
 					s.timerStartTime = startTime
 				}
+				// A running timer means there can't logically also be a
+				// paused one (the backend clears is_paused on create), so
+				// drop any stale paused state we were holding.
+				s.pausedTimer = nil
+				s.updateTimerDisplay()
+				return
 			}
-			s.updateTimerDisplay()
+			// No running timer — check whether the user has a paused one
+			// they could resume.
+			util.RunAsync(
+				func() (*api.TimelogEntry, error) {
+					return s.apiClient.GetPausedTimesheet()
+				},
+				func(paused *api.TimelogEntry, perr error) {
+					if perr == nil {
+						s.pausedTimer = paused
+					}
+					s.updateTimerDisplay()
+				},
+			)
 		},
 	)
 
@@ -1083,12 +1235,12 @@ func (s *DashboardScreen) savePowState(enabled bool) {
 // updatePowButton updates the POW button text based on current state
 func (s *DashboardScreen) updatePowButton() {
 	if s.powCapture != nil && s.powCapture.IsEnabled() {
-		s.powButton.SetText("📸 POW: ON")
+		s.powButton.SetText("◉ POW: ON")
 		s.powButton.Importance = widget.SuccessImportance // Green button
 		s.powStatusLabel.Text = "Screenshots will be captured during timer sessions"
 		s.powStatusLabel.Color = color.NRGBA{R: 0x2E, G: 0xCC, B: 0x71, A: 0xFF} // Green
 	} else {
-		s.powButton.SetText("📸 POW: OFF")
+		s.powButton.SetText("◉ POW: OFF")
 		s.powButton.Importance = widget.MediumImportance // Default button
 		s.powStatusLabel.Text = ""
 	}

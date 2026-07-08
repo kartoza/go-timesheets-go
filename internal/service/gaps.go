@@ -11,8 +11,8 @@ import (
 type DayData struct {
 	Date         time.Time
 	TotalHours   float64
-	GapHours     float64                    // Hours missing to reach target
-	ProjectHours map[int]*ProjectHourData   // projectID -> hours data
+	GapHours     float64                  // Hours missing to reach target
+	ProjectHours map[int]*ProjectHourData // projectID -> hours data
 }
 
 // ProjectHourData holds hours data for a project on a specific day

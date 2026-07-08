@@ -21,11 +21,15 @@ type SettingsScreen struct {
 
 	window fyne.Window
 
+	// Status label for transient feedback (e.g. "Syncing projects…").
+	statusLabel *canvas.Text
+
 	// Callbacks
 	OnBack             func()
 	OnEditFavourites   func()
 	OnCodeRepos        func()
 	OnCalendarSettings func()
+	OnRefreshProjects  func(done func(err error)) // async; call done(err) when finished
 	OnLogout           func()
 }
 
@@ -64,6 +68,12 @@ func (s *SettingsScreen) build() {
 			s.OnCalendarSettings()
 		}
 	})
+
+	refreshProjectsBtn := widget.NewButton("Sync Projects from ERPNext", s.onRefreshProjects)
+
+	s.statusLabel = canvas.NewText("", color.NRGBA{R: 0x9A, G: 0x9E, B: 0xA0, A: 0xFF})
+	s.statusLabel.TextSize = 12
+	s.statusLabel.Alignment = fyne.TextAlignCenter
 
 	importCSVBtn := widget.NewButton("Import CSV History", func() {
 		d := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
@@ -110,8 +120,11 @@ func (s *SettingsScreen) build() {
 		layout.NewSpacer(),
 		container.NewCenter(calendarBtn),
 		layout.NewSpacer(),
+		container.NewCenter(refreshProjectsBtn),
+		layout.NewSpacer(),
 		container.NewCenter(importCSVBtn),
 		layout.NewSpacer(),
+		container.NewCenter(s.statusLabel),
 		widget.NewSeparator(),
 		container.NewCenter(logoutBtn),
 		layout.NewSpacer(),
@@ -132,6 +145,33 @@ func (s *SettingsScreen) build() {
 	)
 
 	s.Container = container.NewCenter(menuContainer)
+}
+
+// onRefreshProjects triggers the parent-supplied async refresh and reflects
+// state in the status label. No-ops if no handler is wired.
+func (s *SettingsScreen) onRefreshProjects() {
+	if s.OnRefreshProjects == nil {
+		s.setStatus("Refresh not available (no API client)")
+		return
+	}
+	s.setStatus("Syncing projects from ERPNext…")
+	s.OnRefreshProjects(func(err error) {
+		fyne.Do(func() {
+			if err != nil {
+				s.setStatus("Sync failed: " + err.Error())
+				return
+			}
+			s.setStatus("Projects synced.")
+		})
+	})
+}
+
+func (s *SettingsScreen) setStatus(msg string) {
+	if s.statusLabel == nil {
+		return
+	}
+	s.statusLabel.Text = msg
+	s.statusLabel.Refresh()
 }
 
 func (s *SettingsScreen) confirmLogout() {

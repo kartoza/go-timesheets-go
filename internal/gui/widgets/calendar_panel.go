@@ -31,12 +31,12 @@ type CalendarPanel struct {
 	err       error
 
 	// Widgets
-	titleLabel   *canvas.Text
-	eventsList   *fyne.Container
-	statusLabel  *canvas.Text
-	loadingBar   *widget.ProgressBarInfinite
-	setupButton  *widget.Button
-	refreshBtn   *widget.Button
+	titleLabel  *canvas.Text
+	eventsList  *fyne.Container
+	statusLabel *canvas.Text
+	loadingBar  *widget.ProgressBarInfinite
+	setupButton *widget.Button
+	refreshBtn  *widget.Button
 
 	// Callbacks
 	OnEventSelected func(event models.CalendarEvent) // Called when user clicks an event

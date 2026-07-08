@@ -121,3 +121,10 @@ screenshot.png
 
 # Release artifacts
 release/
+
+# Claude harness scratch (sibling backend clone, scripts, captures)
+timesheet-project
+claude.sh
+claude.out
+screenshots.sh
+screenshots/

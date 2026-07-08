@@ -1172,8 +1172,8 @@ func (m *FavouritesModel) isSlotRunning(slotIndex int) bool {
 // Returns -1 if the click was outside the grid
 func (m *FavouritesModel) getSlotFromMousePosition(x, y int) int {
 	// Grid layout constants (matching renderButton)
-	buttonWidth := 18 + 2  // width + margin
-	buttonHeight := 5 + 2  // height + borders
+	buttonWidth := 18 + 2 // width + margin
+	buttonHeight := 5 + 2 // height + borders
 
 	// Calculate grid starting position (centered)
 	gridWidth := buttonWidth * 3
