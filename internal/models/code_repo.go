@@ -4,8 +4,8 @@ package models
 type CodeRepoAssociation struct {
 	ProjectID   int    `json:"project_id"`
 	ProjectName string `json:"project_name"`
-	RepoURL     string `json:"repo_url"`  // e.g., "github.com/kartoza/go-timesheets-go"
-	RepoName    string `json:"repo_name"` // e.g., "go-timesheets-go"
+	RepoURL     string `json:"repo_url"`   // e.g., "github.com/kartoza/go-timesheets-go"
+	RepoName    string `json:"repo_name"`  // e.g., "go-timesheets-go"
 	RepoOwner   string `json:"repo_owner"` // e.g., "kartoza"
 }
 

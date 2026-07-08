@@ -10,9 +10,9 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/models"
@@ -23,36 +23,36 @@ import (
 
 var (
 	titleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#DDA036")).
-		Padding(1, 2)
+			Bold(true).
+			Foreground(lipgloss.Color("#DDA036")).
+			Padding(1, 2)
 
 	subtitleStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9A9EA0")).
-		Padding(0, 2)
+			Foreground(lipgloss.Color("#9A9EA0")).
+			Padding(0, 2)
 
 	errorStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FF6B6B")).
-		Bold(true).
-		Padding(0, 2)
+			Foreground(lipgloss.Color("#FF6B6B")).
+			Bold(true).
+			Padding(0, 2)
 
 	successStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#569FC6")).
-		Bold(true).
-		Padding(0, 2)
+			Foreground(lipgloss.Color("#569FC6")).
+			Bold(true).
+			Padding(0, 2)
 
 	boxStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#DDA036")).
-		Padding(1, 2).
-		Margin(1)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#DDA036")).
+			Padding(1, 2).
+			Margin(1)
 
 	activeStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#DDA036")).
-		Bold(true)
+			Foreground(lipgloss.Color("#DDA036")).
+			Bold(true)
 
 	inactiveStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9A9EA0"))
+			Foreground(lipgloss.Color("#9A9EA0"))
 )
 
 // ViewState represents different views in the application
@@ -71,10 +71,10 @@ const (
 // EnhancedModel represents the enhanced TUI model
 type EnhancedModel struct {
 	// Core components
-	service    *service.TimesheetService
-	apiClient  *api.Client
-	help       help.Model
-	keys       keyMap
+	service   *service.TimesheetService
+	apiClient *api.Client
+	help      help.Model
+	keys      keyMap
 
 	// State
 	currentView ViewState
@@ -94,14 +94,14 @@ type EnhancedModel struct {
 	selectedTask     *api.TaskListItem
 
 	// Enhanced combo box widgets
-	projectCombo     RefreshableComboBox
-	activityCombo    RefreshableComboBox
-	taskCombo        ComboBox
-	timeEntryCombo   ComboBox
+	projectCombo   RefreshableComboBox
+	activityCombo  RefreshableComboBox
+	taskCombo      ComboBox
+	timeEntryCombo ComboBox
 
 	// Forms
 	form *huh.Form
-	
+
 	// Text inputs for description
 	descriptionInput textinput.Model
 
@@ -112,7 +112,7 @@ type EnhancedModel struct {
 	apiEnabled bool
 	width      int
 	height     int
-	
+
 	// Focus state for form fields
 	focusedField int
 	maxFields    int
@@ -255,7 +255,7 @@ func (m *EnhancedModel) createList(title string) list.Model {
 // Init initializes the model
 func (m *EnhancedModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	
+
 	// Load data from API if available
 	if m.apiEnabled {
 		cmds = append(cmds, m.projectCombo.RefreshData())
@@ -301,23 +301,23 @@ func (m *EnhancedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.apiEnabled {
 			m.projectCombo, cmd = m.projectCombo.Update(msg)
 			cmds = append(cmds, cmd)
-			
+
 			m.activityCombo, cmd = m.activityCombo.Update(msg)
 			cmds = append(cmds, cmd)
-			
+
 			// If it's task data, update the task combo
 			m.taskCombo, cmd = m.taskCombo.Update(msg)
 			cmds = append(cmds, cmd)
 		}
-		
+
 	case ComboBoxErrorMsg:
 		m.error = fmt.Sprintf("API Error: %v", msg.Err)
-		
+
 	case TimesheetSaveSuccessMsg:
 		m.success = "Timesheet entry saved successfully!"
 		m.currentEntry = msg.Entry
 		m.currentView = MenuView
-		
+
 	case TimesheetSaveErrorMsg:
 		m.error = fmt.Sprintf("Failed to save timesheet: %v", msg.Err)
 	}
@@ -331,7 +331,7 @@ func (m *EnhancedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.apiEnabled {
 				m.projectCombo, cmd = m.projectCombo.Update(msg)
 				cmds = append(cmds, cmd)
-				
+
 				// If project selected, load tasks
 				if selected := m.projectCombo.GetSelected(); selected != nil {
 					if project, ok := selected.Value.(api.ProjectListItem); ok {
@@ -370,7 +370,7 @@ func (m *EnhancedModel) View() string {
 	}
 
 	var content string
-	
+
 	switch m.currentView {
 	case MenuView:
 		content = m.menuView()
@@ -398,7 +398,7 @@ func (m *EnhancedModel) View() string {
 
 	// Add help
 	helpView := m.help.View(m.keys)
-	
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		content,
@@ -430,7 +430,7 @@ func (m *EnhancedModel) menuView() string {
 
 	options := []string{
 		"1. Start Time Tracking",
-		"2. View Timesheet History", 
+		"2. View Timesheet History",
 		"3. Settings",
 		"q. Quit",
 	}
@@ -461,7 +461,7 @@ func (m *EnhancedModel) menuView() string {
 // Project selection view
 func (m *EnhancedModel) projectSelectView() string {
 	title := titleStyle.Render("Select Project")
-	
+
 	if len(m.projects) == 0 {
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
@@ -480,7 +480,7 @@ func (m *EnhancedModel) projectSelectView() string {
 // Activity selection view
 func (m *EnhancedModel) activitySelectView() string {
 	title := titleStyle.Render("Select Activity")
-	
+
 	if len(m.activities) == 0 {
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
@@ -500,7 +500,7 @@ func (m *EnhancedModel) activitySelectView() string {
 func (m *EnhancedModel) taskSelectView() string {
 	title := titleStyle.Render("Select Task (Optional)")
 	subtitle := subtitleStyle.Render("Use the enhanced timesheet entry view instead")
-	
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
@@ -508,11 +508,10 @@ func (m *EnhancedModel) taskSelectView() string {
 	)
 }
 
-
 // Timesheet list view
 func (m *EnhancedModel) timesheetListView() string {
 	title := titleStyle.Render("Timesheet History")
-	
+
 	if len(m.timelogs) == 0 {
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
@@ -559,7 +558,7 @@ func (m *EnhancedModel) timesheetListView() string {
 // Settings view
 func (m *EnhancedModel) settingsView() string {
 	title := titleStyle.Render("Settings")
-	
+
 	var settings strings.Builder
 	settings.WriteString(fmt.Sprintf("API Mode: %v\n", m.apiEnabled))
 	if m.apiEnabled && m.apiClient != nil {
@@ -585,7 +584,7 @@ func (m *EnhancedModel) handleBack() tea.Cmd {
 	// Clear any error/success messages
 	m.error = ""
 	m.success = ""
-	
+
 	switch m.currentView {
 	case ProjectSelectView, TimesheetListView, SettingsView:
 		m.currentView = MenuView
@@ -596,7 +595,7 @@ func (m *EnhancedModel) handleBack() tea.Cmd {
 	case TimesheetEntryView:
 		m.currentView = MenuView
 	}
-	
+
 	return nil
 }
 
@@ -609,17 +608,17 @@ func (m *EnhancedModel) handleEnter() tea.Cmd {
 	case MenuView:
 		// Menu navigation will be handled by specific key presses (1, 2, 3)
 		return nil
-		
+
 	case ProjectSelectView, ActivitySelectView, TaskSelectView:
 		// These old views are no longer used, redirect to the enhanced entry view
 		m.currentView = TimesheetEntryView
 		m.focusedField = 0
 		m.updateFieldFocus()
-		
+
 	case TimesheetEntryView:
 		return m.startTimeTracking()
 	}
-	
+
 	return nil
 }
 
@@ -643,7 +642,7 @@ func (m *EnhancedModel) startTimeTracking() tea.Cmd {
 		taskID,
 		description,
 	)
-	
+
 	if err != nil {
 		m.error = fmt.Sprintf("Failed to start time tracking: %v", err)
 		return nil
@@ -652,13 +651,13 @@ func (m *EnhancedModel) startTimeTracking() tea.Cmd {
 	m.currentEntry = entry
 	m.success = "Time tracking started!"
 	m.currentView = MenuView
-	
+
 	// Reset selections
 	m.selectedProject = nil
 	m.selectedActivity = nil
 	m.selectedTask = nil
 	m.descriptionInput.SetValue("")
-	
+
 	return nil
 }
 
@@ -669,9 +668,9 @@ func (m *EnhancedModel) loadProjectsCmd() tea.Cmd {
 	if !m.apiEnabled {
 		return nil
 	}
-	
+
 	m.loading = true
-	
+
 	return func() tea.Msg {
 		projects, err := m.apiClient.GetProjects("")
 		return enhancedProjectsLoadedMsg{projects: projects, err: err}
@@ -682,9 +681,9 @@ func (m *EnhancedModel) loadActivitiesCmd() tea.Cmd {
 	if !m.apiEnabled {
 		return nil
 	}
-	
+
 	m.loading = true
-	
+
 	return func() tea.Msg {
 		activities, err := m.apiClient.GetActivities()
 		return enhancedActivitiesLoadedMsg{activities: activities, err: err}
@@ -695,9 +694,9 @@ func (m *EnhancedModel) loadTasksCmd(projectID string) tea.Cmd {
 	if !m.apiEnabled {
 		return nil
 	}
-	
+
 	m.loading = true
-	
+
 	return func() tea.Msg {
 		tasks, err := m.apiClient.GetTasks(projectID)
 		return enhancedTasksLoadedMsg{tasks: tasks, err: err}
@@ -708,9 +707,9 @@ func (m *EnhancedModel) loadTimelogsCmd() tea.Cmd {
 	if !m.apiEnabled {
 		return nil
 	}
-	
+
 	m.loading = true
-	
+
 	return func() tea.Msg {
 		timelogs, err := m.apiClient.GetTimelogs()
 		return enhancedTimelogsLoadedMsg{timelogs: timelogs, err: err}
@@ -796,7 +795,7 @@ func (m *EnhancedModel) updateFieldFocus() {
 	m.activityCombo.Blur()
 	m.taskCombo.Blur()
 	m.descriptionInput.Blur()
-	
+
 	// Set focus on current field
 	switch m.focusedField {
 	case 0:
@@ -816,12 +815,12 @@ func (m *EnhancedModel) loadTasksForProject(projectID string) tea.Cmd {
 		if m.apiClient == nil {
 			return ComboBoxErrorMsg{Err: fmt.Errorf("API client not available")}
 		}
-		
+
 		tasks, err := m.apiClient.GetTasks(projectID)
 		if err != nil {
 			return ComboBoxErrorMsg{Err: err}
 		}
-		
+
 		// Convert to combo box items
 		items := make([]ComboBoxItem, len(tasks))
 		for i, task := range tasks {
@@ -832,7 +831,7 @@ func (m *EnhancedModel) loadTasksForProject(projectID string) tea.Cmd {
 				Value:       task,
 			}
 		}
-		
+
 		return ComboBoxDataMsg{Items: items}
 	})
 }
@@ -844,7 +843,7 @@ func (m *EnhancedModel) saveTimesheetEntry() tea.Cmd {
 		projectSelected := m.projectCombo.GetSelected()
 		activitySelected := m.activityCombo.GetSelected()
 		description := m.descriptionInput.Value()
-		
+
 		if projectSelected == nil {
 			return TimesheetSaveErrorMsg{Err: fmt.Errorf("please select a project")}
 		}
@@ -854,7 +853,7 @@ func (m *EnhancedModel) saveTimesheetEntry() tea.Cmd {
 		if description == "" {
 			return TimesheetSaveErrorMsg{Err: fmt.Errorf("please enter a description")}
 		}
-		
+
 		// Create time entry
 		entry := models.NewTimeEntry(
 			"default-user", // TODO: Get from config
@@ -863,13 +862,13 @@ func (m *EnhancedModel) saveTimesheetEntry() tea.Cmd {
 			nil, // Task is optional
 			description,
 		)
-		
+
 		// Set task if selected
 		if taskSelected := m.taskCombo.GetSelected(); taskSelected != nil {
 			taskID := taskSelected.ID
 			entry.TaskID = &taskID
 		}
-		
+
 		// Save via API if available
 		if m.apiClient != nil {
 			err := m.apiClient.CreateTimesheet(*entry)
@@ -877,7 +876,7 @@ func (m *EnhancedModel) saveTimesheetEntry() tea.Cmd {
 				return TimesheetSaveErrorMsg{Err: err}
 			}
 		}
-		
+
 		// Also save locally via service
 		savedEntry, err := m.service.StartTimeEntry(
 			entry.ProjectID,
@@ -888,10 +887,10 @@ func (m *EnhancedModel) saveTimesheetEntry() tea.Cmd {
 		if err != nil {
 			return TimesheetSaveErrorMsg{Err: err}
 		}
-		
+
 		// Update the entry with the saved data
 		entry = savedEntry
-		
+
 		return TimesheetSaveSuccessMsg{Entry: entry}
 	})
 }
@@ -909,9 +908,9 @@ type TimesheetSaveErrorMsg struct {
 // timesheetEntryView renders the enhanced timesheet entry form
 func (m *EnhancedModel) timesheetEntryView() string {
 	title := titleStyle.Render("📝 New Time Entry")
-	
+
 	var content strings.Builder
-	
+
 	// Project selection
 	projectLabel := "Project:"
 	if m.focusedField == 0 {
@@ -919,7 +918,7 @@ func (m *EnhancedModel) timesheetEntryView() string {
 	}
 	content.WriteString(projectLabel + "\n")
 	content.WriteString(m.projectCombo.View() + "\n\n")
-	
+
 	// Activity selection
 	activityLabel := "Activity:"
 	if m.focusedField == 1 {
@@ -927,7 +926,7 @@ func (m *EnhancedModel) timesheetEntryView() string {
 	}
 	content.WriteString(activityLabel + "\n")
 	content.WriteString(m.activityCombo.View() + "\n\n")
-	
+
 	// Task selection (optional)
 	taskLabel := "Task (optional):"
 	if m.focusedField == 2 {
@@ -935,33 +934,33 @@ func (m *EnhancedModel) timesheetEntryView() string {
 	}
 	content.WriteString(taskLabel + "\n")
 	content.WriteString(m.taskCombo.View() + "\n\n")
-	
+
 	// Description
 	descLabel := "Description:"
 	if m.focusedField == 3 {
 		descLabel = activeStyle.Render("► Description:")
 	}
 	content.WriteString(descLabel + "\n")
-	
+
 	descStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#DDA036")).
 		Padding(0, 1).
 		Width(m.width - 20)
-	
+
 	if m.focusedField == 3 {
 		descStyle = descStyle.BorderForeground(lipgloss.Color("#FF8C42"))
 	}
-	
+
 	content.WriteString(descStyle.Render(m.descriptionInput.View()) + "\n\n")
-	
+
 	// Instructions
 	instructions := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9A9EA0")).
 		Render("Tab: Next field | Shift+Tab: Previous field | Ctrl+S: Save | Esc: Back")
-	
+
 	content.WriteString(instructions)
-	
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
@@ -975,7 +974,7 @@ func formatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
 	seconds := int(d.Seconds()) % 60
-	
+
 	if hours > 0 {
 		return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 	}

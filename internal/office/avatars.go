@@ -23,11 +23,11 @@ import (
 
 // AvatarManager handles downloading, caching, and rendering team member avatars
 type AvatarManager struct {
-	cacheDir      string
-	avatars       map[string]image.Image
-	mu            sync.RWMutex
-	kittySupport  bool
-	avatarSize    uint // Size in pixels for avatar images
+	cacheDir     string
+	avatars      map[string]image.Image
+	mu           sync.RWMutex
+	kittySupport bool
+	avatarSize   uint // Size in pixels for avatar images
 }
 
 // NewAvatarManager creates a new avatar manager
@@ -158,7 +158,7 @@ func (am *AvatarManager) saveToCache(path string, img image.Image) {
 	}
 	defer f.Close()
 
-	png.Encode(f, img)
+	_ = png.Encode(f, img)
 }
 
 // downloadAvatar downloads an image from a URL

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/cobra"
 	"github.com/kartoza/go-timesheets-go/internal/api"
 	"github.com/kartoza/go-timesheets-go/internal/config"
 	"github.com/kartoza/go-timesheets-go/internal/gui"
@@ -13,6 +12,7 @@ import (
 	"github.com/kartoza/go-timesheets-go/internal/service"
 	"github.com/kartoza/go-timesheets-go/internal/storage"
 	"github.com/kartoza/go-timesheets-go/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -99,7 +99,7 @@ func init() {
 	// Global flags
 	homeDir, _ := os.UserHomeDir()
 	defaultDataDir := filepath.Join(homeDir, ".config/.kartoza-timesheets")
-	
+
 	rootCmd.PersistentFlags().StringVar(&dataDir, "data-dir", defaultDataDir, "Data directory for storing timesheet data")
 	rootCmd.PersistentFlags().StringVar(&userID, "user", "default-user", "User ID for timesheet entries")
 	rootCmd.PersistentFlags().BoolVarP(&debugMode, "debug", "d", false, "Enable debug mode (shows developer menu options)")

@@ -285,12 +285,12 @@ type CalendarSettingsModel struct {
 	headerState     *HeaderState
 
 	// Input fields
-	focusedField    int // 0=clientID, 1=clientSecret, 2=connect, 3=disconnect, 4=back
-	clientIDInput   string
-	clientIDCursor  int
-	secretInput     string
-	secretCursor    int
-	showSecret      bool
+	focusedField   int // 0=clientID, 1=clientSecret, 2=connect, 3=disconnect, 4=back
+	clientIDInput  string
+	clientIDCursor int
+	secretInput    string
+	secretCursor   int
+	showSecret     bool
 
 	// State
 	isConnecting bool

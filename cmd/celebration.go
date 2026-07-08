@@ -6,11 +6,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/spf13/cobra"
 	"tim-particles/pkg/audio"
 	"tim-particles/pkg/fireworks"
 	"tim-particles/pkg/particles"
+
+	"github.com/gdamore/tcell/v2"
+	"github.com/spf13/cobra"
 )
 
 var celebrationDuration int
@@ -89,7 +90,7 @@ func newCelebrationShow(duration time.Duration) (*CelebrationShow, error) {
 	screen.Clear()
 
 	audioAnalyzer := audio.NewAnalyzer()
-	audioAnalyzer.Start()
+	_ = audioAnalyzer.Start()
 
 	// Create fireworks show - use indices as "colors" since we look them up when rendering
 	show := fireworks.NewShow(width, height)

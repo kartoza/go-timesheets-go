@@ -20,11 +20,11 @@ type Config struct {
 
 // UIConfig holds UI-related configuration
 type UIConfig struct {
-	Theme        string `json:"theme"`
-	ShowHelp     bool   `json:"show_help"`
-	RefreshRate  int    `json:"refresh_rate_seconds"`
-	DefaultView  string `json:"default_view"`
-	PowEnabled   bool   `json:"pow_enabled"`
+	Theme       string `json:"theme"`
+	ShowHelp    bool   `json:"show_help"`
+	RefreshRate int    `json:"refresh_rate_seconds"`
+	DefaultView string `json:"default_view"`
+	PowEnabled  bool   `json:"pow_enabled"`
 }
 
 // DefaultConfig returns the default configuration
@@ -52,7 +52,7 @@ func DefaultConfig() Config {
 // LoadConfig loads configuration from file or creates default
 func LoadConfig() (*Config, error) {
 	configPath := getConfigPath()
-	
+
 	// Create config directory if it doesn't exist
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -102,7 +102,7 @@ func LoadConfig() (*Config, error) {
 // SaveConfig saves configuration to file
 func SaveConfig(config *Config) error {
 	configPath := getConfigPath()
-	
+
 	// Create config directory if it doesn't exist
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0755); err != nil {

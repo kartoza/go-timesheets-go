@@ -66,7 +66,7 @@ func New(dataDir string) (*Storage, error) {
 // SaveTimeEntry saves a time entry to persistent storage
 func (s *Storage) SaveTimeEntry(entry *models.TimeEntry) error {
 	filePath := filepath.Join(s.dataDir, "time_entries.json")
-	
+
 	var entries []models.TimeEntry
 	if data, err := os.ReadFile(filePath); err == nil {
 		if err := json.Unmarshal(data, &entries); err != nil {
@@ -98,7 +98,7 @@ func (s *Storage) SaveTimeEntry(entry *models.TimeEntry) error {
 // LoadTimeEntries loads all time entries from storage
 func (s *Storage) LoadTimeEntries() ([]models.TimeEntry, error) {
 	filePath := filepath.Join(s.dataDir, "time_entries.json")
-	
+
 	var entries []models.TimeEntry
 	data, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
@@ -136,7 +136,7 @@ func (s *Storage) GetTimeEntriesByDateRange(start, end time.Time) ([]models.Time
 // SaveProject saves a project to persistent storage
 func (s *Storage) SaveProject(project *models.Project) error {
 	filePath := filepath.Join(s.dataDir, "projects.json")
-	
+
 	var projects []models.Project
 	if data, err := os.ReadFile(filePath); err == nil {
 		if err := json.Unmarshal(data, &projects); err != nil {
@@ -168,7 +168,7 @@ func (s *Storage) SaveProject(project *models.Project) error {
 // LoadProjects loads all projects from storage
 func (s *Storage) LoadProjects() ([]models.Project, error) {
 	filePath := filepath.Join(s.dataDir, "projects.json")
-	
+
 	var projects []models.Project
 	data, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
@@ -188,7 +188,7 @@ func (s *Storage) LoadProjects() ([]models.Project, error) {
 // SaveTask saves a task to persistent storage
 func (s *Storage) SaveTask(task *models.Task) error {
 	filePath := filepath.Join(s.dataDir, "tasks.json")
-	
+
 	var tasks []models.Task
 	if data, err := os.ReadFile(filePath); err == nil {
 		if err := json.Unmarshal(data, &tasks); err != nil {
@@ -220,7 +220,7 @@ func (s *Storage) SaveTask(task *models.Task) error {
 // LoadTasks loads all tasks from storage
 func (s *Storage) LoadTasks() ([]models.Task, error) {
 	filePath := filepath.Join(s.dataDir, "tasks.json")
-	
+
 	var tasks []models.Task
 	data, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
@@ -257,7 +257,7 @@ func (s *Storage) GetTasksByProjectID(projectID string) ([]models.Task, error) {
 // SaveActivities saves activities to persistent storage
 func (s *Storage) SaveActivities(activities []models.Activity) error {
 	filePath := filepath.Join(s.dataDir, "activities.json")
-	
+
 	data, err := json.MarshalIndent(activities, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal activities: %w", err)
@@ -269,7 +269,7 @@ func (s *Storage) SaveActivities(activities []models.Activity) error {
 // LoadActivities loads all activities from storage
 func (s *Storage) LoadActivities() ([]models.Activity, error) {
 	filePath := filepath.Join(s.dataDir, "activities.json")
-	
+
 	var activities []models.Activity
 	data, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
@@ -299,7 +299,7 @@ func (s *Storage) LoadActivities() ([]models.Activity, error) {
 // SaveActiveTimeEntry saves the currently active time entry
 func (s *Storage) SaveActiveTimeEntry(entry *models.ActiveTimeEntry) error {
 	filePath := filepath.Join(s.dataDir, "active_entry.json")
-	
+
 	if entry == nil {
 		// Remove active entry file
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
@@ -319,7 +319,7 @@ func (s *Storage) SaveActiveTimeEntry(entry *models.ActiveTimeEntry) error {
 // LoadActiveTimeEntry loads the currently active time entry
 func (s *Storage) LoadActiveTimeEntry() (*models.ActiveTimeEntry, error) {
 	filePath := filepath.Join(s.dataDir, "active_entry.json")
-	
+
 	data, err := os.ReadFile(filePath)
 	if os.IsNotExist(err) {
 		return nil, nil

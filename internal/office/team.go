@@ -17,10 +17,10 @@ type TeamMember struct {
 	Bio       string
 	Color     int // Assigned color for the character
 	// Position in the office
-	X, Y     float64
-	TargetX  float64
-	TargetY  float64
-	VX, VY   float64
+	X, Y    float64
+	TargetX float64
+	TargetY float64
+	VX, VY  float64
 	// Current activity
 	Activity string
 	// Animation state

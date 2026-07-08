@@ -4,13 +4,13 @@ import "time"
 
 // CalendarEvent represents a calendar event from Google Calendar
 type CalendarEvent struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Start     time.Time `json:"start"`
-	End       time.Time `json:"end"`
-	AllDay    bool      `json:"all_day"`
-	Location  string    `json:"location,omitempty"`
-	ColorHex  string    `json:"color_hex,omitempty"`
+	ID       string    `json:"id"`
+	Title    string    `json:"title"`
+	Start    time.Time `json:"start"`
+	End      time.Time `json:"end"`
+	AllDay   bool      `json:"all_day"`
+	Location string    `json:"location,omitempty"`
+	ColorHex string    `json:"color_hex,omitempty"`
 }
 
 // Duration returns the event duration

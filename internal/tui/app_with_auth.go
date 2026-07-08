@@ -796,11 +796,11 @@ func (a *AppWithAuth) Run() error {
 	if a.monitoringServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		a.monitoringServer.Stop(ctx)
+		_ = a.monitoringServer.Stop(ctx)
 	}
 
 	if a.metrics != nil {
-		a.metrics.Close()
+		_ = a.metrics.Close()
 	}
 
 	// Show exit splash screen (reverse animation - small to big)

@@ -55,7 +55,7 @@ func LaunchMonitor() error {
 			{"kitty", []string{"bash", "-c", expvarmonCmd + "; read -p 'Press Enter to close...'"}},
 			{"gnome-terminal", []string{"--", "bash", "-c", expvarmonCmd + "; read -p 'Press Enter to close...'"}},
 			{"konsole", []string{"-e", "bash", "-c", expvarmonCmd + "; read -p 'Press Enter to close...'"}},
-			{"xfce4-terminal", []string{"-e", "bash -c \"" + expvarmonCmd + "; read -p 'Press Enter to close...'\""} },
+			{"xfce4-terminal", []string{"-e", "bash -c \"" + expvarmonCmd + "; read -p 'Press Enter to close...'\""}},
 			{"alacritty", []string{"-e", "bash", "-c", expvarmonCmd + "; read -p 'Press Enter to close...'"}},
 			{"xterm", []string{"-e", "bash", "-c", expvarmonCmd + "; read -p 'Press Enter to close...'"}},
 		}

@@ -5,11 +5,12 @@ import (
 	"math/rand"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/gdamore/tcell/v2"
 	"tim-particles/pkg/audio"
 	"tim-particles/pkg/fireworks"
 	"tim-particles/pkg/particles"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/gdamore/tcell/v2"
 )
 
 // fireworksCmd is a custom exec.Cmd that runs fireworks
@@ -79,7 +80,7 @@ func runFireworksDisplay(duration time.Duration) error {
 
 	// Create audio analyzer for reactive fireworks
 	audioAnalyzer := audio.NewAnalyzer()
-	audioAnalyzer.Start()
+	_ = audioAnalyzer.Start()
 	defer audioAnalyzer.Stop()
 
 	// Create fireworks show - use indices as "colors" since we look them up when rendering

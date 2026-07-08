@@ -13,12 +13,12 @@ import (
 // Metrics holds all application metrics
 type Metrics struct {
 	// API request metrics
-	apiRequests        *expvar.Int
-	apiRequestsTotal   *expvar.Int
-	apiErrors          *expvar.Int
-	apiDuration        *expvar.Float
-	apiRequestsByPath  *expvar.Map
-	apiDurationByPath  *expvar.Map // Average duration per endpoint
+	apiRequests          *expvar.Int
+	apiRequestsTotal     *expvar.Int
+	apiErrors            *expvar.Int
+	apiDuration          *expvar.Float
+	apiRequestsByPath    *expvar.Map
+	apiDurationByPath    *expvar.Map      // Average duration per endpoint
 	apiDurationSumByPath map[string]int64 // Sum of durations for averaging
 	apiCountByPath       map[string]int64 // Count for averaging
 

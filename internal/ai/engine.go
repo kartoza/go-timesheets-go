@@ -37,7 +37,7 @@ type TimesheetAssistant struct {
 
 	// CSV import data for LLM prompt enrichment and analytical queries
 	historySummary *HistorySummary
-	csvEntries    []EntryInfo
+	csvEntries     []EntryInfo
 
 	mu sync.RWMutex
 }

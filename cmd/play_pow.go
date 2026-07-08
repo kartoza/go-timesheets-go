@@ -165,13 +165,13 @@ func playVideo(videoPath string) error {
 		name string
 		args []string
 	}{
-		{"xdg-open", []string{videoPath}},           // Linux default
-		{"mpv", []string{videoPath}},                // MPV player
-		{"vlc", []string{videoPath}},                // VLC
-		{"totem", []string{videoPath}},              // GNOME Videos
-		{"celluloid", []string{videoPath}},          // Celluloid (MPV frontend)
-		{"open", []string{videoPath}},               // macOS default
-		{"start", []string{"", videoPath}},          // Windows default
+		{"xdg-open", []string{videoPath}},  // Linux default
+		{"mpv", []string{videoPath}},       // MPV player
+		{"vlc", []string{videoPath}},       // VLC
+		{"totem", []string{videoPath}},     // GNOME Videos
+		{"celluloid", []string{videoPath}}, // Celluloid (MPV frontend)
+		{"open", []string{videoPath}},      // macOS default
+		{"start", []string{"", videoPath}}, // Windows default
 	}
 
 	for _, player := range players {

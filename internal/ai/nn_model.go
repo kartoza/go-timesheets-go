@@ -9,17 +9,17 @@ import (
 // names than the Seq2Seq model used in kartoza-pg-ai (which was designed for SQL generation).
 // It follows the same pattern: tokenizer + model + trainer.
 type SimilarityModel struct {
-	tokenizer *Tokenizer
-	documents []documentVector // Known project/task/activity combinations
-	idfWeights map[int]float64 // Inverse document frequency weights
+	tokenizer  *Tokenizer
+	documents  []documentVector // Known project/task/activity combinations
+	idfWeights map[int]float64  // Inverse document frequency weights
 	trained    bool
 }
 
 // documentVector holds a TF-IDF vector for a known combination
 type documentVector struct {
-	Match  TimesheetMatch   // The project/task/activity this represents
-	Text   string           // Original text (project + task + activity names)
-	Vector map[int]float64  // TF-IDF vector
+	Match  TimesheetMatch  // The project/task/activity this represents
+	Text   string          // Original text (project + task + activity names)
+	Vector map[int]float64 // TF-IDF vector
 }
 
 // NewSimilarityModel creates a new similarity model

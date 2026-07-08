@@ -128,20 +128,20 @@ func ImportCSVHistory(path string) ([]EntryInfo, error) {
 // HistorySummary holds a condensed summary of historical timesheet data
 // for inclusion in LLM prompts without exceeding context limits.
 type HistorySummary struct {
-	TotalEntries     int
-	DateRange        string
-	TotalHours       float64
-	AvgDailyHours    float64
-	Customers        []CustomerSummary
-	TopDescriptions  []string // Most common description keywords/phrases
-	WorkPatterns     string   // Narrative summary of patterns
+	TotalEntries    int
+	DateRange       string
+	TotalHours      float64
+	AvgDailyHours   float64
+	Customers       []CustomerSummary
+	TopDescriptions []string // Most common description keywords/phrases
+	WorkPatterns    string   // Narrative summary of patterns
 }
 
 // CustomerSummary holds aggregated data per customer
 type CustomerSummary struct {
-	Name      string
-	Hours     float64
-	DateRange string
+	Name       string
+	Hours      float64
+	DateRange  string
 	EntryCount int
 }
 

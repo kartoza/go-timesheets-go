@@ -172,16 +172,16 @@ func isActiveEntry(entry *api.TimelogEntry) bool {
 
 // Nerd Font icons for waybar display
 const (
-	nfTimer     = "󰔛" // nf-md-timer - for recording state
-	nfPause     = "󰏤" // nf-md-pause - for idle state
-	nfError     = "󰅜" // nf-md-close-circle - for error state
-	nfFolder    = "󰉋" // nf-md-folder - for project
-	nfTask      = "󰄬" // nf-md-checkbox-marked - for task
-	nfActivity  = "󰒓" // nf-md-cog - for activity
-	nfRepo      = "󰊢" // nf-md-git - for repository
-	nfClock     = "󰥔" // nf-md-clock - for start time
-	nfChart     = "󰄧" // nf-md-chart-bar - for task total
-	nfCalendar  = "󰃭" // nf-md-calendar - for today's total
+	nfTimer    = "󰔛" // nf-md-timer - for recording state
+	nfPause    = "󰏤" // nf-md-pause - for idle state
+	nfError    = "󰅜" // nf-md-close-circle - for error state
+	nfFolder   = "󰉋" // nf-md-folder - for project
+	nfTask     = "󰄬" // nf-md-checkbox-marked - for task
+	nfActivity = "󰒓" // nf-md-cog - for activity
+	nfRepo     = "󰊢" // nf-md-git - for repository
+	nfClock    = "󰥔" // nf-md-clock - for start time
+	nfChart    = "󰄧" // nf-md-chart-bar - for task total
+	nfCalendar = "󰃭" // nf-md-calendar - for today's total
 )
 
 func createWaybarStatusFromInfo(info StatusInfo) WaybarStatus {

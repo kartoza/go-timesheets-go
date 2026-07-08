@@ -26,13 +26,13 @@ var fireworkColors = []color.NRGBA{
 
 // Particle represents a single firework particle
 type Particle struct {
-	X, Y     float64
-	VX, VY   float64
-	Life     float64
-	MaxLife  float64
-	Color    color.NRGBA
-	Size     float64
-	circle   *canvas.Circle
+	X, Y    float64
+	VX, VY  float64
+	Life    float64
+	MaxLife float64
+	Color   color.NRGBA
+	Size    float64
+	circle  *canvas.Circle
 }
 
 // FireworksDisplay shows an animated fireworks celebration
